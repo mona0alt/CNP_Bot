@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { MessageSquare, User, Bot, Send } from "lucide-react";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 
 interface Chat {
   jid: string;
@@ -239,7 +240,13 @@ export function Chat() {
                                     {msg.sender_name}
                                   </div>
                                 ) : null}
-                                <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                                <MarkdownRenderer
+                                  content={msg.content}
+                                  className={cn(
+                                    "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                                    outgoing ? "prose-invert" : ""
+                                  )}
+                                />
                                 <div className="text-[10px] opacity-60 mt-1 text-right">
                                   {new Date(msg.timestamp).toLocaleTimeString()}
                                 </div>
