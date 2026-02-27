@@ -150,8 +150,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   if (missedMessages.length === 0) return true;
 
-  // For non-main groups, check if trigger is required and present
-  if (!isMainGroup && group.requiresTrigger !== false) {
+  // Only require trigger if the group is configured for it.
+  // We explicitly exempt web:default to ensure web chat always works without trigger.
+  const needsTrigger = chatJid !== 'web:default' && group.requiresTrigger !== false;
+
+  if (needsTrigger) {
     const hasTrigger = missedMessages.some((m) =>
       TRIGGER_PATTERN.test(m.content.trim()),
     );
@@ -391,28 +394,47 @@ async function startMessageLoop(): Promise<void> {
             continue;
           }
 
-          const isMainGroup = group.folder === MAIN_GROUP_FOLDER;
-          const needsTrigger = !isMainGroup && group.requiresTrigger !== false;
+          // Only require trigger if the group is configured for it.
+          // We explicitly exempt web:default to ensure web chat always works without trigger,
+          // regardless of DB state (though it should be registered with requiresTrigger: false).
+          const needsTrigger = chatJid !== 'web:default' && group.requiresTrigger !== false;
 
           // For non-main groups, only act on trigger messages.
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
           if (needsTrigger) {
-            const hasTrigger = groupMessages.some((m) =>
-              TRIGGER_PATTERN.test(m.content.trim()),
-            );
-            if (!hasTrigger) continue;
+            // Check if there is an active container for this group
+            // If active, we pipe all messages (even without trigger)
+            const isActive = queue.isGroupActive(chatJid);
+            
+            if (!isActive) {
+              const hasTrigger = groupMessages.some((m) =>
+                TRIGGER_PATTERN.test(m.content.trim()),
+              );
+              if (!hasTrigger) continue;
+            }
           }
 
           // Pull all messages since lastAgentTimestamp so non-trigger
           // context that accumulated between triggers is included.
+          const sinceTs = lastAgentTimestamp[chatJid] || '';
           const allPending = getMessagesSince(
             chatJid,
-            lastAgentTimestamp[chatJid] || '',
+            sinceTs,
             ASSISTANT_NAME,
           );
+          
+          // If allPending is empty, it means we've already processed everything up to lastAgentTimestamp.
+          // However, groupMessages contains the new messages that triggered this loop iteration.
+          // We must ensure we don't re-process messages that are already covered by lastAgentTimestamp.
+          // This happens if processGroupMessages updated lastAgentTimestamp concurrently.
           const messagesToSend =
-            allPending.length > 0 ? allPending : groupMessages;
+            allPending.length > 0 
+              ? allPending 
+              : groupMessages.filter(m => m.timestamp > sinceTs);
+
+          if (messagesToSend.length === 0) continue;
+
           const formatted = formatMessages(messagesToSend);
 
           if (queue.sendMessage(chatJid, formatted)) {
@@ -513,9 +535,14 @@ async function main(): Promise<void> {
       // Auto-register new web chats so they can be processed by the agent
       if (jid.startsWith('web:') && !registeredGroups[jid]) {
         logger.info({ jid }, 'Auto-registering new web chat session');
+
+        // Use a unique folder for new web chats to ensure session isolation
+        // Only web:default shares the main folder
+        const folder = jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
+
         registerGroup(jid, {
           name: 'New Chat',
-          folder: MAIN_GROUP_FOLDER,
+          folder,
           trigger: `@${ASSISTANT_NAME}`,
           added_at: new Date().toISOString(),
           requiresTrigger: false,

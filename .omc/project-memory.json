@@ -290,6 +290,73 @@
       ]
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "src/index.ts",
+      "accessCount": 2,
+      "lastAccessed": 1772182040536,
+      "type": "file"
+    },
+    {
+      "path": "src/container-runner.ts",
+      "accessCount": 2,
+      "lastAccessed": 1772182055227,
+      "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 1,
+      "lastAccessed": 1772178415831,
+      "type": "directory"
+    },
+    {
+      "path": "src/db.ts",
+      "accessCount": 1,
+      "lastAccessed": 1772178420249,
+      "type": "file"
+    },
+    {
+      "path": "src/task-scheduler.ts",
+      "accessCount": 1,
+      "lastAccessed": 1772178428261,
+      "type": "file"
+    },
+    {
+      "path": "src/whatsapp-auth.ts",
+      "accessCount": 1,
+      "lastAccessed": 1772178430885,
+      "type": "file"
+    },
+    {
+      "path": "src/config.ts",
+      "accessCount": 1,
+      "lastAccessed": 1772178433135,
+      "type": "file"
+    },
+    {
+      "path": "container/agent-runner/src/index.ts",
+      "accessCount": 1,
+      "lastAccessed": 1772182043064,
+      "type": "file"
+    },
+    {
+      "path": "container/agent-runner/package.json",
+      "accessCount": 1,
+      "lastAccessed": 1772182046150,
+      "type": "file"
+    },
+    {
+      "path": "container/Dockerfile",
+      "accessCount": 1,
+      "lastAccessed": 1772182047269,
+      "type": "file"
+    },
+    {
+      "path": "container/skills/agent-browser/SKILL.md",
+      "accessCount": 1,
+      "lastAccessed": 1772182052156,
+      "type": "file"
+    }
+  ],
   "userDirectives": []
 }

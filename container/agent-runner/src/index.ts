@@ -394,11 +394,17 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
 
+  // Load local CLAUDE.md (specific to this group)
+  const localClaudeMdPath = path.join(WORKSPACE_ROOT, 'group', 'CLAUDE.md');
+  let systemPromptAppend = '';
+  if (fs.existsSync(localClaudeMdPath)) {
+    systemPromptAppend += fs.readFileSync(localClaudeMdPath, 'utf-8') + '\n\n';
+  }
+
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = path.join(WORKSPACE_ROOT, 'global', 'CLAUDE.md');
-  let globalClaudeMd: string | undefined;
   if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
-    globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
+    systemPromptAppend += fs.readFileSync(globalClaudeMdPath, 'utf-8');
   }
 
   // Discover additional directories mounted at /workspace/extra/*
@@ -426,8 +432,8 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
-      systemPrompt: globalClaudeMd
-        ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
+      systemPrompt: systemPromptAppend
+        ? { type: 'preset' as const, preset: 'claude_code' as const, append: systemPromptAppend }
         : undefined,
       allowedTools: [
         'Bash',

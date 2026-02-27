@@ -21,15 +21,27 @@ const tempWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'nanoclaw-workspace-
 const groupDir = path.join(__dirname, 'groups/main');
 const groupLink = path.join(tempWorkspace, 'group');
 
+console.log(`Group Dir: ${groupDir}`);
 if (!fs.existsSync(groupDir)) {
+    console.log('Creating group dir');
     fs.mkdirSync(groupDir, { recursive: true });
 }
+
+// Ensure CLAUDE.md exists in group dir for testing
+const claudeMdPath = path.join(groupDir, 'CLAUDE.md');
+if (!fs.existsSync(claudeMdPath)) {
+    console.log('Creating dummy CLAUDE.md');
+    fs.writeFileSync(claudeMdPath, '# Andy\nYou are Andy.\n');
+}
+
 // Symlink group dir
 try {
-    fs.symlinkSync(groupDir, groupLink);
+    if (fs.existsSync(groupLink)) fs.unlinkSync(groupLink);
+    fs.symlinkSync(groupDir, groupLink, 'dir');
+    console.log(`Symlinked ${groupDir} -> ${groupLink}`);
 } catch (e) {
-    console.log('Symlink failed, copying instead');
-    fs.mkdirSync(groupLink, { recursive: true });
+    console.log(`Symlink failed: ${e.message}, copying instead`);
+    fs.cpSync(groupDir, groupLink, { recursive: true });
 }
 
 // Also need ipc dir
@@ -39,9 +51,10 @@ if (!fs.existsSync(ipcDir)) {
     fs.mkdirSync(ipcDir, { recursive: true });
 }
 try {
-    fs.symlinkSync(ipcDir, ipcLink);
+    if (fs.existsSync(ipcLink)) fs.unlinkSync(ipcLink);
+    fs.symlinkSync(ipcDir, ipcLink, 'dir');
 } catch (e) {
-    fs.mkdirSync(ipcLink, { recursive: true });
+    fs.cpSync(ipcDir, ipcLink, { recursive: true });
 }
 
 
