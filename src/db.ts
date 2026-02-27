@@ -214,6 +214,16 @@ export function getAllChats(): ChatInfo[] {
 }
 
 /**
+ * Delete a chat and all its messages.
+ */
+export function deleteChat(jid: string): void {
+  db.transaction(() => {
+    db.prepare('DELETE FROM messages WHERE chat_jid = ?').run(jid);
+    db.prepare('DELETE FROM chats WHERE jid = ?').run(jid);
+  })();
+}
+
+/**
  * Get timestamp of last group metadata sync.
  */
 export function getLastGroupSync(): string | null {

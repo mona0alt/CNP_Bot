@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1772089098443,
+  "lastScanned": 1772175806067,
   "projectRoot": "/root/project/nanoclaw",
   "techStack": {
     "languages": [
@@ -44,7 +44,7 @@
     "scripts": {
       "build": "tsc",
       "start": "node dist/index.js",
-      "dev": "tsx src/index.ts",
+      "dev": "tsx watch src/index.ts",
       "auth": "tsx src/whatsapp-auth.ts",
       "typecheck": "tsc --noEmit",
       "format": "prettier --write \"src/**/*.ts\"",
@@ -80,7 +80,7 @@
       "path": "assets",
       "purpose": "Static assets",
       "fileCount": 7,
-      "lastAccessed": 1772089098426,
+      "lastAccessed": 1772175806043,
       "keyFiles": [
         "nanoclaw-favicon.png",
         "nanoclaw-icon.png",
@@ -93,7 +93,7 @@
       "path": "config-examples",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1772089098427,
+      "lastAccessed": 1772175806044,
       "keyFiles": [
         "mount-allowlist.json"
       ]
@@ -102,7 +102,7 @@
       "path": "container",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1772089098433,
+      "lastAccessed": 1772175806053,
       "keyFiles": [
         "Dockerfile",
         "build.sh"
@@ -112,14 +112,14 @@
       "path": "data",
       "purpose": "Data files",
       "fileCount": 0,
-      "lastAccessed": 1772089098434,
+      "lastAccessed": 1772175806055,
       "keyFiles": []
     },
     "dist": {
       "path": "dist",
       "purpose": "Distribution/build output",
       "fileCount": 100,
-      "lastAccessed": 1772089098435,
+      "lastAccessed": 1772175806058,
       "keyFiles": [
         "config.d.ts",
         "config.d.ts.map",
@@ -132,7 +132,7 @@
       "path": "docs",
       "purpose": "Documentation",
       "fileCount": 8,
-      "lastAccessed": 1772089098436,
+      "lastAccessed": 1772175806058,
       "keyFiles": [
         "APPLE-CONTAINER-NETWORKING.md",
         "DEBUG_CHECKLIST.md",
@@ -145,7 +145,7 @@
       "path": "frontend",
       "purpose": null,
       "fileCount": 12,
-      "lastAccessed": 1772089098437,
+      "lastAccessed": 1772175806058,
       "keyFiles": [
         "README.md",
         "eslint.config.js",
@@ -158,21 +158,21 @@
       "path": "frontend_backup",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1772089098438,
+      "lastAccessed": 1772175806059,
       "keyFiles": []
     },
     "groups": {
       "path": "groups",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1772089098438,
+      "lastAccessed": 1772175806059,
       "keyFiles": []
     },
     "launchd": {
       "path": "launchd",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1772089098438,
+      "lastAccessed": 1772175806059,
       "keyFiles": [
         "com.nanoclaw.plist"
       ]
@@ -181,7 +181,7 @@
       "path": "repo-tokens",
       "purpose": null,
       "fileCount": 3,
-      "lastAccessed": 1772089098438,
+      "lastAccessed": 1772175806060,
       "keyFiles": [
         "README.md",
         "action.yml",
@@ -192,7 +192,7 @@
       "path": "scripts",
       "purpose": "Build/utility scripts",
       "fileCount": 8,
-      "lastAccessed": 1772089098438,
+      "lastAccessed": 1772175806061,
       "keyFiles": [
         "apply-skill.ts",
         "generate-ci-matrix.ts",
@@ -205,7 +205,7 @@
       "path": "setup",
       "purpose": null,
       "fileCount": 15,
-      "lastAccessed": 1772089098439,
+      "lastAccessed": 1772175806061,
       "keyFiles": [
         "container.ts",
         "environment.test.ts",
@@ -218,7 +218,7 @@
       "path": "skills-engine",
       "purpose": null,
       "fileCount": 21,
-      "lastAccessed": 1772089098439,
+      "lastAccessed": 1772175806061,
       "keyFiles": [
         "apply.ts",
         "backup.ts",
@@ -230,8 +230,8 @@
     "src": {
       "path": "src",
       "purpose": "Source code",
-      "fileCount": 25,
-      "lastAccessed": 1772089098440,
+      "fileCount": 26,
+      "lastAccessed": 1772175806061,
       "keyFiles": [
         "config.ts",
         "container-runner.test.ts",
@@ -244,7 +244,7 @@
       "path": "store",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1772089098440,
+      "lastAccessed": 1772175806062,
       "keyFiles": [
         "auth-status.txt",
         "messages.db"
@@ -254,7 +254,7 @@
       "path": "frontend/dist",
       "purpose": "Distribution/build output",
       "fileCount": 2,
-      "lastAccessed": 1772089098441,
+      "lastAccessed": 1772175806064,
       "keyFiles": [
         "index.html",
         "vite.svg"
@@ -264,14 +264,14 @@
       "path": "frontend/node_modules",
       "purpose": "Dependencies",
       "fileCount": 1,
-      "lastAccessed": 1772089098442,
+      "lastAccessed": 1772175806066,
       "keyFiles": []
     },
     "repo-tokens/examples": {
       "path": "repo-tokens/examples",
       "purpose": "Example code",
       "fileCount": 4,
-      "lastAccessed": 1772089098442,
+      "lastAccessed": 1772175806066,
       "keyFiles": [
         "green.svg",
         "red.svg",
@@ -282,7 +282,7 @@
       "path": "skills-engine/__tests__",
       "purpose": "Test files",
       "fileCount": 20,
-      "lastAccessed": 1772089098443,
+      "lastAccessed": 1772175806067,
       "keyFiles": [
         "apply.test.ts",
         "backup.test.ts",

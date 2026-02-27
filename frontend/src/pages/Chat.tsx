@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { MessageSquare, User, Bot, Send } from "lucide-react";
+import { MessageSquare, User, Bot, Send, Plus, Trash2 } from "lucide-react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { ToolCallCard } from "@/components/ToolCallCard";
 import { ThoughtProcess } from "@/components/ThoughtProcess";
@@ -111,11 +111,46 @@ export function Chat() {
     }
   };
 
-  useEffect(() => {
+  const fetchChats = () => {
     fetch("/api/chats")
       .then((res) => res.json())
       .then(setChats)
       .catch(console.error);
+  };
+
+  const handleCreateChat = async () => {
+    try {
+      const res = await fetch("/api/chats", { method: "POST" });
+      if (!res.ok) throw new Error("Failed to create chat");
+      const newChat = await res.json();
+      fetchChats();
+      setSelectedJid(newChat.jid);
+    } catch (error) {
+      console.error("Failed to create chat", error);
+    }
+  };
+
+  const handleDeleteChat = async (e: React.MouseEvent, jid: string) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to delete this chat?")) return;
+
+    try {
+      const res = await fetch(`/api/chats/${encodeURIComponent(jid)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete chat");
+      
+      setChats((prev) => prev.filter((c) => c.jid !== jid));
+      if (selectedJid === jid) {
+        setSelectedJid(null);
+      }
+    } catch (error) {
+      console.error("Failed to delete chat", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchChats();
   }, []);
 
   useEffect(() => {
@@ -392,8 +427,15 @@ export function Chat() {
   return (
     <div className="flex h-full">
       <div className="w-80 border-r bg-card flex flex-col">
-        <div className="p-4 border-b">
+        <div className="p-4 border-b flex items-center justify-between">
             <h2 className="text-lg font-semibold">Chats</h2>
+            <button 
+              onClick={handleCreateChat}
+              className="p-1.5 hover:bg-muted rounded-md transition-colors text-muted-foreground hover:text-foreground"
+              title="New Chat"
+            >
+              <Plus size={20} />
+            </button>
         </div>
         <div className="flex-1 overflow-y-auto">
             {chats.map(chat => (
@@ -401,14 +443,21 @@ export function Chat() {
                     key={chat.jid}
                     onClick={() => setSelectedJid(chat.jid)}
                     className={cn(
-                        "p-4 border-b cursor-pointer hover:bg-muted/50 transition-colors",
+                        "group p-4 border-b cursor-pointer hover:bg-muted/50 transition-colors relative",
                         selectedJid === chat.jid && "bg-muted"
                     )}
                 >
-                    <div className="font-medium truncate">{chat.name || chat.jid}</div>
+                    <div className="font-medium truncate pr-6">{chat.name || chat.jid}</div>
                     <div className="text-xs text-muted-foreground mt-1">
                         {new Date(chat.last_message_time).toLocaleString()}
                     </div>
+                    <button
+                        onClick={(e) => handleDeleteChat(e, chat.jid)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Delete Chat"
+                    >
+                        <Trash2 size={16} />
+                    </button>
                 </div>
             ))}
         </div>

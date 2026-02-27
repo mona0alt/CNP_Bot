@@ -15,6 +15,7 @@ import {
   getMessagesSinceAll,
   storeChatMetadata,
   storeMessageDirect,
+  deleteChat,
 } from './db.js';
 import { logger } from './logger.js';
 import { ASSISTANT_NAME } from './config.js';
@@ -94,6 +95,35 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       res.json(chats);
     } catch (err) {
       logger.error({ err }, 'Failed to fetch chats');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.post('/api/chats', (req, res) => {
+    try {
+      const jid = 'web:' + randomUUID();
+      const timestamp = new Date().toISOString();
+      storeChatMetadata(jid, timestamp, 'New Chat', 'web', false);
+      res.status(201).json({
+        jid,
+        name: 'New Chat',
+        last_message_time: timestamp,
+        channel: 'web',
+        is_group: 0,
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to create chat');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.delete('/api/chats/:jid', (req, res) => {
+    try {
+      const { jid } = req.params;
+      deleteChat(jid);
+      res.status(200).json({ success: true });
+    } catch (err) {
+      logger.error({ err }, 'Failed to delete chat');
       res.status(500).json({ error: 'Internal Server Error' });
     }
   });

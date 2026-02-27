@@ -16,7 +16,7 @@ export function Sidebar() {
       <div className="mb-8 px-4">
         <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
           <Terminal className="w-6 h-6" />
-          NanoClaw
+          CNP-Bot
         </h1>
       </div>
       <nav className="space-y-2">

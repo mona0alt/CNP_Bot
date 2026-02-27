@@ -193,17 +193,20 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const event = result.streamEvent.event;
       if (event) {
         // Forward raw event to channel if supported (for rich UI)
-        await channel.streamEvent?.(chatJid, event);
-
-        // Keep legacy text streaming for compatibility
-        if (
-          event.type === 'content_block_delta' &&
-          event.delta &&
-          event.delta.type === 'text_delta'
-        ) {
-          const chunk = event.delta.text;
-          await channel.streamMessage?.(chatJid, chunk);
+        if (channel.streamEvent) {
+          await channel.streamEvent(chatJid, event);
           resetIdleTimer();
+        } else {
+          // Keep legacy text streaming for compatibility (only if streamEvent not supported)
+          if (
+            event.type === 'content_block_delta' &&
+            event.delta &&
+            event.delta.type === 'text_delta'
+          ) {
+            const chunk = event.delta.text;
+            await channel.streamMessage?.(chatJid, chunk);
+            resetIdleTimer();
+          }
         }
       }
     }
@@ -507,6 +510,18 @@ async function main(): Promise<void> {
       if (text) await channel.sendMessage(jid, text);
     },
     onWebUserMessage: async (jid, text) => {
+      // Auto-register new web chats so they can be processed by the agent
+      if (jid.startsWith('web:') && !registeredGroups[jid]) {
+        logger.info({ jid }, 'Auto-registering new web chat session');
+        registerGroup(jid, {
+          name: 'New Chat',
+          folder: MAIN_GROUP_FOLDER,
+          trigger: `@${ASSISTANT_NAME}`,
+          added_at: new Date().toISOString(),
+          requiresTrigger: false,
+        });
+      }
+
       const timestamp = new Date().toISOString();
       storeChatMetadata(jid, timestamp, jid === 'web:default' ? 'Web Chat' : jid, 'web', false);
       const msg: NewMessage = {
