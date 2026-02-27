@@ -217,7 +217,7 @@ export function Chat() {
                         const newMsg: Message = {
                             id: 'stream-' + Date.now(),
                             chat_jid: payload.chat_jid!,
-                            sender_name: 'NanoClaw',
+                            sender_name: 'CNP-Bot',
                             content: JSON.stringify(initialBlocks),
                             timestamp: new Date().toISOString(),
                             is_from_me: false,
@@ -273,7 +273,7 @@ export function Chat() {
                         return [...prev, {
                             id: 'stream-' + Date.now(),
                             chat_jid: payload.chat_jid!,
-                            sender_name: 'NanoClaw',
+                            sender_name: 'CNP-Bot',
                             content: payload.chunk!, // Raw text for now, or JSON string?
                             // Better to start with JSON structure if we want consistency
                             // content: JSON.stringify([{ type: 'text', text: payload.chunk }]),
@@ -290,7 +290,7 @@ export function Chat() {
               const msg = payload.data || {
                   id: 'msg-' + Date.now(),
                   chat_jid: payload.chat_jid!,
-                  sender_name: 'NanoClaw',
+                  sender_name: 'CNP-Bot',
                   content: payload.content!,
                   timestamp: payload.timestamp!,
                   is_from_me: false,
@@ -501,6 +501,9 @@ export function Chat() {
                           const avatar = msg.is_bot_message ? "bg-blue-600" : "bg-muted";
 
                           const blocks = parseMessageContent(msg.content);
+                          
+                          // Force display name for bot messages
+                          const displayName = msg.is_bot_message ? "CNP-Bot" : msg.sender_name;
 
                           return (
                             <div
@@ -521,7 +524,7 @@ export function Chat() {
                               <div className={cn("p-3 rounded-2xl text-sm min-w-[100px]", bubble)}>
                                 {!outgoing ? (
                                   <div className="font-semibold text-xs mb-1 opacity-70">
-                                    {msg.sender_name}
+                                    {displayName}
                                   </div>
                                 ) : null}
                                 
@@ -553,10 +556,11 @@ export function Chat() {
                                     return segments.map((seg, i) => {
                                         if (seg.type === 'thought') {
                                             return (
-                                                <ThoughtProcess 
+                                                <ThoughtProcess
                                                     key={`${idx}-${i}`}
-                                                    content={seg.content} 
-                                                    isComplete={!!seg.isComplete} 
+                                                    content={seg.content}
+                                                    isComplete={!!seg.isComplete}
+                                                    autoCollapse={true}
                                                 />
                                             );
                                         }

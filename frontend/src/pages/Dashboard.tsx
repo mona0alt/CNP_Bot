@@ -38,7 +38,7 @@ export function Dashboard() {
     <div className="p-8 space-y-8">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-        <p className="text-muted-foreground">Overview of your NanoClaw assistant.</p>
+        <p className="text-muted-foreground">Overview of your CNP-Bot assistant.</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

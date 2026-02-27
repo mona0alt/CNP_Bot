@@ -50,11 +50,22 @@ export function ToolCallCard({
     error: "border-red-200 dark:border-red-900",
   }[status];
 
+  // Add a helper to truncate long tool names
+  const truncatedToolName = toolName.length > 30 ? `${toolName.substring(0, 30)}...` : toolName;
+
+  // Add special styling for different tool statuses
+  const statusBgColor = {
+    calling: "bg-blue-50 dark:bg-blue-900/20",
+    executed: "bg-emerald-50 dark:bg-emerald-900/20",
+    error: "bg-red-50 dark:bg-red-900/20",
+  }[status];
+
   return (
     <div
       className={cn(
         "border rounded-lg overflow-hidden bg-card transition-all my-2",
         borderColor,
+        statusBgColor,
         className
       )}
     >
@@ -67,7 +78,7 @@ export function ToolCallCard({
           <Terminal size={14} className={statusColor} />
         </div>
         <div className="flex-1 font-mono text-xs font-medium truncate">
-          {toolName}
+          {truncatedToolName}
         </div>
         <div className="flex items-center gap-2">
           {status === "calling" && (

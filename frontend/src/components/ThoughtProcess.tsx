@@ -5,30 +5,29 @@ import { MarkdownRenderer } from '@/components/MarkdownRenderer';
 interface ThoughtProcessProps {
   content: string;
   isComplete: boolean;
+  autoCollapse?: boolean; // Add prop to control auto-collapse behavior
 }
 
-export function ThoughtProcess({ content, isComplete }: ThoughtProcessProps) {
+export function ThoughtProcess({ content, isComplete, autoCollapse = true }: ThoughtProcessProps) {
   // Default open if not complete (streaming), closed if complete
   const [isOpen, setIsOpen] = useState(!isComplete);
-  
+
   // Effect to handle auto-collapse when completion status changes
   useEffect(() => {
-    if (isComplete) {
-      // Small delay to let user see it finished before collapsing? 
-      // Or immediate? User asked for "auto-collapse".
-      // Let's stick to immediate for now, or maybe don't force collapse if user interacted?
-      // The requirement says "automatically collapse".
+    if (isComplete && autoCollapse) {
+      // Automatically collapse when thought process is complete
       setIsOpen(false);
-    } else {
+    } else if (!isComplete) {
+      // Expand when thought process starts
       setIsOpen(true);
     }
-  }, [isComplete]);
+  }, [isComplete, autoCollapse]);
 
   if (!content && isComplete) return null;
 
   return (
     <div className="border rounded-md my-2 overflow-hidden bg-slate-50 border-slate-200/60 shadow-sm">
-      <button 
+      <button
         className="w-full flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-slate-100/80 transition-colors text-left"
         onClick={() => setIsOpen(!isOpen)}
         type="button"
@@ -49,12 +48,12 @@ export function ThoughtProcess({ content, isComplete }: ThoughtProcessProps) {
           {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </div>
       </button>
-      
+
       {isOpen && (
         <div className="px-4 py-3 text-sm text-slate-600 border-t border-slate-200/60 bg-white/40">
-          <MarkdownRenderer 
-            content={content || "(Empty thought process)"} 
-            className="prose-sm max-w-none text-slate-600 [&>p]:leading-relaxed [&>pre]:bg-slate-100 [&>pre]:border-slate-200" 
+          <MarkdownRenderer
+            content={content || "(Empty thought process)"}
+            className="prose-sm max-w-none text-slate-600 [&>p]:leading-relaxed [&>pre]:bg-slate-100 [&>pre]:border-slate-200"
           />
         </div>
       )}
