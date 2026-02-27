@@ -3,6 +3,8 @@ import { cn } from "@/lib/utils";
 import { MessageSquare, User, Bot, Send } from "lucide-react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { ToolCallCard } from "@/components/ToolCallCard";
+import { ThoughtProcess } from "@/components/ThoughtProcess";
+import { parseThoughts } from "@/lib/thought-parser";
 
 interface Chat {
   jid: string;
@@ -43,16 +45,6 @@ function parseMessageContent(content: string): ContentBlock[] {
     return [{ type: "text", text: content }];
   }
 }
-
-// Helper to process text content (beautify commentary)
-const processTextContent = (content: string) => {
-  if (!content) return "";
-  // Replace <commentary>...</commentary> with styled block
-  return content.replace(
-    /<commentary>([\s\S]*?)<\/commentary>/g,
-    (_, inner) => `\n> **Thinking Process:**\n${inner.split('\n').map((l: string) => `> ${l}`).join('\n')}\n`
-  );
-};
 
 export function Chat() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -508,16 +500,28 @@ export function Chat() {
                                             />
                                         );
                                     }
-                                    return (
-                                        <MarkdownRenderer
-                                            key={idx}
-                                            content={processTextContent(block.text || "")}
-                                            className={cn(
-                                                "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-                                                outgoing ? "prose-invert" : ""
-                                            )}
-                                        />
-                                    );
+                                    const segments = parseThoughts(block.text || "");
+                                    return segments.map((seg, i) => {
+                                        if (seg.type === 'thought') {
+                                            return (
+                                                <ThoughtProcess 
+                                                    key={`${idx}-${i}`}
+                                                    content={seg.content} 
+                                                    isComplete={!!seg.isComplete} 
+                                                />
+                                            );
+                                        }
+                                        return (
+                                            <MarkdownRenderer
+                                                key={`${idx}-${i}`}
+                                                content={seg.content}
+                                                className={cn(
+                                                    "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                                                    outgoing ? "prose-invert" : ""
+                                                )}
+                                            />
+                                        );
+                                    });
                                 })}
 
                                 <div className="text-[10px] opacity-60 mt-1 text-right">
