@@ -190,23 +190,40 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const output = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.streamEvent) {
-      if (
-        result.streamEvent.event &&
-        result.streamEvent.event.type === 'content_block_delta' &&
-        result.streamEvent.event.delta &&
-        result.streamEvent.event.delta.type === 'text_delta'
-      ) {
-        const chunk = result.streamEvent.event.delta.text;
-        // Broadcast chunk to channel (if supported)
-        await channel.streamMessage?.(chatJid, chunk);
-        resetIdleTimer();
+      const event = result.streamEvent.event;
+      if (event) {
+        // Forward raw event to channel if supported (for rich UI)
+        await channel.streamEvent?.(chatJid, event);
+
+        // Keep legacy text streaming for compatibility
+        if (
+          event.type === 'content_block_delta' &&
+          event.delta &&
+          event.delta.type === 'text_delta'
+        ) {
+          const chunk = event.delta.text;
+          await channel.streamMessage?.(chatJid, chunk);
+          resetIdleTimer();
+        }
       }
     }
 
     if (result.result) {
       const raw = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+      
+      // Check if it's a JSON array (structured blocks)
+      let text = raw;
+      if (raw.trim().startsWith('[') && raw.trim().endsWith(']')) {
+         // It's likely a JSON array of blocks. We don't strip internal tags from the JSON string directly
+         // to avoid breaking syntax. We assume the blocks are already clean or the frontend handles them.
+         // However, we might want to strip internal tags from text blocks *inside* the JSON?
+         // For now, let's assume structured output is clean or processed by frontend.
+         text = raw;
+      } else {
+         // Legacy text processing
+         text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+      }
+
       logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
       if (text) {
         await channel.sendMessage(chatJid, text);

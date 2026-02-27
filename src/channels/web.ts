@@ -55,6 +55,16 @@ export class WebChannel implements Channel {
     }
   }
 
+  async streamEvent(jid: string, event: any): Promise<void> {
+    if (this.broadcaster) {
+        this.broadcaster.broadcastToJid(jid, {
+            type: 'stream_event',
+            chat_jid: jid,
+            event
+        });
+    }
+  }
+
   isConnected(): boolean {
     return true;
   }

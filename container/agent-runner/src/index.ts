@@ -482,6 +482,30 @@ async function runQuery(
       log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
     }
 
+    if (message.type === 'user') {
+       // Capture tool results and emit them as stream events for the frontend
+       const content = (message as any).message?.content;
+       if (Array.isArray(content)) {
+          for (const block of content) {
+             if (block.type === 'tool_result') {
+                log(`Tool result: id=${block.tool_use_id} error=${block.is_error}`);
+                writeOutput({
+                   status: 'success',
+                   result: null,
+                   streamEvent: {
+                      event: {
+                         type: 'tool_result',
+                         tool_use_id: block.tool_use_id,
+                         content: block.content,
+                         is_error: block.is_error
+                      }
+                   }
+                });
+             }
+          }
+       }
+    }
+
     if (message.type === 'stream_event') {
       writeOutput({
         status: 'success',
@@ -492,7 +516,19 @@ async function runQuery(
 
     if (message.type === 'result') {
       resultCount++;
-      const textResult = 'result' in message ? (message as { result?: string }).result : null;
+      const resultObj = message as { result?: string | any[] };
+      let textResult: string | null = null;
+
+      if (resultObj.result) {
+        if (typeof resultObj.result === 'string') {
+           textResult = resultObj.result;
+        } else if (Array.isArray(resultObj.result)) {
+           // If result is an array of blocks (e.g. text + tool_use), serialize it
+           // This preserves the structure for the frontend
+           textResult = JSON.stringify(resultObj.result);
+        }
+      }
+
       log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
       writeOutput({
         status: 'success',

@@ -89,6 +89,8 @@ export interface Channel {
   setTyping?(jid: string, isTyping: boolean): Promise<void>;
   // Optional: streaming messages. Channels that support it implement it.
   streamMessage?(jid: string, chunk: string): Promise<void>;
+  // Optional: streaming raw events (e.g. tool use). Channels that support it implement it.
+  streamEvent?(jid: string, event: any): Promise<void>;
 }
 
 // Callback type that channels use to deliver inbound messages

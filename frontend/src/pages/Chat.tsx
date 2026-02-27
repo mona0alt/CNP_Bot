@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { MessageSquare, User, Bot, Send } from "lucide-react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { ToolCallCard } from "@/components/ToolCallCard";
 
 interface Chat {
   jid: string;
@@ -19,6 +20,39 @@ interface Message {
   is_from_me: boolean;
   is_bot_message: boolean;
 }
+
+interface ContentBlock {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: any;
+  partial_json?: string; // For streaming tool input
+  status?: "calling" | "executed" | "error";
+  result?: any;
+}
+
+function parseMessageContent(content: string): ContentBlock[] {
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    return [{ type: "text", text: content }];
+  } catch {
+    return [{ type: "text", text: content }];
+  }
+}
+
+// Helper to process text content (beautify commentary)
+const processTextContent = (content: string) => {
+  if (!content) return "";
+  // Replace <commentary>...</commentary> with styled block
+  return content.replace(
+    /<commentary>([\s\S]*?)<\/commentary>/g,
+    (_, inner) => `\n> **Thinking Process:**\n${inner.split('\n').map((l: string) => `> ${l}`).join('\n')}\n`
+  );
+};
 
 export function Chat() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -42,15 +76,6 @@ export function Chat() {
     } finally {
       setLoading(false);
     }
-  };
-
-  // Helper to process message content (beautify commentary)
-  const processContent = (content: string) => {
-    // Replace <commentary>...</commentary> with styled block
-    return content.replace(
-      /<commentary>([\s\S]*?)<\/commentary>/g,
-      (_, inner) => `\n> **Thinking Process:**\n${inner.split('\n').map((l: string) => `> ${l}`).join('\n')}\n`
-    );
   };
 
   const handleSendMessage = async () => {
@@ -126,6 +151,7 @@ export function Chat() {
               type: string;
               data?: Message;
               chunk?: string;
+              event?: any;
               chat_jid?: string;
               content?: string;
               sender?: string;
@@ -133,23 +159,99 @@ export function Chat() {
               timestamp?: string;
             };
 
-            if (payload.type === "stream" && payload.chunk && payload.chat_jid === selectedJid) {
+            if (payload.type === "stream_event" && payload.event && payload.chat_jid === selectedJid) {
+                const event = payload.event;
+                setMessages(prev => {
+                    // Special handling for tool_result: find the message containing the tool_use_id
+                    if (event.type === 'tool_result') {
+                        // Search backwards for the message containing the tool_use_id
+                        // We check if the content string contains the ID (fast check)
+                        const msgIndex = [...prev].reverse().findIndex(m => 
+                            m.is_bot_message && m.content.includes(event.tool_use_id)
+                        );
+                        
+                        if (msgIndex !== -1) {
+                            const actualIndex = prev.length - 1 - msgIndex;
+                            const msg = prev[actualIndex];
+                            const blocks = parseMessageContent(msg.content);
+                            const updatedBlocks = applyEventToBlocks(blocks, event);
+                            const newPrev = [...prev];
+                            newPrev[actualIndex] = { ...msg, content: JSON.stringify(updatedBlocks) };
+                            return newPrev;
+                        }
+                    }
+
+                    const last = prev[prev.length - 1];
+                    // We only apply events to the last message if it's from bot
+                    if (!last || !last.is_bot_message) {
+                        // Create new message if none exists or last was user
+                        const initialBlocks: ContentBlock[] = [];
+                        // Handle initial event types if needed, or just start empty
+                        const newMsg: Message = {
+                            id: 'stream-' + Date.now(),
+                            chat_jid: payload.chat_jid!,
+                            sender_name: 'NanoClaw',
+                            content: JSON.stringify(initialBlocks),
+                            timestamp: new Date().toISOString(),
+                            is_from_me: false,
+                            is_bot_message: true
+                        };
+                        // Apply event to new message
+                        const updatedBlocks = applyEventToBlocks(initialBlocks, event);
+                        newMsg.content = JSON.stringify(updatedBlocks);
+                        return [...prev, newMsg];
+                    }
+
+                    // Parse existing content
+                    const blocks = parseMessageContent(last.content);
+                    const updatedBlocks = applyEventToBlocks(blocks, event);
+                    
+                    return [
+                        ...prev.slice(0, -1),
+                        { ...last, content: JSON.stringify(updatedBlocks) }
+                    ];
+                });
+            } else if (payload.type === "stream" && payload.chunk && payload.chat_jid === selectedJid) {
+                // Legacy text stream support
                 setMessages(prev => {
                     const last = prev[prev.length - 1];
-                    // If last message is from bot and looks like it's streaming (or we just want to append)
-                    // We assume the last message is the one being streamed to if it's a bot message
                     if (last && last.is_bot_message) {
-                        return [
-                            ...prev.slice(0, -1),
-                            { ...last, content: last.content + payload.chunk }
-                        ];
+                        // Check if content is JSON blocks
+                        const blocks = parseMessageContent(last.content);
+                        // If it's a single text block, append
+                        if (blocks.length === 1 && blocks[0].type === 'text') {
+                             blocks[0].text = (blocks[0].text || "") + payload.chunk;
+                             return [...prev.slice(0, -1), { ...last, content: JSON.stringify(blocks) }];
+                        } else if (blocks.length > 0 && blocks[blocks.length - 1].type === 'text') {
+                             // Append to last text block
+                             blocks[blocks.length - 1].text = (blocks[blocks.length - 1].text || "") + payload.chunk;
+                             return [...prev.slice(0, -1), { ...last, content: JSON.stringify(blocks) }];
+                        } else {
+                             // Create new text block? Or if it was plain string before, just append?
+                             // If parseMessageContent returned [{type: 'text', text: content}], we are fine.
+                             // But if content was "[]" (empty blocks), we add text block.
+                             if (blocks.length === 0 || blocks[blocks.length - 1].type !== 'text') {
+                                 blocks.push({ type: 'text', text: payload.chunk });
+                             } else {
+                                 // Should be covered above
+                                 const lastBlock = blocks[blocks.length - 1];
+                                 if (lastBlock) {
+                                     lastBlock.text = (lastBlock.text || "") + (payload.chunk || "");
+                                 }
+                             }
+                             return [...prev.slice(0, -1), { ...last, content: JSON.stringify(blocks) }];
+                        }
                     } else {
-                        // Create new partial message
+                        // New message
                         return [...prev, {
-                            id: 'stream-' + Date.now(), // Temporary ID
+                            id: 'stream-' + Date.now(),
                             chat_jid: payload.chat_jid!,
-                            sender_name: 'NanoClaw', // Default name
-                            content: payload.chunk!,
+                            sender_name: 'NanoClaw',
+                            content: payload.chunk!, // Raw text for now, or JSON string?
+                            // Better to start with JSON structure if we want consistency
+                            // content: JSON.stringify([{ type: 'text', text: payload.chunk }]),
+                            // But legacy code expects raw text? Let's use raw text if it's just text stream
+                            // parseMessageContent handles raw text fine.
                             timestamp: new Date().toISOString(),
                             is_from_me: false,
                             is_bot_message: true
@@ -168,15 +270,85 @@ export function Chat() {
                   is_bot_message: !!payload.is_bot_message
               } as Message;
               
-              if (messageIdsRef.current.has(msg.id)) return;
-              
-              // If we have a streaming message at the end, replace it with the final one
               setMessages(prev => {
+                  if (messageIdsRef.current.has(msg.id)) return prev;
+
+                  // If it's my message, check if we have a pending optimistic message with same content
+                  if (msg.is_from_me) {
+                      const matchIndex = [...prev].reverse().findIndex(m => 
+                          m.id.startsWith('temp-') && m.is_from_me && m.content === msg.content
+                      );
+                      if (matchIndex !== -1) {
+                          const actualIndex = prev.length - 1 - matchIndex;
+                          const newPrev = [...prev];
+                          newPrev[actualIndex] = msg;
+                          messageIdsRef.current.add(msg.id);
+                          return newPrev;
+                      }
+                  }
+
                   const last = prev[prev.length - 1];
                   if (last && last.id.startsWith('stream-')) {
+                      // Merge content if stream has tool calls and final message is text-only
+                      const streamBlocks = parseMessageContent(last.content);
+                      const hasTools = streamBlocks.some(b => b.type === 'tool_use');
+                      if (hasTools) {
+                          const finalBlocks = parseMessageContent(msg.content);
+                          // If final content is text (or just text blocks), we append it to the tools
+                          // But usually final content IS the text response.
+                          // So we want: [Tools..., FinalText]
+                          
+                          // We also want tool_result blocks if they exist in stream?
+                          // Yes, stream might contain tool_result blocks too.
+                          // Basically we want to keep everything EXCEPT the last text block from stream?
+                          // Or rather, we want to replace the stream's text with the final text.
+                          
+                          // Let's filter out text blocks from stream that are "in progress"
+                          // Actually, the stream might have partial text.
+                          // The final message has the complete text.
+                          
+                          const nonTextBlocks = streamBlocks.filter(b => b.type !== 'text');
+                          const textBlocks = finalBlocks.filter(b => b.type === 'text');
+                          
+                          // If final message has structured content (unlikely from current backend), use it.
+                          // If it's just text, use it.
+                          
+                          if (nonTextBlocks.length > 0) {
+                              // We only merge if the final message DOES NOT already have non-text blocks
+                              // If backend is updated to send full structure, we shouldn't duplicate
+                              const finalHasNonText = finalBlocks.some(b => b.type !== 'text');
+                              if (!finalHasNonText) {
+                                  const mergedBlocks = [...nonTextBlocks, ...textBlocks];
+                                  msg.content = JSON.stringify(mergedBlocks);
+                              }
+                          }
+                      }
+                      
                       messageIdsRef.current.add(msg.id);
                       return [...prev.slice(0, -1), msg];
                   }
+                  
+                  // Deduplicate bot messages too
+                   if (msg.is_bot_message && last && last.is_bot_message) {
+                       // Check for identical content
+                       if (last.content === msg.content && Math.abs(new Date(last.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 1000) {
+                           return prev;
+                       }
+                       // Check for rich content vs plain text duplicate
+                       // If last message has tool calls (is rich) and new message is just the text part of it
+                       try {
+                           const lastBlocks = parseMessageContent(last.content);
+                           if (lastBlocks.some(b => b.type === 'tool_use')) {
+                               const msgBlocks = parseMessageContent(msg.content);
+                               const lastText = lastBlocks.filter(b => b.type === 'text').map(b => b.text || '').join('');
+                                const msgText = msgBlocks.filter(b => b.type === 'text').map(b => b.text || '').join('');
+                               if (lastText === msgText && Math.abs(new Date(last.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 2000) {
+                                   return prev;
+                               }
+                           }
+                       } catch {}
+                   }
+                  
                   messageIdsRef.current.add(msg.id);
                   return [...prev, msg];
               });
@@ -287,6 +459,8 @@ export function Chat() {
                           const bubble = outgoing ? "bg-emerald-600 text-white" : "bg-muted text-foreground";
                           const avatar = msg.is_bot_message ? "bg-blue-600" : "bg-muted";
 
+                          const blocks = parseMessageContent(msg.content);
+
                           return (
                             <div
                               key={it.key}
@@ -303,19 +477,49 @@ export function Chat() {
                               >
                                 {msg.is_bot_message ? <Bot size={16} /> : <User size={16} />}
                               </div>
-                              <div className={cn("p-3 rounded-2xl text-sm", bubble)}>
+                              <div className={cn("p-3 rounded-2xl text-sm min-w-[100px]", bubble)}>
                                 {!outgoing ? (
                                   <div className="font-semibold text-xs mb-1 opacity-70">
                                     {msg.sender_name}
                                   </div>
                                 ) : null}
-                                <MarkdownRenderer
-                                  content={processContent(msg.content)}
-                                  className={cn(
-                                    "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-                                    outgoing ? "prose-invert" : ""
-                                  )}
-                                />
+                                
+                                {blocks.map((block, idx) => {
+                                    if (block.type === 'tool_use') {
+                                        let inputObj = block.input || {};
+                                        // Try to parse partial_json if input is empty
+                                        if (!block.input && block.partial_json) {
+                                            try {
+                                                inputObj = JSON.parse(block.partial_json);
+                                            } catch {
+                                                inputObj = block.partial_json;
+                                            }
+                                        }
+
+                                        return (
+                                            <ToolCallCard
+                                                key={idx}
+                                                toolName={block.name || 'Unknown Tool'}
+                                                input={inputObj}
+                                                status={block.status || 'calling'}
+                                                result={block.result}
+                                                defaultExpanded={false}
+                                                className={outgoing ? "border-emerald-400/50" : ""}
+                                            />
+                                        );
+                                    }
+                                    return (
+                                        <MarkdownRenderer
+                                            key={idx}
+                                            content={processTextContent(block.text || "")}
+                                            className={cn(
+                                                "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                                                outgoing ? "prose-invert" : ""
+                                            )}
+                                        />
+                                    );
+                                })}
+
                                 <div className="text-[10px] opacity-60 mt-1 text-right">
                                   {new Date(msg.timestamp).toLocaleTimeString()}
                                 </div>
@@ -331,7 +535,12 @@ export function Chat() {
                             type="text"
                             value={newMessage}
                             onChange={(e) => setNewMessage(e.target.value)}
-                            onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                                e.preventDefault();
+                                handleSendMessage();
+                              }
+                            }}
                             placeholder="Type a message..."
                             className="flex-1 bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                         />
@@ -357,3 +566,63 @@ export function Chat() {
     </div>
   );
 }
+
+function applyEventToBlocks(blocks: ContentBlock[], event: any): ContentBlock[] {
+    const newBlocks = [...blocks];
+    
+    if (event.type === 'content_block_start') {
+        newBlocks.push({
+            type: event.content_block.type,
+            text: event.content_block.text || '',
+            id: event.content_block.id,
+            name: event.content_block.name,
+            input: event.content_block.input,
+            status: event.content_block.type === 'tool_use' ? 'calling' : undefined
+        });
+    } else if (event.type === 'content_block_delta') {
+        const index = event.index;
+        if (newBlocks[index]) {
+            const block = { ...newBlocks[index] };
+            if (event.delta.type === 'text_delta') {
+                block.text = (block.text || '') + event.delta.text;
+            } else if (event.delta.type === 'input_json_delta') {
+                block.partial_json = (block.partial_json || '') + event.delta.partial_json;
+            }
+            newBlocks[index] = block;
+        }
+    } else if (event.type === 'content_block_stop') {
+         const index = event.index;
+         if (newBlocks[index]) {
+             const block = { ...newBlocks[index] };
+             if (block.type === 'tool_use') {
+                  // Try to finalize input from partial_json
+                  if (block.partial_json && !block.input) {
+                      try {
+                          block.input = JSON.parse(block.partial_json);
+                      } catch {
+                          // Keep partial if parsing fails
+                      }
+                  }
+             }
+             newBlocks[index] = block;
+         }
+     } else if (event.type === 'tool_result') {
+         // Find the tool use block by ID
+         const index = newBlocks.findIndex(b => b.type === 'tool_use' && b.id === event.tool_use_id);
+         if (index !== -1) {
+             const block = { ...newBlocks[index] };
+             block.status = event.is_error ? 'error' : 'executed';
+             // Tool result content can be string or array of blocks (e.g. image)
+             // For now, simplify to string or JSON string
+             if (Array.isArray(event.content)) {
+                 // Try to extract text or image description
+                 block.result = event.content.map((c: any) => c.text || JSON.stringify(c)).join('\n');
+             } else {
+                 block.result = event.content;
+             }
+             newBlocks[index] = block;
+         }
+     }
+     
+     return newBlocks;
+ }
