@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -14,6 +15,7 @@ import {
   GROUPS_DIR,
   IDLE_TIMEOUT,
   TIMEZONE,
+  USE_LOCAL_AGENT,
 } from './config.js';
 import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -183,7 +185,18 @@ function buildVolumeMounts(
  * Secrets are never written to disk or mounted as files.
  */
 function readSecrets(): Record<string, string> {
-  return readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']);
+  const keys = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'CLAUDE_BASE_URL', 'MODEL', 'ANTHROPIC_AUTH_TOKEN'];
+  const fromFile = readEnvFile(keys);
+  const result: Record<string, string> = {};
+  
+  for (const key of keys) {
+    if (fromFile[key]) {
+      result[key] = fromFile[key];
+    } else if (process.env[key]) {
+      result[key] = process.env[key]!;
+    }
+  }
+  return result;
 }
 
 function buildContainerArgs(mounts: VolumeMount[], containerName: string): string[] {
@@ -258,9 +271,55 @@ export async function runContainerAgent(
   fs.mkdirSync(logsDir, { recursive: true });
 
   return new Promise((resolve) => {
-    const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
+    let spawnCmd = CONTAINER_RUNTIME_BIN;
+    let spawnArgs = containerArgs;
+    const spawnOptions: any = {
       stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    };
+
+    if (USE_LOCAL_AGENT) {
+      spawnCmd = 'node';
+      spawnArgs = [path.resolve(process.cwd(), 'container/agent-runner/dist/index.js')];
+      
+      const tempWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'nanoclaw-workspace-'));
+      
+      // Symlink group dir
+      fs.symlinkSync(groupDir, path.join(tempWorkspace, 'group'));
+      
+      // Symlink IPC
+      const groupIpcDir = resolveGroupIpcPath(group.folder);
+      fs.symlinkSync(groupIpcDir, path.join(tempWorkspace, 'ipc'));
+      
+      // Symlink global
+      const globalDir = path.join(GROUPS_DIR, 'global');
+      if (fs.existsSync(globalDir)) {
+          fs.symlinkSync(globalDir, path.join(tempWorkspace, 'global'));
+      }
+      
+      // Symlink project (if main)
+      if (input.isMain) {
+           fs.symlinkSync(process.cwd(), path.join(tempWorkspace, 'project'));
+      }
+
+      // Symlink skills (if exists)
+      const skillsSrc = path.join(process.cwd(), 'container', 'skills');
+      if (fs.existsSync(skillsSrc)) {
+         // This is handled by buildVolumeMounts copying to groupSessionsDir.
+         // So it's already in HOME/.claude/skills.
+      }
+
+      const groupSessionsDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude');
+      
+      spawnOptions.env = {
+          ...process.env,
+          // HOME: path.dirname(groupSessionsDir), // Use real HOME to pick up user config
+          WORKSPACE_ROOT: tempWorkspace,
+          IPC_DIR: path.join(tempWorkspace, 'ipc'),
+          TZ: TIMEZONE,
+      };
+    }
+
+    const container = spawn(spawnCmd, spawnArgs, spawnOptions);
 
     onProcess(container, containerName);
 

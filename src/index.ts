@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 
 import {
   ASSISTANT_NAME,
@@ -7,8 +8,10 @@ import {
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
   TRIGGER_PATTERN,
+  MAX_CONCURRENT_CONTAINERS,
+  USE_LOCAL_AGENT,
 } from './config.js';
-import { WhatsAppChannel } from './channels/whatsapp.js';
+import { WebChannel } from './channels/web.js';
 import {
   ContainerOutput,
   runContainerAgent,
@@ -36,6 +39,7 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { startSchedulerLoop } from './task-scheduler.js';
+import { startServer } from './server.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 
@@ -48,7 +52,7 @@ let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
 
-let whatsapp: WhatsAppChannel;
+let web: WebChannel;
 const channels: Channel[] = [];
 const queue = new GroupQueue();
 
@@ -129,6 +133,7 @@ export function _setRegisteredGroups(groups: Record<string, RegisteredGroup>): v
  * Called by the GroupQueue when it's this group's turn.
  */
 async function processGroupMessages(chatJid: string): Promise<boolean> {
+  console.log('DEBUG: processGroupMessages called for', chatJid);
   const group = registeredGroups[chatJid];
   if (!group) return true;
 
@@ -318,7 +323,11 @@ async function startMessageLoop(): Promise<void> {
   while (true) {
     try {
       const jids = Object.keys(registeredGroups);
-      const { messages, newTimestamp } = getNewMessages(jids, lastTimestamp, ASSISTANT_NAME);
+      const { messages, newTimestamp } = getNewMessages(
+        jids,
+        lastTimestamp,
+        ASSISTANT_NAME,
+      );
 
       if (messages.length > 0) {
         logger.info({ count: messages.length }, 'New messages');
@@ -416,6 +425,10 @@ function recoverPendingMessages(): void {
 }
 
 function ensureContainerSystemRunning(): void {
+  if (USE_LOCAL_AGENT) {
+    logger.info('Running in local agent mode (no container runtime required)');
+    return;
+  }
   ensureContainerRuntimeRunning();
   cleanupOrphans();
 }
@@ -425,6 +438,16 @@ async function main(): Promise<void> {
   initDatabase();
   logger.info('Database initialized');
   loadState();
+
+  if (!registeredGroups['web:default']) {
+    registerGroup('web:default', {
+      name: 'Web Chat',
+      folder: MAIN_GROUP_FOLDER,
+      trigger: `@${ASSISTANT_NAME}`,
+      added_at: new Date().toISOString(),
+      requiresTrigger: false,
+    });
+  }
 
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
@@ -445,9 +468,44 @@ async function main(): Promise<void> {
   };
 
   // Create and connect channels
-  whatsapp = new WhatsAppChannel(channelOpts);
-  channels.push(whatsapp);
-  await whatsapp.connect();
+  web = new WebChannel();
+  channels.push(web);
+
+  // Start web server
+  startServer({
+    sendMessage: async (jid, rawText) => {
+      const channel = findChannel(channels, jid);
+      if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      const text = formatOutbound(rawText);
+      if (text) await channel.sendMessage(jid, text);
+    },
+    onWebUserMessage: async (jid, text) => {
+      const timestamp = new Date().toISOString();
+      storeChatMetadata(jid, timestamp, jid === 'web:default' ? 'Web Chat' : jid, 'web', false);
+      const msg: NewMessage = {
+        id: randomUUID(),
+        chat_jid: jid,
+        sender: 'web-user',
+        sender_name: 'You',
+        content: text,
+        timestamp,
+        is_from_me: true,
+        is_bot_message: false,
+      };
+      storeMessage(msg);
+      queue.enqueueMessageCheck(jid);
+      return {
+        id: msg.id,
+        chat_jid: msg.chat_jid,
+        sender: msg.sender,
+        sender_name: msg.sender_name,
+        content: msg.content,
+        timestamp: msg.timestamp,
+        is_from_me: true,
+        is_bot_message: false,
+      };
+    },
+  });
 
   // Start subsystems (independently of connection handler)
   startSchedulerLoop({
@@ -473,7 +531,7 @@ async function main(): Promise<void> {
     },
     registeredGroups: () => registeredGroups,
     registerGroup,
-    syncGroupMetadata: (force) => whatsapp?.syncGroupMetadata(force) ?? Promise.resolve(),
+    syncGroupMetadata: () => Promise.resolve(),
     getAvailableGroups,
     writeGroupsSnapshot: (gf, im, ag, rj) => writeGroupsSnapshot(gf, im, ag, rj),
   });
@@ -483,6 +541,8 @@ async function main(): Promise<void> {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');
     process.exit(1);
   });
+
+  // await whatsapp.connect();
 }
 
 // Guard: only run when executed directly, not when imported by tests
