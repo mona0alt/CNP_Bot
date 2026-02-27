@@ -36,6 +36,7 @@ export interface ServerOpts {
     is_from_me: boolean;
     is_bot_message: boolean;
   }>;
+  onStopGeneration?: (jid: string) => void;
 }
 
 export interface BroadcastCapability {
@@ -302,6 +303,12 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       socket.on('message', async (data: RawData) => {
         try {
           const parsed = JSON.parse(String(data) || '{}') as any;
+          if (parsed?.type === 'stop') {
+             if (opts.onStopGeneration) {
+               opts.onStopGeneration(jid);
+             }
+             return;
+          }
           if (parsed && parsed.type === 'send' && typeof parsed.content === 'string' && parsed.content.trim()) {
             const content = String(parsed.content).trim();
             const isWebChat = jid.startsWith('web:');

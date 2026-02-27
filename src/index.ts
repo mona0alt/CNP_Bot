@@ -252,6 +252,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (idleTimer) clearTimeout(idleTimer);
 
   if (output === 'error' || hadError) {
+    // If the process was interrupted by user, don't treat it as an error that needs retry.
+    if (queue.isInterrupted(chatJid)) {
+      logger.info({ group: group.name }, 'Agent execution interrupted by user, skipping cursor rollback');
+      return true;
+    }
+
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
     if (outputSentToUser) {
@@ -573,6 +579,10 @@ async function main(): Promise<void> {
         is_from_me: true,
         is_bot_message: false,
       };
+    },
+    onStopGeneration: (jid) => {
+      logger.info({ jid }, 'Received stop request');
+      queue.stopGroup(jid);
     },
   });
 

@@ -293,8 +293,8 @@
   "hotPaths": [
     {
       "path": "src/index.ts",
-      "accessCount": 2,
-      "lastAccessed": 1772182040536,
+      "accessCount": 3,
+      "lastAccessed": 1772186638291,
       "type": "file"
     },
     {
@@ -355,6 +355,12 @@
       "path": "container/skills/agent-browser/SKILL.md",
       "accessCount": 1,
       "lastAccessed": 1772182052156,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 1,
+      "lastAccessed": 1772186636076,
       "type": "file"
     }
   ],

@@ -24,6 +24,7 @@ interface GroupState {
   containerName: string | null;
   groupFolder: string | null;
   retryCount: number;
+  interrupted: boolean;
 }
 
 export class GroupQueue {
@@ -47,10 +48,28 @@ export class GroupQueue {
         containerName: null,
         groupFolder: null,
         retryCount: 0,
+        interrupted: false,
       };
       this.groups.set(groupJid, state);
     }
     return state;
+  }
+
+  stopGroup(groupJid: string): void {
+    const state = this.groups.get(groupJid);
+    if (!state) return;
+
+    logger.info({ groupJid }, 'Stopping group process');
+    state.interrupted = true;
+    
+    if (state.process && !state.process.killed) {
+      state.process.kill('SIGTERM'); 
+    }
+  }
+
+  isInterrupted(groupJid: string): boolean {
+    const state = this.groups.get(groupJid);
+    return state ? state.interrupted : false;
   }
 
   setProcessMessagesFn(fn: (groupJid: string) => Promise<boolean>): void {
@@ -200,6 +219,7 @@ export class GroupQueue {
     state.idleWaiting = false;
     state.isTaskContainer = false;
     state.pendingMessages = false;
+    state.interrupted = false;
     this.activeCount++;
 
     logger.debug(
@@ -234,6 +254,7 @@ export class GroupQueue {
     state.active = true;
     state.idleWaiting = false;
     state.isTaskContainer = true;
+    state.interrupted = false;
     this.activeCount++;
 
     logger.debug(

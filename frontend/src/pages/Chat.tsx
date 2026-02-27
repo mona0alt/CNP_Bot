@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { MessageSquare, User, Bot, Send, Plus, Trash2 } from "lucide-react";
+import { MessageSquare, User, Bot, Send, Plus, Trash2, Square } from "lucide-react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { ToolCallCard } from "@/components/ToolCallCard";
 import { ThoughtProcess } from "@/components/ThoughtProcess";
@@ -51,6 +51,7 @@ export function Chat() {
   const [selectedJid, setSelectedJid] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const messageIdsRef = useRef<Set<string>>(new Set());
@@ -59,6 +60,7 @@ export function Chat() {
 
   const fetchMessages = async (jid: string) => {
     setLoading(true);
+    setIsGenerating(false);
     try {
       const res = await fetch(`/api/groups/${jid}/messages?limit=200`);
       const data = (await res.json()) as Message[];
@@ -70,9 +72,18 @@ export function Chat() {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!newMessage.trim() || !selectedJid) return;
+  const handleStop = () => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "stop" }));
+    }
+    setIsGenerating(false);
+  };
 
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !selectedJid || isGenerating) return;
+
+    setIsGenerating(true);
     const ws = wsRef.current;
     const content = newMessage;
     setNewMessage("");
@@ -91,7 +102,7 @@ export function Chat() {
         };
         setMessages(prev => [...prev, optimisticMsg]);
       } catch {
-        // ignore
+        setIsGenerating(false);
       }
       return;
     }
@@ -108,6 +119,7 @@ export function Chat() {
       }
     } catch (error) {
       console.error("Failed to send message", error);
+      setIsGenerating(false);
     }
   };
 
@@ -297,6 +309,10 @@ export function Chat() {
                   is_bot_message: !!payload.is_bot_message
               } as Message;
               
+              if (!msg.is_from_me) {
+                  setIsGenerating(false);
+              }
+              
               setMessages(prev => {
                   if (messageIdsRef.current.has(msg.id)) return prev;
 
@@ -379,6 +395,8 @@ export function Chat() {
                   messageIdsRef.current.add(msg.id);
                   return [...prev, msg];
               });
+            } else if (payload.type === "error") {
+                setIsGenerating(false);
             }
           } catch {
             // ignore
@@ -598,15 +616,22 @@ export function Chat() {
                                 handleSendMessage();
                               }
                             }}
-                            placeholder="Type a message..."
-                            className="flex-1 bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                            disabled={isGenerating}
+                            placeholder={isGenerating ? "Agent is thinking..." : "Type a message..."}
+                            className="flex-1 bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                         />
                         <button
-                            onClick={handleSendMessage}
-                            disabled={!newMessage.trim()}
-                            className="bg-primary text-primary-foreground px-4 py-2 rounded-md disabled:opacity-50 hover:bg-primary/90 flex items-center justify-center"
+                            onClick={isGenerating ? handleStop : handleSendMessage}
+                            disabled={!isGenerating && !newMessage.trim()}
+                            className={cn(
+                                "px-4 py-2 rounded-md disabled:opacity-50 flex items-center justify-center transition-colors",
+                                isGenerating 
+                                    ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" 
+                                    : "bg-primary text-primary-foreground hover:bg-primary/90"
+                            )}
+                            title={isGenerating ? "Stop generating" : "Send message"}
                         >
-                            <Send size={18} />
+                            {isGenerating ? <Square size={18} fill="currentColor" /> : <Send size={18} />}
                         </button>
                     </div>
                 </div>
