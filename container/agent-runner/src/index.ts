@@ -35,6 +35,7 @@ interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  streamEvent?: any;
 }
 
 interface SessionEntry {
@@ -438,6 +439,7 @@ async function runQuery(
         'NotebookEdit',
         // 'mcp__nanoclaw__*'
       ],
+      includePartialMessages: true,
       env: sdkEnv,
       permissionMode: process.getuid?.() === 0 ? 'dontAsk' : 'bypassPermissions',
       allowDangerouslySkipPermissions: process.getuid?.() !== 0,
@@ -478,6 +480,14 @@ async function runQuery(
     if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
       const tn = message as { task_id: string; status: string; summary: string };
       log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
+    }
+
+    if (message.type === 'stream_event') {
+      writeOutput({
+        status: 'success',
+        result: null,
+        streamEvent: message
+      });
     }
 
     if (message.type === 'result') {

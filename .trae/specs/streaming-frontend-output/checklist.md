@@ -1,0 +1,6 @@
+- [ ] Streaming enabled in Agent Runner (includePartialMessages: true)
+- [ ] Container Runner forwards partial `progress` events
+- [ ] Web Channel receives partial updates via `broadcast`
+- [ ] Server broadcasts partial updates to WebSocket clients
+- [ ] Frontend displays partial updates in real-time
+- [ ] Frontend beautifies `<commentary>` tags

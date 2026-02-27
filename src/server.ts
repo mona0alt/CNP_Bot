@@ -37,11 +37,31 @@ export interface ServerOpts {
   }>;
 }
 
-export function startServer(opts: ServerOpts = {}) {
+export interface BroadcastCapability {
+  broadcastToJid: (jid: string, payload: unknown) => void;
+}
+
+export function startServer(opts: ServerOpts = {}): BroadcastCapability {
   const port = opts.port ?? 3000;
   const app = express();
   app.use(cors());
   app.use(express.json());
+  
+  // Store connected sockets
+  const connectedSockets = new Set<{ ws: WebSocket; jid: string }>();
+
+  const broadcastToJid = (jid: string, payload: unknown) => {
+    const data = JSON.stringify(payload);
+    for (const client of connectedSockets) {
+      if (client.jid === jid && client.ws.readyState === WebSocket.OPEN) {
+        try {
+          client.ws.send(data);
+        } catch {
+          // Ignore send errors
+        }
+      }
+    }
+  };
 
   try {
     storeChatMetadata('web:default', new Date().toISOString(), 'Web Chat', 'web', false);
@@ -212,9 +232,14 @@ export function startServer(opts: ServerOpts = {}) {
 
   const wss = new WebSocketServer({ server, path: '/ws' });
   wss.on('connection', (socket: WebSocket, req: IncomingMessage) => {
+    let clientEntry: { ws: WebSocket; jid: string } | null = null;
     try {
       const u = new URL(req.url || '', 'http://localhost');
       const jid = u.searchParams.get('jid') || 'web:default';
+      
+      clientEntry = { ws: socket, jid };
+      connectedSockets.add(clientEntry);
+
       const since = u.searchParams.get('since') || '';
       let cursor = since;
       let lastHeartbeat = Date.now();
@@ -283,9 +308,13 @@ export function startServer(opts: ServerOpts = {}) {
       });
       socket.on('close', () => {
         clearInterval(interval);
+        if (clientEntry) connectedSockets.delete(clientEntry);
       });
     } catch (err) {
       logger.error({ err }, 'WS connection error');
+      if (clientEntry) connectedSockets.delete(clientEntry);
     }
   });
+
+  return { broadcastToJid };
 }

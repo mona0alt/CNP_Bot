@@ -44,6 +44,15 @@ export function Chat() {
     }
   };
 
+  // Helper to process message content (beautify commentary)
+  const processContent = (content: string) => {
+    // Replace <commentary>...</commentary> with styled block
+    return content.replace(
+      /<commentary>([\s\S]*?)<\/commentary>/g,
+      (_, inner) => `\n> **Thinking Process:**\n${inner.split('\n').map((l: string) => `> ${l}`).join('\n')}\n`
+    );
+  };
+
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedJid) return;
 
@@ -53,6 +62,17 @@ export function Chat() {
     if (ws && ws.readyState === WebSocket.OPEN) {
       try {
         ws.send(JSON.stringify({ type: "send", content }));
+        // Optimistically add user message
+        const optimisticMsg: Message = {
+            id: 'temp-' + Date.now(),
+            chat_jid: selectedJid,
+            sender_name: 'You',
+            content,
+            timestamp: new Date().toISOString(),
+            is_from_me: true,
+            is_bot_message: false
+        };
+        setMessages(prev => [...prev, optimisticMsg]);
       } catch {
         // ignore
       }
@@ -104,13 +124,62 @@ export function Chat() {
           try {
             const payload = JSON.parse(String((evt as MessageEvent).data) || "{}") as {
               type: string;
-              data: Message;
+              data?: Message;
+              chunk?: string;
+              chat_jid?: string;
+              content?: string;
+              sender?: string;
+              is_bot_message?: boolean;
+              timestamp?: string;
             };
-            if (payload && payload.type === "message" && payload.data) {
-              const msg = payload.data;
+
+            if (payload.type === "stream" && payload.chunk && payload.chat_jid === selectedJid) {
+                setMessages(prev => {
+                    const last = prev[prev.length - 1];
+                    // If last message is from bot and looks like it's streaming (or we just want to append)
+                    // We assume the last message is the one being streamed to if it's a bot message
+                    if (last && last.is_bot_message) {
+                        return [
+                            ...prev.slice(0, -1),
+                            { ...last, content: last.content + payload.chunk }
+                        ];
+                    } else {
+                        // Create new partial message
+                        return [...prev, {
+                            id: 'stream-' + Date.now(), // Temporary ID
+                            chat_jid: payload.chat_jid!,
+                            sender_name: 'NanoClaw', // Default name
+                            content: payload.chunk!,
+                            timestamp: new Date().toISOString(),
+                            is_from_me: false,
+                            is_bot_message: true
+                        }];
+                    }
+                });
+            } else if ((payload.type === "message" || !payload.type) && (payload.data || payload.content)) {
+              // Handle full message update (replaces stream or adds new)
+              const msg = payload.data || {
+                  id: 'msg-' + Date.now(),
+                  chat_jid: payload.chat_jid!,
+                  sender_name: 'NanoClaw',
+                  content: payload.content!,
+                  timestamp: payload.timestamp!,
+                  is_from_me: false,
+                  is_bot_message: !!payload.is_bot_message
+              } as Message;
+              
               if (messageIdsRef.current.has(msg.id)) return;
-              messageIdsRef.current.add(msg.id);
-              setMessages((prev) => [...prev, msg]);
+              
+              // If we have a streaming message at the end, replace it with the final one
+              setMessages(prev => {
+                  const last = prev[prev.length - 1];
+                  if (last && last.id.startsWith('stream-')) {
+                      messageIdsRef.current.add(msg.id);
+                      return [...prev.slice(0, -1), msg];
+                  }
+                  messageIdsRef.current.add(msg.id);
+                  return [...prev, msg];
+              });
             }
           } catch {
             // ignore
@@ -241,7 +310,7 @@ export function Chat() {
                                   </div>
                                 ) : null}
                                 <MarkdownRenderer
-                                  content={msg.content}
+                                  content={processContent(msg.content)}
                                   className={cn(
                                     "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
                                     outgoing ? "prose-invert" : ""

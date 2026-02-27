@@ -189,6 +189,20 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const output = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
+    if (result.streamEvent) {
+      if (
+        result.streamEvent.event &&
+        result.streamEvent.event.type === 'content_block_delta' &&
+        result.streamEvent.event.delta &&
+        result.streamEvent.event.delta.type === 'text_delta'
+      ) {
+        const chunk = result.streamEvent.event.delta.text;
+        // Broadcast chunk to channel (if supported)
+        await channel.streamMessage?.(chatJid, chunk);
+        resetIdleTimer();
+      }
+    }
+
     if (result.result) {
       const raw = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
       // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
@@ -467,12 +481,8 @@ async function main(): Promise<void> {
     registeredGroups: () => registeredGroups,
   };
 
-  // Create and connect channels
-  web = new WebChannel();
-  channels.push(web);
-
   // Start web server
-  startServer({
+  const { broadcastToJid } = startServer({
     sendMessage: async (jid, rawText) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
@@ -506,6 +516,10 @@ async function main(): Promise<void> {
       };
     },
   });
+
+  // Create and connect channels
+  web = new WebChannel({ broadcastToJid });
+  channels.push(web);
 
   // Start subsystems (independently of connection handler)
   startSchedulerLoop({

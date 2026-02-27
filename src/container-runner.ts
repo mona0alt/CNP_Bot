@@ -44,6 +44,7 @@ export interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  streamEvent?: any;
 }
 
 interface VolumeMount {
@@ -379,7 +380,7 @@ export async function runContainerAgent(
             hadStreamingOutput = true;
             // Activity detected — reset the hard timeout
             resetTimeout();
-            // Call onOutput for all markers (including null results)
+            // Call onOutput for all markers (including null results and stream events)
             // so idle timers start even for "silent" query completions.
             outputChain = outputChain.then(() => onOutput(parsed));
           } catch (err) {
