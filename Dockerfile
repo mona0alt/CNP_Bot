@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     python3 \
     sqlite3 \
+    tmux \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20
@@ -62,6 +63,10 @@ RUN cd container/agent-runner && npm install
 
 # Copy source code
 COPY --chown=node:node . .
+
+# Copy custom skills
+RUN mkdir -p /home/node/.claude/skills/jumpserver
+COPY --chown=node:node container/skills/jumpserver /home/node/.claude/skills/jumpserver
 
 # Build Agent Runner
 RUN cd container/agent-runner && npm run build
