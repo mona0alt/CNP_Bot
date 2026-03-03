@@ -403,7 +403,7 @@ async function runQuery(
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = path.join(WORKSPACE_ROOT, 'global', 'CLAUDE.md');
-  if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
+  if (fs.existsSync(globalClaudeMdPath)) {
     systemPromptAppend += fs.readFileSync(globalClaudeMdPath, 'utf-8');
   }
 

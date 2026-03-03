@@ -134,14 +134,15 @@ else
 fi
 
 # Check container agent runner (required for local agent execution)
-if [ ! -f "container/agent-runner/dist/index.js" ]; then
-    echo "Building container agent runner..."
-    cd container/agent-runner
-    npm install && npm run build
-    cd ../..
-else
-    echo "✓ Container agent runner built"
+echo "Checking container agent runner..."
+cd container/agent-runner
+if [ ! -d "node_modules" ]; then
+    echo "Installing agent-runner dependencies..."
+    npm install
 fi
+echo "Building agent-runner..."
+npm run build
+cd ../..
 
 # 3. Start Services
 
