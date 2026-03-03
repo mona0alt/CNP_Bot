@@ -36,6 +36,11 @@ interface ContainerOutput {
   newSessionId?: string;
   error?: string;
   streamEvent?: any;
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    context_window?: number;
+  };
 }
 
 interface SessionEntry {
@@ -522,7 +527,7 @@ async function runQuery(
 
     if (message.type === 'result') {
       resultCount++;
-      const resultObj = message as { result?: string | any[] };
+      const resultObj = message as unknown as { result?: string | any[]; usage?: { input_tokens?: number; output_tokens?: number; inputTokens?: number; outputTokens?: number } };
       let textResult: string | null = null;
 
       if (resultObj.result) {
@@ -536,10 +541,19 @@ async function runQuery(
       }
 
       log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+      
+      const usage = resultObj.usage;
+      const inputTokens = usage?.input_tokens ?? usage?.inputTokens ?? 0;
+      const outputTokens = usage?.output_tokens ?? usage?.outputTokens ?? 0;
+
       writeOutput({
         status: 'success',
         result: textResult || null,
-        newSessionId
+        newSessionId,
+        usage: {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens
+        }
       });
     }
   }

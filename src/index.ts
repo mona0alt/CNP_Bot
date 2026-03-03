@@ -50,6 +50,7 @@ let lastTimestamp = '';
 let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
+export const groupStats: Record<string, { usage?: { input_tokens: number, output_tokens: number } }> = {};
 let messageLoopRunning = false;
 
 let web: WebChannel;
@@ -67,6 +68,17 @@ function loadState(): void {
   }
   sessions = getAllSessions();
   registeredGroups = getAllRegisteredGroups();
+
+  // Ensure group folders exist for all loaded groups (critical for Docker persistence)
+  for (const group of Object.values(registeredGroups)) {
+    try {
+      const groupDir = resolveGroupFolderPath(group.folder);
+      fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
+    } catch (err) {
+      logger.warn({ group: group.name, err }, 'Failed to ensure group folder exists');
+    }
+  }
+
   logger.info(
     { groupCount: Object.keys(registeredGroups).length },
     'State loaded',
@@ -190,7 +202,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
+  const agentResult = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.streamEvent) {
       const event = result.streamEvent.event;
@@ -212,6 +224,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           }
         }
       }
+    }
+
+    if (result.usage) {
+        groupStats[chatJid] = { ...groupStats[chatJid], usage: result.usage };
     }
 
     if (result.result) {
@@ -251,7 +267,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
 
-  if (output === 'error' || hadError) {
+  if (agentResult.status === 'error' || hadError) {
     // If the process was interrupted by user, don't treat it as an error that needs retry.
     if (queue.isInterrupted(chatJid)) {
       logger.info({ group: group.name }, 'Agent execution interrupted by user, skipping cursor rollback');
@@ -264,6 +280,25 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       logger.warn({ group: group.name }, 'Agent error after output was sent, skipping cursor rollback to prevent duplicates');
       return true;
     }
+
+    // Check for session invalidation (e.g. process exited with code 1, likely due to lost session state)
+    // We treat "exited with code 1" as a sign that the local state (cwd/home) doesn't match the session ID.
+    const errorMessage = agentResult.error || '';
+    if (errorMessage.includes('exited with code 1')) {
+        logger.warn({ group: group.name, error: errorMessage }, 'Detected possible session corruption/loss. Invalidating session and forcing full history reload.');
+        
+        // Clear session
+        delete sessions[group.folder];
+        setSession(group.folder, '');
+        
+        // Reset timestamp to re-fetch FULL history on next retry
+        lastAgentTimestamp[chatJid] = '';
+        saveState();
+        
+        // Return false to trigger retry (which will now use new session + full history)
+        return false;
+    }
+
     // Roll back cursor so retries can re-process these messages
     lastAgentTimestamp[chatJid] = previousCursor;
     saveState();
@@ -279,7 +314,7 @@ async function runAgent(
   prompt: string,
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
-): Promise<'success' | 'error'> {
+): Promise<{ status: 'success' | 'error'; error?: string }> {
   const isMain = group.folder === MAIN_GROUP_FOLDER;
   const sessionId = sessions[group.folder];
 
@@ -344,13 +379,14 @@ async function runAgent(
         { group: group.name, error: output.error },
         'Container agent error',
       );
-      return 'error';
+      return { status: 'error', error: output.error };
     }
 
-    return 'success';
+    return { status: 'success' };
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     logger.error({ group: group.name, err }, 'Agent error');
-    return 'error';
+    return { status: 'error', error: msg };
   }
 }
 
@@ -531,6 +567,7 @@ async function main(): Promise<void> {
 
   // Start web server
   const { broadcastToJid } = startServer({
+    getGroupStats: (jid) => groupStats[jid],
     sendMessage: async (jid, rawText) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);

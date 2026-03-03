@@ -45,6 +45,11 @@ export interface ContainerOutput {
   newSessionId?: string;
   error?: string;
   streamEvent?: any;
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    context_window?: number;
+  };
 }
 
 interface VolumeMount {
@@ -275,7 +280,17 @@ export async function runContainerAgent(
       spawnCmd = 'node';
       spawnArgs = [path.resolve(process.cwd(), 'container/agent-runner/dist/index.js')];
       
-      const tempWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'nanoclaw-workspace-'));
+      // Use a stable workspace path for local mode to ensure resume works correctly
+      // (Claude CLI might rely on absolute paths in its session state)
+      const tempWorkspace = path.join(DATA_DIR, 'workspaces', group.folder);
+      
+      // Clean up previous run's workspace to ensure clean symlinks
+      try {
+        fs.rmSync(tempWorkspace, { recursive: true, force: true });
+      } catch (err) {
+        // ignore
+      }
+      fs.mkdirSync(tempWorkspace, { recursive: true });
       
       // Symlink group dir
       fs.symlinkSync(groupDir, path.join(tempWorkspace, 'group'));

@@ -37,6 +37,7 @@ export interface ServerOpts {
     is_bot_message: boolean;
   }>;
   onStopGeneration?: (jid: string) => void;
+  getGroupStats?: (jid: string) => { usage?: { input_tokens: number, output_tokens: number } } | undefined;
 }
 
 export interface BroadcastCapability {
@@ -125,6 +126,30 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       res.status(200).json({ success: true });
     } catch (err) {
       logger.error({ err }, 'Failed to delete chat');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/groups/:jid/status', (req, res) => {
+    try {
+      const { jid } = req.params;
+      const groups = getAllRegisteredGroups();
+      const group = groups[jid];
+      
+      if (!group) {
+        return res.status(404).json({ error: 'Group not found' });
+      }
+
+      const stats = opts.getGroupStats ? opts.getGroupStats(jid) : undefined;
+      const model = process.env.MODEL || 'claude-3-5-sonnet-20241022'; // Default fallback
+
+      res.json({
+        workingDirectory: group.folder,
+        model,
+        usage: stats?.usage || { input_tokens: 0, output_tokens: 0 }
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to fetch group status');
       res.status(500).json({ error: 'Internal Server Error' });
     }
   });

@@ -40,13 +40,34 @@ if [ "$1" == "--docker" ]; then
 
     echo "Starting Docker container..."
     
+    # Create directories for persistence
+    mkdir -p store data groups
+    
+    # Ensure directories are writable by the container user (node, uid 1000)
+    # This avoids permission errors when mounting host directories created by root
+    chown -R 1000:1000 store data groups || true
+    
     # Run container with environment variables from .env
     # We use --env-file to pass all variables from .env directly
+    # We mount volumes to persist data, store (DB), and groups
     if [ -f .env ]; then
-        docker run -d -p 3000:3000 --name cnp-bot --env-file .env cnp-bot
+        docker run -d \
+          -p 3000:3000 \
+          --name cnp-bot \
+          --env-file .env \
+          -v "$(pwd)/store:/app/store" \
+          -v "$(pwd)/data:/app/data" \
+          -v "$(pwd)/groups:/app/groups" \
+          cnp-bot
     else
         echo "Warning: .env file not found. Running with default environment."
-        docker run -d -p 3000:3000 --name cnp-bot cnp-bot
+        docker run -d \
+          -p 3000:3000 \
+          --name cnp-bot \
+          -v "$(pwd)/store:/app/store" \
+          -v "$(pwd)/data:/app/data" \
+          -v "$(pwd)/groups:/app/groups" \
+          cnp-bot
     fi
 
     echo "Container started. Logs:"

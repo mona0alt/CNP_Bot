@@ -5,6 +5,8 @@ import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { ToolCallCard } from "@/components/ToolCallCard";
 import { ThoughtProcess } from "@/components/ThoughtProcess";
 import { parseThoughts } from "@/lib/thought-parser";
+import { StatusSidebar } from "@/components/StatusSidebar";
+import { SlashCommandPopup } from "@/components/SlashCommandPopup";
 
 interface Chat {
   jid: string;
@@ -53,6 +55,8 @@ export function Chat() {
   const [loading, setLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [newMessage, setNewMessage] = useState("");
+  const [showSlashCommands, setShowSlashCommands] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const messageIdsRef = useRef<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -86,6 +90,35 @@ export function Chat() {
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedJid || isGenerating) return;
+
+    // Client-side slash commands
+    if (newMessage.startsWith('/')) {
+        const cmd = newMessage.trim();
+        setNewMessage("");
+        setShowSlashCommands(false);
+        
+        if (cmd === "/clear") {
+             if (confirm("Clear chat history view?")) {
+               setMessages([]);
+               messageIdsRef.current.clear();
+             }
+             return;
+        } else if (cmd === "/help") {
+             const helpMsg: Message = {
+               id: 'help-' + Date.now(),
+               chat_jid: selectedJid,
+               sender_name: 'System',
+               content: "Available commands:\n\n- `/help`: Show this help message\n- `/clear`: Clear chat history view\n- `/status`: Show current status",
+               timestamp: new Date().toISOString(),
+               is_from_me: false,
+               is_bot_message: true
+             };
+             setMessages(prev => [...prev, helpMsg]);
+             return;
+        }
+        // If unknown command, send it to bot? Or show error?
+        // Let's send it to bot for now as it might be a valid bot command
+    }
 
     setIsGenerating(true);
     const ws = wsRef.current;
@@ -611,20 +644,65 @@ export function Chat() {
                         })
                     )}
                 </div>
-                <div className="p-4 border-t bg-card/50">
+                <div className="p-4 border-t bg-card/50 relative">
+                    {showSlashCommands && (
+                      <SlashCommandPopup
+                        onSelect={(cmd) => {
+                          setShowSlashCommands(false);
+                          setNewMessage("");
+                          if (cmd === "/clear") {
+                             if (confirm("Clear chat history view?")) {
+                               setMessages([]);
+                               messageIdsRef.current.clear();
+                             }
+                          } else if (cmd === "/help") {
+                             const helpMsg: Message = {
+                               id: 'help-' + Date.now(),
+                               chat_jid: selectedJid,
+                               sender_name: 'System',
+                               content: "Available commands:\n\n- `/help`: Show this help message\n- `/clear`: Clear chat history view\n- `/status`: Show current status",
+                               timestamp: new Date().toISOString(),
+                               is_from_me: false,
+                               is_bot_message: true
+                             };
+                             setMessages(prev => [...prev, helpMsg]);
+                          } else if (cmd === "/status") {
+                             // Status is already visible in sidebar
+                          }
+                        }}
+                        onClose={() => setShowSlashCommands(false)}
+                        position={{ top: 0, left: 0 }} // Position handled by CSS bottom: 100%
+                      />
+                    )}
                     <div className="flex gap-2">
                         <input
+                            ref={inputRef}
                             type="text"
                             value={newMessage}
-                            onChange={(e) => setNewMessage(e.target.value)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setNewMessage(val);
+                              if (val === "/") {
+                                setShowSlashCommands(true);
+                              } else if (val === "") {
+                                setShowSlashCommands(false);
+                              }
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" && !e.nativeEvent.isComposing) {
                                 e.preventDefault();
+                                if (showSlashCommands) {
+                                   // Maybe select first command? For now just close.
+                                   setShowSlashCommands(false);
+                                }
                                 handleSendMessage();
+                              }
+                              if (e.key === "Escape") {
+                                setShowSlashCommands(false);
                               }
                             }}
                             disabled={isGenerating}
-                            placeholder={isGenerating ? "Agent is thinking..." : "Type a message..."}
+                            placeholder={isGenerating ? "Agent is thinking..." : "Type a message... (try /)"}
                             className="flex-1 bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                         />
                         <button
@@ -652,6 +730,7 @@ export function Chat() {
               </div>
           )}
       </div>
+      <StatusSidebar jid={selectedJid} apiBase={apiBase} />
     </div>
   );
 }
