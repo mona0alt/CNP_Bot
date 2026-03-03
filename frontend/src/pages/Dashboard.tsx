@@ -21,12 +21,16 @@ export function Dashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
 
   useEffect(() => {
-    fetch("/api/status")
+    const apiBase = import.meta.env.DEV
+      ? `${location.protocol}//${location.hostname}:3000`
+      : "";
+
+    fetch(`${apiBase}/api/status`)
       .then((res) => res.json())
       .then(setStatus)
       .catch(console.error);
 
-    fetch("/api/tasks")
+    fetch(`${apiBase}/api/tasks`)
       .then((res) => res.json())
       .then(setTasks)
       .catch(console.error);

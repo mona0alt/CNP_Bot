@@ -58,11 +58,15 @@ export function Chat() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pinnedToBottomRef = useRef(true);
 
+  const apiBase = import.meta.env.DEV
+    ? `${location.protocol}//${location.hostname}:3000`
+    : "";
+
   const fetchMessages = async (jid: string) => {
     setLoading(true);
     setIsGenerating(false);
     try {
-      const res = await fetch(`/api/groups/${jid}/messages?limit=200`);
+      const res = await fetch(`${apiBase}/api/groups/${jid}/messages?limit=200`);
       const data = (await res.json()) as Message[];
       messageIdsRef.current = new Set(data.map((m) => m.id));
       setMessages(data);
@@ -107,7 +111,7 @@ export function Chat() {
       return;
     }
     try {
-      const res = await fetch(`/api/groups/${selectedJid}/messages`, {
+      const res = await fetch(`${apiBase}/api/groups/${selectedJid}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
@@ -124,7 +128,7 @@ export function Chat() {
   };
 
   const fetchChats = () => {
-    fetch("/api/chats")
+    fetch(`${apiBase}/api/chats`)
       .then((res) => res.json())
       .then(setChats)
       .catch(console.error);
@@ -132,7 +136,7 @@ export function Chat() {
 
   const handleCreateChat = async () => {
     try {
-      const res = await fetch("/api/chats", { method: "POST" });
+      const res = await fetch(`${apiBase}/api/chats`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to create chat");
       const newChat = await res.json();
       fetchChats();
@@ -147,7 +151,7 @@ export function Chat() {
     if (!confirm("Are you sure you want to delete this chat?")) return;
 
     try {
-      const res = await fetch(`/api/chats/${encodeURIComponent(jid)}`, {
+      const res = await fetch(`${apiBase}/api/chats/${encodeURIComponent(jid)}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete chat");
@@ -180,7 +184,10 @@ export function Chat() {
         if (cancelled) return;
         const lastTs = initial.length > 0 ? initial[initial.length - 1]!.timestamp : "";
         const proto = location.protocol === "https:" ? "wss" : "ws";
-        const url = `${proto}://${location.host}/ws?jid=${encodeURIComponent(selectedJid)}&since=${encodeURIComponent(lastTs)}`;
+        const wsHost = import.meta.env.DEV
+          ? `${location.hostname}:3000`
+          : location.host;
+        const url = `${proto}://${wsHost}/ws?jid=${encodeURIComponent(selectedJid)}&since=${encodeURIComponent(lastTs)}`;
         const ws = new WebSocket(url);
         wsRef.current = ws;
 
