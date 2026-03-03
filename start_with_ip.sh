@@ -13,6 +13,47 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Check for Docker mode argument
+if [ "$1" == "--docker" ]; then
+    echo "Running in Docker mode..."
+    
+    # Check if docker is installed
+    if ! command_exists docker; then
+        echo "Error: Docker is not installed."
+        exit 1
+    fi
+
+    # Check if .env exists
+    if [ ! -f .env ]; then
+        echo "Error: .env file not found. Please ensure it exists before running in Docker mode."
+        exit 1
+    fi
+
+    echo "Building Docker image..."
+    docker build -t cnp-bot .
+
+    # Stop existing container if running
+    if [ "$(docker ps -a -q -f name=cnp-bot)" ]; then
+        echo "Stopping existing container..."
+        docker rm -f cnp-bot
+    fi
+
+    echo "Starting Docker container..."
+    
+    # Run container with environment variables from .env
+    # We use --env-file to pass all variables from .env directly
+    if [ -f .env ]; then
+        docker run -d -p 3000:3000 --name cnp-bot --env-file .env cnp-bot
+    else
+        echo "Warning: .env file not found. Running with default environment."
+        docker run -d -p 3000:3000 --name cnp-bot cnp-bot
+    fi
+
+    echo "Container started. Logs:"
+    docker logs -f cnp-bot
+    exit 0
+fi
+
 # 1. Configuration Check & Creation
 
 # Check .env
@@ -25,13 +66,13 @@ HOST=0.0.0.0
 EOL
 else
     echo "✓ .env found"
-    # Ensure USE_LOCAL_AGENT=true is present
-    if ! grep -q "USE_LOCAL_AGENT=true" .env; then
+    # Ensure USE_LOCAL_AGENT is present (don't overwrite if exists)
+    if ! grep -q "^USE_LOCAL_AGENT=" .env; then
         echo "USE_LOCAL_AGENT=true" >> .env
         echo "  Added USE_LOCAL_AGENT=true to .env"
     fi
-    # Ensure HOST=0.0.0.0 is present
-    if ! grep -q "HOST=0.0.0.0" .env; then
+    # Ensure HOST is present
+    if ! grep -q "^HOST=" .env; then
         echo "HOST=0.0.0.0" >> .env
         echo "  Added HOST=0.0.0.0 to .env"
     fi
@@ -106,6 +147,16 @@ fi
 
 echo ""
 echo "Starting services..."
+
+# Check if ports are in use (simple check using lsof if available)
+if command_exists lsof; then
+    if lsof -i :3000 >/dev/null; then
+        echo "Warning: Port 3000 seems to be in use. The backend might fail to start."
+    fi
+    if lsof -i :5173 >/dev/null; then
+        echo "Note: Port 5173 seems to be in use. The frontend will try the next available port."
+    fi
+fi
 
 # Cleanup function to kill background processes on exit
 cleanup() {
