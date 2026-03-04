@@ -208,7 +208,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     };
 
     try {
-      storeChatMetadata(jid, timestamp, undefined, 'whatsapp', jid.endsWith('@g.us'));
+      storeChatMetadata(jid, timestamp, undefined, 'web', jid.endsWith('@g.us'));
       storeMessageDirect(msg);
       if (opts.sendMessage) {
         await opts.sendMessage(jid, parsed.data.content);
@@ -354,7 +354,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
                 is_bot_message: true,
               };
               try {
-                storeChatMetadata(jid, timestamp, undefined, 'whatsapp', jid.endsWith('@g.us'));
+                storeChatMetadata(jid, timestamp, undefined, 'web', jid.endsWith('@g.us'));
                 storeMessageDirect(msg);
                 if (opts.sendMessage) {
                   await opts.sendMessage(jid, content);

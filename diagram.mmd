@@ -1,0 +1,69 @@
+flowchart TD
+    subgraph Users["用户层"]
+        WA[WhatsApp 用户]
+        Web[Web 用户]
+    end
+
+    subgraph Channels["消息通道"]
+        WhatsApp[WhatsApp Channel<br/>Baileys]
+        WebChannel[Web Channel<br/>Express + WebSocket]
+    end
+
+    subgraph Core["核心编排层 (index.ts)"]
+        DB[(SQLite Database)]
+        MQ[GroupQueue<br/>消息队列]
+        Router[router.ts<br/>消息路由]
+    end
+
+    subgraph Container["容器层"]
+        CR[container-runner.ts<br/>容器启动器]
+        RT[container-runtime.ts<br/>Docker 运行时]
+        IPC[ipc.ts<br/>IPC 文件监听]
+        TS[task-scheduler.ts<br/>定时任务]
+    end
+
+    subgraph AgentContainer["Agent 容器 (Docker)"]
+        AGENT[agent-runner/index.ts<br/>Claude Agent SDK]
+        IPCFiles[IPC 文件轮询]
+    end
+
+    subgraph Frontend["前端"]
+        FE[React + Vite<br/>Web UI]
+    end
+
+    Users -->|"消息"| Channels
+    WA -->|Baileys| WhatsApp
+    Web -->|HTTP/WS| WebChannel
+
+    WhatsApp -->|"storeMessage()"| DB
+    WebChannel -->|"storeMessage()"| DB
+
+    DB -->|"消息轮询"| MQ
+    MQ -->|"processGroupMessages()"| CR
+
+    CR -->|"spawn docker run"| RT
+    CR -->|"mount volumes"| RT
+
+    RT -->|"stdin/stdout"| AgentContainer
+
+    AgentContainer -->|"---NANOCLAW_OUTPUT_START---"| CR
+
+    CR -->|"streamEvent()"| Channels
+    CR -->|"sendMessage()"| Channels
+
+    IPC -.->|"监听 IPC 文件"| IPCFiles
+    IPCFiles -->|"写入消息"| Channels
+
+    TS -.->|"getDueTasks()"| MQ
+
+    FE <-->|HTTP/WS| WebChannel
+
+    classDef primary fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef secondary fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef storage fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef container fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+
+    class Core,Router primary
+    class Channels,Frontend secondary
+    class DB storage
+    class AgentContainer,Container container
