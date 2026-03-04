@@ -55,18 +55,12 @@ if [ "$1" == "--docker" ]; then
           -p 3000:3000 \
           --name cnp-bot \
           --env-file .env \
-          -v "$(pwd)/store:/app/store" \
-          -v "$(pwd)/data:/app/data" \
-          -v "$(pwd)/groups:/app/groups" \
           cnp-bot
     else
         echo "Warning: .env file not found. Running with default environment."
         docker run -d \
           -p 3000:3000 \
           --name cnp-bot \
-          -v "$(pwd)/store:/app/store" \
-          -v "$(pwd)/data:/app/data" \
-          -v "$(pwd)/groups:/app/groups" \
           cnp-bot
     fi
 

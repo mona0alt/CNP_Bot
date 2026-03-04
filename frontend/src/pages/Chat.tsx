@@ -559,7 +559,14 @@ export function Chat() {
                           const avatar = msg.is_bot_message ? "bg-blue-600" : "bg-muted";
 
                           const blocks = parseMessageContent(msg.content);
-                          
+
+                          // Sort blocks: tool_use first, then everything else
+                          const sortedBlocks = [...blocks].sort((a, b) => {
+                            if (a.type === 'tool_use' && b.type !== 'tool_use') return -1;
+                            if (a.type !== 'tool_use' && b.type === 'tool_use') return 1;
+                            return 0;
+                          });
+
                           // Force display name for bot messages
                           const displayName = msg.is_bot_message ? "CNP-Bot" : msg.sender_name;
 
@@ -585,8 +592,8 @@ export function Chat() {
                                     {displayName}
                                   </div>
                                 ) : null}
-                                
-                                {blocks.map((block, idx) => {
+
+                                {sortedBlocks.map((block, idx) => {
                                     if (block.type === 'tool_use') {
                                         let inputObj = block.input || {};
                                         // Try to parse partial_json if input is empty
@@ -600,7 +607,7 @@ export function Chat() {
 
                                         return (
                                             <ToolCallCard
-                                                key={idx}
+                                                key={`tool-${block.id || idx}`}
                                                 toolName={block.name || 'Unknown Tool'}
                                                 input={inputObj}
                                                 status={block.status || 'calling'}
