@@ -55,10 +55,17 @@ export function ChatSidebar({
               selectedJid === chat.jid && "bg-muted"
             )}
           >
-            <div className="font-medium truncate pr-6">{chat.name || chat.jid}</div>
+            <div className="font-medium truncate pr-6">{chat.last_user_message || chat.name || chat.jid}</div>
             <div className="text-xs text-muted-foreground mt-1">
               {new Date(chat.last_message_time).toLocaleString()}
             </div>
+            {chat.last_message && (
+              <div className="text-sm text-muted-foreground/80 truncate pr-6 mt-0.5">
+                {chat.last_message.length > 50
+                  ? chat.last_message.substring(0, 50) + '...'
+                  : chat.last_message}
+              </div>
+            )}
             <button
               onClick={(e) => handleDeleteClick(e, chat.jid)}
               className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"

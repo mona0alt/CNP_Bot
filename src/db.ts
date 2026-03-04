@@ -194,6 +194,8 @@ export interface ChatInfo {
   jid: string;
   name: string;
   last_message_time: string;
+  last_message: string;
+  last_user_message: string;
   channel: string;
   is_group: number;
 }
@@ -205,9 +207,28 @@ export function getAllChats(): ChatInfo[] {
   return db
     .prepare(
       `
-    SELECT jid, name, last_message_time, channel, is_group
-    FROM chats
-    ORDER BY last_message_time DESC
+    SELECT
+      c.jid,
+      c.name,
+      c.last_message_time,
+      c.channel,
+      c.is_group,
+      (
+        SELECT SUBSTR(m.content, 1, 100)
+        FROM messages m
+        WHERE m.chat_jid = c.jid
+        ORDER BY m.timestamp DESC
+        LIMIT 1
+      ) AS last_message,
+      (
+        SELECT SUBSTR(m.content, 1, 50)
+        FROM messages m
+        WHERE m.chat_jid = c.jid AND m.is_bot_message = 0
+        ORDER BY m.timestamp DESC
+        LIMIT 1
+      ) AS last_user_message
+    FROM chats c
+    ORDER BY c.last_message_time DESC
   `,
     )
     .all() as ChatInfo[];

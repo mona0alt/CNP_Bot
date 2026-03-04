@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquare, Trash2 } from "lucide-react";
 import type { Chat, Message } from "@/lib/types";
 import { StatusSidebar } from "@/components/StatusSidebar";
@@ -25,11 +25,47 @@ export function Chat() {
     : "";
 
   // Chat list operations
-  const fetchChats = () => {
+  const fetchChats = useCallback(() => {
     fetch(`${apiBase}/api/chats`)
       .then((res) => res.json())
       .then(setChats)
       .catch(console.error);
+  }, [apiBase]);
+
+  const updateChatPreviewFromUserMessage = (jid: string, content: string, timestamp: string) => {
+    const sessionTitle = content.trim();
+    if (!sessionTitle) return;
+
+    setChats((prev) => {
+      const next = [...prev];
+      const index = next.findIndex((chat) => chat.jid === jid);
+
+      if (index >= 0) {
+        const existing = next[index];
+        next[index] = {
+          ...existing,
+          last_message_time: timestamp,
+          last_message: content,
+          last_user_message: sessionTitle,
+        };
+      } else {
+        next.push({
+          jid,
+          name: "New Chat",
+          last_message_time: timestamp,
+          last_message: content,
+          last_user_message: sessionTitle,
+          is_group: 0,
+        });
+      }
+
+      next.sort(
+        (a, b) =>
+          new Date(b.last_message_time || 0).getTime() -
+          new Date(a.last_message_time || 0).getTime()
+      );
+      return next;
+    });
   };
 
   const handleCreateChat = async () => {
@@ -70,7 +106,7 @@ export function Chat() {
   // Initial load
   useEffect(() => {
     fetchChats();
-  }, []);
+  }, [fetchChats]);
 
   // Load messages when chat is selected
   useEffect(() => {
@@ -138,7 +174,8 @@ export function Chat() {
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedJid || isGenerating) return;
 
-    const content = newMessage;
+    const content = newMessage.trim();
+    const timestamp = new Date().toISOString();
     setNewMessage("");
     setIsGenerating(true);
 
@@ -149,11 +186,12 @@ export function Chat() {
       chat_jid: selectedJid,
       sender_name: 'You',
       content,
-      timestamp: new Date().toISOString(),
+      timestamp,
       is_from_me: true,
       is_bot_message: false
     };
     setMessages((prev) => [...prev, optimisticMsg]);
+    updateChatPreviewFromUserMessage(selectedJid, content, timestamp);
     return;
 
     // Fallback to HTTP

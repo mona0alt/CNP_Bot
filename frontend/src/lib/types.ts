@@ -2,6 +2,8 @@ export interface Chat {
   jid: string;
   name: string;
   last_message_time: string;
+  last_message: string;
+  last_user_message: string;
   is_group: number;
 }
 
