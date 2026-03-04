@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7,6 +7,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { RawData } from 'ws';
 import { z } from 'zod';
+import jwt, { type SignOptions } from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
 import {
   getAllRegisteredGroups,
   getRecentMessages,
@@ -16,12 +18,69 @@ import {
   storeChatMetadata,
   storeMessageDirect,
   deleteChat,
+  getUserByUsername,
+  getUserById,
+  getAllUsers,
+  createUser,
+  updateUser,
+  updateUserPassword,
+  updateUserLastLogin,
+  deleteUser,
+  type UserWithoutPassword,
 } from './db.js';
 import { logger } from './logger.js';
-import { ASSISTANT_NAME } from './config.js';
+import { ASSISTANT_NAME, JWT_SECRET, JWT_EXPIRES_IN } from './config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// --- Auth types ---
+
+interface AuthUser {
+  userId: string;
+  username: string;
+  role: 'admin' | 'user';
+}
+
+interface AuthRequest extends Request {
+  user?: AuthUser;
+}
+
+// --- Auth middleware ---
+
+function authenticateToken(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): void {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+    req.user = decoded;
+    next();
+  } catch {
+    res.status(403).json({ error: 'Invalid or expired token' });
+  }
+}
+
+function requireAdmin(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!req.user || req.user.role !== 'admin') {
+    res.status(403).json({ error: 'Admin access required' });
+    return;
+  }
+  next();
+}
 
 export interface ServerOpts {
   port?: number;
@@ -264,6 +323,209 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       res.json(tasks);
     } catch (err) {
       logger.error({ err }, 'Failed to fetch tasks');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  // --- Auth endpoints ---
+
+  app.post('/api/auth/login', async (req, res) => {
+    const schema = z.object({
+      username: z.string().min(1),
+      password: z.string().min(1),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    const { username, password } = parsed.data;
+    const user = getUserByUsername(username);
+
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    const validPassword = await bcrypt.compare(password, user.password_hash);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN } as SignOptions,
+    );
+
+    updateUserLastLogin(user.id);
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        display_name: user.display_name,
+      },
+    });
+  });
+
+  app.post('/api/auth/logout', authenticateToken, (_req, res) => {
+    res.json({ success: true });
+  });
+
+  app.get('/api/auth/me', authenticateToken, (req, res) => {
+    const authReq = req as AuthRequest;
+    const user = getUserById(authReq.user!.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      display_name: user.display_name,
+      last_login: user.last_login,
+    });
+  });
+
+  app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
+    const schema = z.object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(6),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    const { currentPassword, newPassword } = parsed.data;
+    const authReq = req as AuthRequest;
+    const user = getUserById(authReq.user!.userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const validPassword = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    updateUserPassword(user.id, newHash);
+
+    res.json({ success: true });
+  });
+
+  // --- User management endpoints (admin only) ---
+
+  app.get('/api/users', authenticateToken, requireAdmin, (_req, res) => {
+    try {
+      const users = getAllUsers();
+      res.json(users);
+    } catch (err) {
+      logger.error({ err }, 'Failed to fetch users');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
+    const schema = z.object({
+      username: z.string().min(1).max(50),
+      password: z.string().min(6),
+      role: z.enum(['admin', 'user']).optional(),
+      display_name: z.string().optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    const { username, password, role, display_name } = parsed.data;
+
+    // Check if username already exists
+    if (getUserByUsername(username)) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    try {
+      const passwordHash = await bcrypt.hash(password, 10);
+      const id = randomUUID();
+      createUser({
+        id,
+        username,
+        password_hash: passwordHash,
+        role: role || 'user',
+        display_name,
+      });
+
+      const newUser = getUserById(id);
+      res.status(201).json(newUser);
+    } catch (err) {
+      logger.error({ err }, 'Failed to create user');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.put('/api/users/:id', authenticateToken, requireAdmin, (req, res) => {
+    const { id } = req.params as { id: string };
+    const schema = z.object({
+      username: z.string().min(1).max(50).optional(),
+      role: z.enum(['admin', 'user']).optional(),
+      display_name: z.string().optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    const user = getUserById(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check username uniqueness if changing
+    if (parsed.data.username && parsed.data.username !== user.username) {
+      if (getUserByUsername(parsed.data.username)) {
+        return res.status(400).json({ error: 'Username already exists' });
+      }
+    }
+
+    try {
+      updateUser(id, parsed.data);
+      const updated = getUserById(id);
+      res.json(updated);
+    } catch (err) {
+      logger.error({ err }, 'Failed to update user');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.delete('/api/users/:id', authenticateToken, requireAdmin, (req, res) => {
+    const { id } = req.params as { id: string };
+    const authReq = req as AuthRequest;
+
+    // Prevent self-deletion
+    if (id === authReq.user!.userId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    const user = getUserById(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    try {
+      deleteUser(id);
+      res.json({ success: true });
+    } catch (err) {
+      logger.error({ err }, 'Failed to delete user');
       res.status(500).json({ error: 'Internal Server Error' });
     }
   });

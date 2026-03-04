@@ -77,6 +77,17 @@ function createSchema(database: Database.Database): void {
       container_config TEXT,
       requires_trigger INTEGER DEFAULT 1
     );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT DEFAULT 'user',
+      display_name TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_login TEXT
+    );
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -727,4 +738,116 @@ function migrateJsonState(): void {
       }
     }
   }
+}
+
+// --- User types ---
+
+export interface User {
+  id: string;
+  username: string;
+  password_hash: string;
+  role: 'admin' | 'user';
+  display_name: string | null;
+  created_at: string;
+  updated_at: string;
+  last_login: string | null;
+}
+
+export interface UserWithoutPassword {
+  id: string;
+  username: string;
+  role: 'admin' | 'user';
+  display_name: string | null;
+  created_at: string;
+  updated_at: string;
+  last_login: string | null;
+}
+
+// --- User operations ---
+
+export function createUser(user: {
+  id: string;
+  username: string;
+  password_hash: string;
+  role?: 'admin' | 'user';
+  display_name?: string;
+}): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO users (id, username, password_hash, role, display_name, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    user.id,
+    user.username,
+    user.password_hash,
+    user.role || 'user',
+    user.display_name || null,
+    now,
+    now,
+  );
+}
+
+export function getUserByUsername(username: string): User | undefined {
+  return db.prepare('SELECT * FROM users WHERE username = ?').get(username) as
+    | User
+    | undefined;
+}
+
+export function getUserById(id: string): User | undefined {
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(id) as
+    | User
+    | undefined;
+}
+
+export function getAllUsers(): UserWithoutPassword[] {
+  return db.prepare(
+    'SELECT id, username, role, display_name, created_at, updated_at, last_login FROM users ORDER BY created_at DESC',
+  ).all() as UserWithoutPassword[];
+}
+
+export function updateUser(
+  id: string,
+  updates: {
+    username?: string;
+    role?: 'admin' | 'user';
+    display_name?: string;
+  },
+): void {
+  const fields: string[] = ['updated_at = ?'];
+  const values: unknown[] = [new Date().toISOString()];
+
+  if (updates.username !== undefined) {
+    fields.push('username = ?');
+    values.push(updates.username);
+  }
+  if (updates.role !== undefined) {
+    fields.push('role = ?');
+    values.push(updates.role);
+  }
+  if (updates.display_name !== undefined) {
+    fields.push('display_name = ?');
+    values.push(updates.display_name);
+  }
+
+  values.push(id);
+  db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(
+    ...values,
+  );
+}
+
+export function updateUserPassword(id: string, passwordHash: string): void {
+  db.prepare(
+    'UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?',
+  ).run(passwordHash, new Date().toISOString(), id);
+}
+
+export function updateUserLastLogin(id: string): void {
+  db.prepare('UPDATE users SET last_login = ? WHERE id = ?').run(
+    new Date().toISOString(),
+    id,
+  );
+}
+
+export function deleteUser(id: string): void {
+  db.prepare('DELETE FROM users WHERE id = ?').run(id);
 }

@@ -16,10 +16,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.8.1",
     "cors": "^2.8.6",
     "cron-parser": "^5.5.0",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
     "ws": "^8.17.1",
@@ -27,9 +29,11 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.0.18",

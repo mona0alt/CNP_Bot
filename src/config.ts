@@ -1,5 +1,6 @@
 import os from 'os';
 import path from 'path';
+import crypto from 'crypto';
 
 import { readEnvFile } from './env.js';
 
@@ -10,6 +11,7 @@ const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
   'USE_LOCAL_AGENT',
+  'JWT_SECRET',
 ]);
 
 export const ASSISTANT_NAME =
@@ -70,3 +72,10 @@ export const TRIGGER_PATTERN = new RegExp(
 // Uses system timezone by default
 export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+// JWT configuration
+export const JWT_SECRET =
+  process.env.JWT_SECRET ||
+  envConfig.JWT_SECRET ||
+  crypto.randomBytes(32).toString('hex');
+export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';

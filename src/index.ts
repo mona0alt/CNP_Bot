@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import bcrypt from 'bcrypt';
 
 import {
   ASSISTANT_NAME,
@@ -27,12 +28,14 @@ import {
   getMessagesSince,
   getNewMessages,
   getRouterState,
+  getUserByUsername,
   initDatabase,
   setRegisteredGroup,
   setRouterState,
   setSession,
   storeChatMetadata,
   storeMessage,
+  createUser,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -45,6 +48,26 @@ import { logger } from './logger.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
+
+// --- Default admin user ---
+
+async function ensureDefaultAdmin(): Promise<void> {
+  const existingAdmin = getUserByUsername('admin');
+  if (existingAdmin) {
+    logger.debug('Admin user already exists');
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash('admin123', 10);
+  createUser({
+    id: randomUUID(),
+    username: 'admin',
+    password_hash: passwordHash,
+    role: 'admin',
+    display_name: 'Administrator',
+  });
+  logger.info('Created default admin user (username: admin, password: admin123)');
+}
 
 let lastTimestamp = '';
 let sessions: Record<string, string> = {};
@@ -588,6 +611,10 @@ async function main(): Promise<void> {
   ensureContainerSystemRunning();
   initDatabase();
   logger.info('Database initialized');
+
+  // Ensure default admin user exists
+  await ensureDefaultAdmin();
+
   loadState();
 
   if (!registeredGroups['web:default']) {
