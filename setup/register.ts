@@ -30,7 +30,7 @@ function parseArgs(args: string[]): RegisterArgs {
     trigger: '',
     folder: '',
     requiresTrigger: true,
-    assistantName: 'Andy',
+    assistantName: '',
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -40,7 +40,7 @@ function parseArgs(args: string[]): RegisterArgs {
       case '--trigger': result.trigger = args[++i] || ''; break;
       case '--folder': result.folder = args[++i] || ''; break;
       case '--no-trigger-required': result.requiresTrigger = false; break;
-      case '--assistant-name': result.assistantName = args[++i] || 'Andy'; break;
+      case '--assistant-name': result.assistantName = args[++i] || ''; break;
     }
   }
 
@@ -103,41 +103,40 @@ export async function run(args: string[]): Promise<void> {
   // Create group folders
   fs.mkdirSync(path.join(projectRoot, 'groups', parsed.folder, 'logs'), { recursive: true });
 
-  // Update assistant name in CLAUDE.md files if different from default
+  const assistantName = parsed.assistantName || process.env.ASSISTANT_NAME || '';
+
   let nameUpdated = false;
-  if (parsed.assistantName !== 'Andy') {
-    logger.info({ from: 'Andy', to: parsed.assistantName }, 'Updating assistant name');
+  if (assistantName) {
+    logger.info({ to: assistantName }, 'Updating assistant name');
 
     const mdFiles = [
       path.join(projectRoot, 'groups', 'global', 'CLAUDE.md'),
-      path.join(projectRoot, 'groups', 'main', 'CLAUDE.md'),
     ];
 
     for (const mdFile of mdFiles) {
       if (fs.existsSync(mdFile)) {
         let content = fs.readFileSync(mdFile, 'utf-8');
-        content = content.replace(/^# Andy$/m, `# ${parsed.assistantName}`);
-        content = content.replace(/You are Andy/g, `You are ${parsed.assistantName}`);
+        content = content.replace(/^#\s+.*$/m, `# ${assistantName}`);
+        content = content.replace(/You are\s+[^\n,.]+/g, `You are ${assistantName}`);
         fs.writeFileSync(mdFile, content);
         logger.info({ file: mdFile }, 'Updated CLAUDE.md');
       }
     }
 
-    // Update .env
     const envFile = path.join(projectRoot, '.env');
     if (fs.existsSync(envFile)) {
       let envContent = fs.readFileSync(envFile, 'utf-8');
       if (envContent.includes('ASSISTANT_NAME=')) {
         envContent = envContent.replace(
           /^ASSISTANT_NAME=.*$/m,
-          `ASSISTANT_NAME="${parsed.assistantName}"`,
+          `ASSISTANT_NAME="${assistantName}"`,
         );
       } else {
-        envContent += `\nASSISTANT_NAME="${parsed.assistantName}"`;
+        envContent += `\nASSISTANT_NAME="${assistantName}"`;
       }
       fs.writeFileSync(envFile, envContent);
     } else {
-      fs.writeFileSync(envFile, `ASSISTANT_NAME="${parsed.assistantName}"\n`);
+      fs.writeFileSync(envFile, `ASSISTANT_NAME="${assistantName}"\n`);
     }
     logger.info('Set ASSISTANT_NAME in .env');
     nameUpdated = true;
@@ -149,7 +148,7 @@ export async function run(args: string[]): Promise<void> {
     FOLDER: parsed.folder,
     TRIGGER: parsed.trigger,
     REQUIRES_TRIGGER: parsed.requiresTrigger,
-    ASSISTANT_NAME: parsed.assistantName,
+    ASSISTANT_NAME: assistantName || parsed.assistantName,
     NAME_UPDATED: nameUpdated,
     STATUS: 'success',
     LOG: 'logs/setup.log',

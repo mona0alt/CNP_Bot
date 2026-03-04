@@ -399,17 +399,11 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
 
-  // Load local CLAUDE.md (specific to this group)
-  const localClaudeMdPath = path.join(WORKSPACE_ROOT, 'group', 'CLAUDE.md');
   let systemPromptAppend = '';
-  if (fs.existsSync(localClaudeMdPath)) {
-    systemPromptAppend += fs.readFileSync(localClaudeMdPath, 'utf-8') + '\n\n';
-  }
-
-  // Load global CLAUDE.md as additional system context (shared across all groups)
+  // Load global CLAUDE.md as shared system context for all groups
   const globalClaudeMdPath = path.join(WORKSPACE_ROOT, 'global', 'CLAUDE.md');
   if (fs.existsSync(globalClaudeMdPath)) {
-    systemPromptAppend += fs.readFileSync(globalClaudeMdPath, 'utf-8');
+    systemPromptAppend = fs.readFileSync(globalClaudeMdPath, 'utf-8');
   }
 
   // Discover additional directories mounted at /workspace/extra/*
@@ -455,7 +449,7 @@ async function runQuery(
       permissionMode: process.getuid?.() === 0 ? 'dontAsk' : 'bypassPermissions',
       allowDangerouslySkipPermissions: process.getuid?.() !== 0,
       executable: process.execPath as any,
-      settingSources: ['project', 'user'],
+      settingSources: ['user'],
 /*
       mcpServers: {
         nanoclaw: {

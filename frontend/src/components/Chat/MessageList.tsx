@@ -21,10 +21,16 @@ export function MessageList({ messages }: MessageListProps) {
     const displayName = hasThinkingTag ? "Thinking" : (msg.is_bot_message ? "CNP-Bot" : msg.sender_name);
     const avatarColor = hasThinkingTag ? "bg-amber-500" : (msg.is_bot_message ? "bg-blue-600" : "bg-muted");
 
-    // Sort blocks: tool_use first, then everything else
+    // Sort blocks: tool_use first, then thought, then everything else
     const sortedBlocks = [...blocks].sort((a, b) => {
+      // tool_use always comes first
       if (a.type === 'tool_use' && b.type !== 'tool_use') return -1;
       if (a.type !== 'tool_use' && b.type === 'tool_use') return 1;
+      // thought (parsed from text blocks) comes after tool_use but before regular text
+      const aHasThought = a.type === 'text' && /<(commentary|thinking|think|internal)>/.test(a.text || '');
+      const bHasThought = b.type === 'text' && /<(commentary|thinking|think|internal)>/.test(b.text || '');
+      if (aHasThought && !bHasThought) return 1;
+      if (!aHasThought && bHasThought) return -1;
       return 0;
     });
 
@@ -89,29 +95,36 @@ export function MessageList({ messages }: MessageListProps) {
               );
             }
 
+            // Parse thoughts from text blocks
             const segments = parseThoughts(block.text || "");
-            return segments.map((seg, sIdx) => {
-              if (seg.type === 'thought') {
-                return (
+
+            // Separate thought segments from text segments
+            const thoughtSegments = segments.filter(seg => seg.type === 'thought');
+            const textSegments = segments.filter(seg => seg.type === 'text');
+
+            // Render thought segments at the top (like toolcard)
+            return (
+              <>
+                {thoughtSegments.map((seg, sIdx) => (
                   <ThoughtProcess
-                    key={`${bIdx}-${sIdx}`}
+                    key={`thought-${bIdx}-${sIdx}`}
                     content={seg.content}
                     isComplete={!!seg.isComplete}
                     autoCollapse={true}
                   />
-                );
-              }
-              return (
-                <MarkdownRenderer
-                  key={`${bIdx}-${sIdx}`}
-                  content={seg.content}
-                  className={cn(
-                    "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-                    outgoing ? "prose-invert" : ""
-                  )}
-                />
-              );
-            });
+                ))}
+                {textSegments.map((seg, sIdx) => (
+                  <MarkdownRenderer
+                    key={`text-${bIdx}-${sIdx}`}
+                    content={seg.content}
+                    className={cn(
+                      "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                      outgoing ? "prose-invert" : ""
+                    )}
+                  />
+                ))}
+              </>
+            );
           })}
 
           <div className="text-[10px] opacity-60 mt-1 text-right">

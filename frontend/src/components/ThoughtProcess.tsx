@@ -19,10 +19,13 @@ export function ThoughtProcess({ content, isComplete }: ThoughtProcessProps) {
   if (!content && isComplete) return null;
 
   return (
-    <div className="border rounded-lg my-2 overflow-hidden bg-gradient-to-br from-amber-50 to-yellow-50 border-amber-200/60 shadow-sm">
-      <div className="w-full flex items-center justify-between px-3 py-2 hover:bg-amber-100/50 transition-colors text-left">
+    <div className="border rounded-lg my-2 overflow-hidden bg-card border-amber-200/60">
+      {/* Header - matches ToolCallCard header style */}
+      <div className="w-full flex items-center justify-between px-3 py-2 bg-amber-50/50 border-b border-amber-200/40 text-left">
         <div className="flex items-center gap-2 text-amber-700">
-          <Brain size={16} className={!isComplete ? "text-amber-600 animate-pulse" : "text-amber-500"} />
+          <div className="p-1 rounded-md bg-amber-100 border border-amber-200/60">
+            <Brain size={14} className={!isComplete ? "text-amber-600 animate-pulse" : "text-amber-500"} />
+          </div>
           <span className="text-xs font-semibold uppercase tracking-wider text-amber-600">
             Thinking
           </span>
@@ -34,12 +37,17 @@ export function ThoughtProcess({ content, isComplete }: ThoughtProcessProps) {
           )}
         </div>
         <div className="flex items-center gap-1">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping" />
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+          {!isComplete && (
+            <>
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping" />
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+            </>
+          )}
         </div>
       </div>
 
-      <div className="px-4 py-2 text-sm border-t border-amber-200/60 bg-white/30">
+      {/* Content - horizontal scroll for updates */}
+      <div className="px-4 py-2 text-sm bg-muted/10">
         <div
           ref={lineRef}
           className="overflow-x-auto whitespace-nowrap scrollbar-none text-amber-900/90 leading-6"

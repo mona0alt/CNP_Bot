@@ -76,7 +76,7 @@ if [ ! -f .env ]; then
     echo "Creating .env configuration..."
     cat > .env <<EOL
 USE_LOCAL_AGENT=true
-ASSISTANT_NAME=Andy
+ASSISTANT_NAME=Assistant
 HOST=0.0.0.0
 EOL
 else
