@@ -4,6 +4,7 @@ import type { Chat, Message } from "@/lib/types";
 import { StatusSidebar } from "@/components/StatusSidebar";
 import { ChatSidebar, MessageList, MessageInput } from "@/components/Chat";
 import { useChatWebSocket } from "@/hooks/useChatWebSocket";
+import { useStreamingMessages } from "@/contexts/StreamingMessagesContext";
 
 export function Chat() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -14,6 +15,8 @@ export function Chat() {
   const [newMessage, setNewMessage] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
+
+  const { saveStreamingMessages, getStreamingMessages, clearStreamingMessages } = useStreamingMessages();
 
   const apiBase = import.meta.env.DEV
     ? `${location.protocol}//${location.hostname}:3000`
@@ -77,10 +80,49 @@ export function Chat() {
     setLoading(true);
     setIsGenerating(false);
     fetchMessages(selectedJid).then((data) => {
-      setMessages(data);
+      // 尝试从 Context 恢复流式消息
+      const savedStreaming = getStreamingMessages(selectedJid);
+      if (savedStreaming && savedStreaming.length > 0) {
+        // 合并：数据库消息 + 流式消息（去除重复）
+        const streamingIds = new Set(savedStreaming.map(m => m.id));
+        const filteredData = data.filter(m => !streamingIds.has(m.id));
+        // 流式消息放在最后
+        setMessages([...filteredData, ...savedStreaming]);
+      } else {
+        setMessages(data);
+      }
       setLoading(false);
     });
-  }, [selectedJid, fetchMessages]);
+  }, [selectedJid, fetchMessages, getStreamingMessages]);
+
+  // 保存流式消息到 Context
+  useEffect(() => {
+    if (!selectedJid || messages.length === 0) return;
+    if (messages.some((m) => m.chat_jid !== selectedJid)) return;
+
+    const streamingBotMessages = messages.filter(
+      (m) => m.is_bot_message && m.id.startsWith("stream-")
+    );
+
+    if (streamingBotMessages.length > 0) {
+      saveStreamingMessages(selectedJid, streamingBotMessages);
+    } else {
+      clearStreamingMessages(selectedJid);
+    }
+  }, [selectedJid, messages, saveStreamingMessages, clearStreamingMessages]);
+
+  useEffect(() => {
+    if (!selectedJid || isGenerating) return;
+    const hasStreamingMessage = messages.some(
+      (m) => m.chat_jid === selectedJid && m.id.startsWith("stream-")
+    );
+    if (!hasStreamingMessage) {
+      const timer = setTimeout(() => {
+        clearStreamingMessages(selectedJid);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedJid, isGenerating, messages, clearStreamingMessages]);
 
   // Auto-scroll
   useEffect(() => {
@@ -96,6 +138,7 @@ export function Chat() {
 
     const content = newMessage;
     setNewMessage("");
+    setIsGenerating(true);
 
     // Try WebSocket first (sendMessage is always defined, but checks WebSocket state internally)
     sendMessage(content);
