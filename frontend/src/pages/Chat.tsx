@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, Trash2 } from "lucide-react";
 import type { Chat, Message } from "@/lib/types";
 import { StatusSidebar } from "@/components/StatusSidebar";
 import { ChatSidebar, MessageList, MessageInput } from "@/components/Chat";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useChatWebSocket } from "@/hooks/useChatWebSocket";
 import { useStreamingMessages } from "@/contexts/StreamingMessagesContext";
 
@@ -13,6 +14,7 @@ export function Chat() {
   const [loading, setLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [newMessage, setNewMessage] = useState("");
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
 
@@ -208,11 +210,18 @@ export function Chat() {
           <>
             <div className="p-4 border-b flex items-center justify-between bg-card/50">
               <h3 className="font-semibold">{chatName}</h3>
+              <button
+                onClick={() => setShowDeleteDialog(true)}
+                className="p-2 text-muted-foreground hover:text-destructive rounded-md hover:bg-muted transition-colors"
+                title="Delete Chat"
+              >
+                <Trash2 size={18} />
+              </button>
             </div>
 
             <div
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4"
+              className="flex-1 overflow-y-auto p-4 scrollbar-thin"
               onScroll={() => {
                 const el = scrollRef.current;
                 if (!el) return;
@@ -257,6 +266,22 @@ export function Chat() {
       </div>
 
       <StatusSidebar jid={selectedJid} apiBase={apiBase} />
+
+      <ConfirmDialog
+        open={showDeleteDialog}
+        title="Delete Chat"
+        message="Are you sure you want to delete this chat? This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={() => {
+          if (selectedJid) {
+            handleDeleteChat(selectedJid);
+            setShowDeleteDialog(false);
+          }
+        }}
+        onCancel={() => setShowDeleteDialog(false)}
+        destructive
+      />
     </div>
   );
 }

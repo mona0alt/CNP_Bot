@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { Chat } from "@/lib/types";
 
 interface ChatSidebarProps {
@@ -17,10 +19,18 @@ export function ChatSidebar({
   onCreateChat,
   onDeleteChat,
 }: ChatSidebarProps) {
-  const handleDelete = (e: React.MouseEvent, jid: string) => {
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleDeleteClick = (e: React.MouseEvent, jid: string) => {
     e.stopPropagation();
-    if (!confirm("Are you sure you want to delete this chat?")) return;
-    onDeleteChat(jid);
+    setDeleteTarget(jid);
+  };
+
+  const handleConfirmDelete = () => {
+    if (deleteTarget) {
+      onDeleteChat(deleteTarget);
+      setDeleteTarget(null);
+    }
   };
 
   return (
@@ -35,7 +45,7 @@ export function ChatSidebar({
           <Plus size={20} />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
         {chats.map((chat) => (
           <div
             key={chat.jid}
@@ -50,7 +60,7 @@ export function ChatSidebar({
               {new Date(chat.last_message_time).toLocaleString()}
             </div>
             <button
-              onClick={(e) => handleDelete(e, chat.jid)}
+              onClick={(e) => handleDeleteClick(e, chat.jid)}
               className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
               title="Delete Chat"
             >
@@ -59,6 +69,17 @@ export function ChatSidebar({
           </div>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete Chat"
+        message="Are you sure you want to delete this chat? This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+        destructive
+      />
     </div>
   );
 }

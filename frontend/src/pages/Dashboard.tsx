@@ -72,7 +72,7 @@ export function Dashboard() {
       <div className="space-y-4">
           <h3 className="text-xl font-semibold">Scheduled Tasks</h3>
           <div className="rounded-md border">
-              <div className="relative w-full overflow-auto">
+              <div className="relative w-full overflow-auto scrollbar-thin">
                 <table className="w-full caption-bottom text-sm">
                     <thead className="[&_tr]:border-b">
                         <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
