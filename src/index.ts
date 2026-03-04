@@ -201,6 +201,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
   let outputSentToUser = false;
+  let pendingToolBlocks: Array<{ type: string; id?: string; name?: string; input?: any; status?: string; result?: any }> = [];
 
   const agentResult = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
@@ -230,27 +231,79 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         groupStats[chatJid] = { ...groupStats[chatJid], usage: result.usage };
     }
 
+    // Collect tool_use blocks from stream events to include in final message
+    if (result.streamEvent) {
+      const event = result.streamEvent.event;
+      if (event) {
+        if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+          pendingToolBlocks.push({
+            type: 'tool_use',
+            id: event.content_block.id,
+            name: event.content_block.name,
+            input: event.content_block.input,
+            status: 'calling'
+          });
+        } else if (event.type === 'tool_result') {
+          // Update existing tool block with result
+          const toolIndex = pendingToolBlocks.findIndex(b => b.id === event.tool_use_id);
+          if (toolIndex !== -1) {
+            pendingToolBlocks[toolIndex] = {
+              ...pendingToolBlocks[toolIndex],
+              status: event.is_error ? 'error' : 'executed',
+              result: Array.isArray(event.content)
+                ? event.content.map((c: any) => c.text || JSON.stringify(c)).join('\n')
+                : event.content
+            };
+          }
+        }
+      }
+    }
+
     if (result.result) {
       const raw = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
-      
-      // Check if it's a JSON array (structured blocks)
-      let text = raw;
-      if (raw.trim().startsWith('[') && raw.trim().endsWith(']')) {
-         // It's likely a JSON array of blocks. We don't strip internal tags from the JSON string directly
-         // to avoid breaking syntax. We assume the blocks are already clean or the frontend handles them.
-         // However, we might want to strip internal tags from text blocks *inside* the JSON?
-         // For now, let's assume structured output is clean or processed by frontend.
-         text = raw;
+
+      // Build final content: combine pending tool blocks with the result text
+      let finalContent = raw;
+
+      // If we have pending tool blocks, merge them with the result
+      if (pendingToolBlocks.length > 0) {
+        let textContent = raw;
+        if (!raw.trim().startsWith('[')) {
+          // Legacy text processing
+          textContent = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        }
+
+        // If result is a JSON array, merge tool blocks into it
+        if (raw.trim().startsWith('[') && raw.trim().endsWith(']')) {
+          try {
+            const existingBlocks = JSON.parse(raw);
+            if (Array.isArray(existingBlocks)) {
+              // Prepend tool_use blocks at the beginning
+              finalContent = JSON.stringify([...pendingToolBlocks, ...existingBlocks]);
+            }
+          } catch {
+            // If parsing fails, create a new array with tool blocks + text
+            finalContent = JSON.stringify([...pendingToolBlocks, { type: 'text', text: textContent }]);
+          }
+        } else {
+          // Create array with tool blocks + text
+          finalContent = JSON.stringify([...pendingToolBlocks, { type: 'text', text: textContent }]);
+        }
+      } else if (raw.trim().startsWith('[') && raw.trim().endsWith(']')) {
+        // Already a JSON array, keep as-is
+        finalContent = raw;
       } else {
-         // Legacy text processing
-         text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        // Legacy text processing for plain text results
+        finalContent = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       }
 
-      logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
+      logger.info({ group: group.name }, `Agent output: ${finalContent.slice(0, 200)}, toolBlocks: ${pendingToolBlocks.length}`);
+      if (finalContent) {
+        await channel.sendMessage(chatJid, finalContent);
         outputSentToUser = true;
       }
+      // Clear pending tool blocks after sending
+      pendingToolBlocks = [];
       // Only reset idle timer on actual results, not session-update markers (result: null)
       resetIdleTimer();
     }
