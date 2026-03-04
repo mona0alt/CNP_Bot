@@ -1,0 +1,39 @@
+sequenceDiagram
+    participant U as 用户 (Web UI)
+    participant S as server.ts
+    participant D as db.ts
+    participant L as index.ts (Message Loop)
+    participant Q as group-queue.ts
+    participant C as container-runner.ts
+    participant R as agent-runner
+
+    Note over U,R: 消息发送阶段
+    U->>S: 发送消息 (HTTP/WebSocket)
+    S->>D: storeMessage()
+    D-->>S: 消息ID
+    S-->>U: 确认
+
+    Note over U,R: 消息处理阶段 (每2秒轮询)
+    loop 每2秒
+        L->>D: getNewMessages()
+        D-->>L: 新消息列表
+    end
+
+    alt 触发词匹配
+        L->>Q: queue.enqueueMessageCheck()
+        Q->>C: runAgent()
+        C->>R: 启动容器 (Docker)
+        R->>R: 读取 CLAUDE.md
+        R->>R: 调用 Claude Agent SDK
+        R-->>C: 输出结果
+        C-->>L: 流式输出
+        L->>D: 标记消息为已处理
+    else 无需触发
+        L->>D: 标记消息为已处理
+    end
+
+    Note over U,R: IPC 任务 (可选)
+    R->>R: 写入 IPC 文件
+    C->>D: 持久化任务到 DB
+    D-->>C: 确认
+    Note over L: 定时调度器检测

@@ -1,0 +1,71 @@
+flowchart TD
+    subgraph External["外部来源"]
+        WebUI["Web UI"]
+    end
+
+    subgraph Server["NanoClaw 服务层"]
+        ServerCore["server.ts<br/>(Express + WebSocket)"]
+        WebChannel["channels/web.ts<br/>(WebChannel)"]
+        Router["router.ts<br/>(消息路由)"]
+    end
+
+    subgraph Core["核心模块"]
+        Index["index.ts<br/>(主编排器)"]
+        Config["config.ts<br/>(配置)"]
+        DB["db.ts<br/>(SQLite)"]
+        Queue["group-queue.ts<br/>(并发队列)"]
+        IPC["ipc.ts<br/>(IPC监控)"]
+        Scheduler["task-scheduler.ts<br/>(任务调度)"]
+    end
+
+    subgraph Runtime["容器运行时"]
+        ContainerRunner["container-runner.ts<br/>(容器启动)"]
+        ContainerRuntime["container-runtime.ts<br/>(Docker管理)"]
+    end
+
+    subgraph AgentContainer["Agent 容器"]
+        AgentRunner["agent-runner<br/>(Claude SDK)"]
+        GroupMemory["groups/{name}/<br/>CLAUDE.md"]
+        GlobalMemory["global/CLAUDE.md"]
+    end
+
+    subgraph Storage["数据存储"]
+        SQLite[("messages.db<br/>(SQLite)")]
+        GroupsDir["groups/"]
+        DataDir["data/"]
+    end
+
+    WebUI -->|"HTTP/WebSocket"| ServerCore
+    ServerCore --> WebChannel
+    WebChannel -->|"storeMessage()"| DB
+    DB --> SQLite
+
+    SQLite -.->|"getNewMessages()"| Index
+    Index -->|"触发检测"| Queue
+    Queue -->|"并发控制"| ContainerRunner
+    ContainerRunner --> ContainerRuntime
+    ContainerRuntime -->|"Docker run"| AgentContainer
+
+    AgentRunner -->|"读取"| GroupMemory
+    AgentRunner -->|"读取"| GlobalMemory
+
+    AgentContainer -->|"IPC文件"| IPC
+    IPC --> Scheduler
+    Scheduler -->|"定时任务"| Index
+
+    ContainerRunner -->|"挂载 volumes"| GroupsDir
+    ContainerRunner -->|"挂载 volumes"| DataDir
+
+    classDef external fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef server fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef core fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef runtime fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef container fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef storage fill:#eceff1,stroke:#546e7a,stroke-width:2px
+
+    class WebUI external
+    class ServerCore,WebChannel,Router server
+    class Index,Config,DB,Queue,IPC,Scheduler core
+    class ContainerRunner,ContainerRuntime runtime
+    class AgentRunner,GroupMemory,GlobalMemory container
+    class SQLite,GroupsDir,DataDir storage
