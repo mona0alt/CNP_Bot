@@ -1,4 +1,4 @@
-import { User, Bot } from "lucide-react";
+import { User, Bot, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/lib/types";
 import { parseMessageContent } from "@/lib/message-parser";
@@ -14,10 +14,12 @@ interface MessageListProps {
 export function MessageList({ messages }: MessageListProps) {
   const renderItems = messages.map((msg, idx) => {
     const outgoing = !!msg.is_from_me;
-    const bubble = outgoing ? "bg-emerald-600 text-white" : "bg-muted text-foreground";
-    const avatar = msg.is_bot_message ? "bg-blue-600" : "bg-muted";
+    const bubble = outgoing ? "bg-emerald-600 text-white" : "bg-card border border-border text-foreground";
 
     const blocks = parseMessageContent(msg.content);
+    const hasThinkingTag = /<(commentary|thinking|think|internal)>/.test(msg.content);
+    const displayName = hasThinkingTag ? "Thinking" : (msg.is_bot_message ? "CNP-Bot" : msg.sender_name);
+    const avatarColor = hasThinkingTag ? "bg-amber-500" : (msg.is_bot_message ? "bg-blue-600" : "bg-muted");
 
     // Sort blocks: tool_use first, then everything else
     const sortedBlocks = [...blocks].sort((a, b) => {
@@ -26,7 +28,19 @@ export function MessageList({ messages }: MessageListProps) {
       return 0;
     });
 
-    const displayName = msg.is_bot_message ? "CNP-Bot" : msg.sender_name;
+    const hasVisibleContent = sortedBlocks.some((block) => {
+      if (block.type === 'tool_use') return true;
+      const segments = parseThoughts(block.text || "");
+      if (segments.length === 0) return false;
+      return segments.some((seg) => {
+        if (seg.type === 'text') return seg.content.trim().length > 0;
+        return !seg.isComplete || seg.content.trim().length > 0;
+      });
+    });
+
+    if (!hasVisibleContent) {
+      return null;
+    }
 
     return (
       <div
@@ -39,10 +53,10 @@ export function MessageList({ messages }: MessageListProps) {
         <div
           className={cn(
             "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-            avatar
+            avatarColor
           )}
         >
-          {msg.is_bot_message ? <Bot size={16} /> : <User size={16} />}
+          {hasThinkingTag ? <Brain size={16} /> : (msg.is_bot_message ? <Bot size={16} /> : <User size={16} />)}
         </div>
         <div className={cn("p-3 rounded-2xl text-sm min-w-[100px]", bubble)}>
           {!outgoing ? (
