@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Plus, Pencil, Trash2, X } from 'lucide-react';
@@ -29,7 +29,7 @@ export function Users() {
   const [formDisplayName, setFormDisplayName] = useState('');
   const [formError, setFormError] = useState('');
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const res = await fetch('/api/users', {
         headers: { Authorization: `Bearer ${token}` },
@@ -42,11 +42,11 @@ export function Users() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     fetchUsers();
-  }, [token]);
+  }, [fetchUsers]);
 
   const openModal = (user?: UserData) => {
     if (user) {

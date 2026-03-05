@@ -6,7 +6,7 @@ export interface ToolCallCardProps {
   toolName: string;
   input: string | object;
   status: "calling" | "executed" | "error";
-  result?: any;
+  result?: string | object | null;
   className?: string;
   defaultExpanded?: boolean;
 }

@@ -1,18 +1,8 @@
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, type ReactNode } from 'react';
 import type { Message } from '@/lib/types';
+import { StreamingMessagesContext } from './StreamingMessagesContext';
 
-interface StreamingMessagesContextType {
-  // 保存指定 jid 的流式消息
-  saveStreamingMessages: (jid: string, messages: Message[]) => void;
-  // 获取指定 jid 的流式消息
-  getStreamingMessages: (jid: string) => Message[] | undefined;
-  // 清除指定 jid 的流式消息
-  clearStreamingMessages: (jid: string) => void;
-}
-
-const StreamingMessagesContext = createContext<StreamingMessagesContextType | null>(null);
-
-export function StreamingMessagesProvider({ children }: { children: React.ReactNode }) {
+export function StreamingMessagesProvider({ children }: { children: ReactNode }) {
   const [, setStreamingMessages] = useState<Map<string, Message[]>>(new Map());
   const streamingMessagesRef = useRef<Map<string, Message[]>>(new Map());
 
@@ -62,12 +52,4 @@ export function StreamingMessagesProvider({ children }: { children: React.ReactN
       {children}
     </StreamingMessagesContext.Provider>
   );
-}
-
-export function useStreamingMessages() {
-  const context = useContext(StreamingMessagesContext);
-  if (!context) {
-    throw new Error('useStreamingMessages must be used within StreamingMessagesProvider');
-  }
-  return context;
 }

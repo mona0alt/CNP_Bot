@@ -22,8 +22,8 @@ export interface ContentBlock {
   text?: string;
   id?: string;
   name?: string;
-  input?: any;
+  input?: unknown;
   partial_json?: string;
   status?: "calling" | "executed" | "error";
-  result?: any;
+  result?: string | object;
 }

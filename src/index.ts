@@ -701,6 +701,11 @@ async function main(): Promise<void> {
       logger.info({ jid }, 'Received stop request');
       queue.stopGroup(jid);
     },
+    onDeleteChat: (jid) => {
+      logger.info({ jid }, 'Deleting chat, stopping container process');
+      // Write _close sentinel to gracefully stop the container
+      queue.closeStdin(jid);
+    },
   });
 
   // Create and connect channels

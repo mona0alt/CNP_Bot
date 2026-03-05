@@ -96,6 +96,7 @@ export interface ServerOpts {
     is_bot_message: boolean;
   }>;
   onStopGeneration?: (jid: string) => void;
+  onDeleteChat?: (jid: string) => void;
   getGroupStats?: (jid: string) => { usage?: { input_tokens: number, output_tokens: number } } | undefined;
 }
 
@@ -181,6 +182,10 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
   app.delete('/api/chats/:jid', (req, res) => {
     try {
       const { jid } = req.params;
+      // Call onDeleteChat to stop the container process if running
+      if (opts.onDeleteChat) {
+        opts.onDeleteChat(jid);
+      }
       deleteChat(jid);
       res.status(200).json({ success: true });
     } catch (err) {

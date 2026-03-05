@@ -17,33 +17,33 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          code({ node, inline, className, children, ...props }: any) {
+          code({ inline, className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || '');
             const language = match ? match[1] : '';
-            
+
             if (!inline && match) {
               return (
                 <CodeBlock language={language} value={String(children).replace(/\n$/, '')} />
               );
             }
-            
+
             return (
               <code className={cn("bg-muted px-1.5 py-0.5 rounded text-sm font-mono", className)} {...props}>
                 {children}
               </code>
             );
           },
-          li(props: any) {
+          li(props) {
             const { children, checked, ...rest } = props;
             if (checked !== null && checked !== undefined) {
                 return (
                     <li {...rest} className="flex items-start gap-2 list-none my-1">
                         <div className="mt-1 shrink-0">
-                            <input 
-                                type="checkbox" 
-                                checked={checked} 
-                                readOnly 
-                                className="h-3.5 w-3.5 rounded border-primary/50 text-primary focus:ring-primary bg-background" 
+                            <input
+                                type="checkbox"
+                                checked={checked}
+                                readOnly
+                                className="h-3.5 w-3.5 rounded border-primary/50 text-primary focus:ring-primary bg-background"
                             />
                         </div>
                         <div className="flex-1">{children}</div>
@@ -52,26 +52,26 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
             }
             return <li {...props}>{children}</li>
           },
-          a({ node, ...props }: any) {
+          a(props) {
               return <a target="_blank" rel="noopener noreferrer" className="text-primary underline hover:opacity-80 font-medium" {...props} />
           },
-          pre({ children }: any) {
+          pre({ children }) {
               return <div className="not-prose">{children}</div>
           },
-          table({ children }: any) {
+          table({ children }) {
               return (
                   <div className="overflow-x-auto my-4 rounded-md border">
                       <table className="w-full text-sm text-left">{children}</table>
                   </div>
               )
           },
-          thead({ children }: any) {
+          thead({ children }) {
               return <thead className="bg-muted text-muted-foreground uppercase text-xs">{children}</thead>
           },
-          th({ children }: any) {
+          th({ children }) {
               return <th className="px-4 py-2 font-medium border-b">{children}</th>
           },
-          td({ children }: any) {
+          td({ children }) {
               return <td className="px-4 py-2 border-b last:border-0">{children}</td>
           }
         }}

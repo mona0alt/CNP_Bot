@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { useState, useCallback, type ReactNode } from 'react';
+import { AuthContext } from './AuthContext';
 
 interface User {
   id: string;
@@ -7,43 +8,32 @@ interface User {
   display_name: string | null;
 }
 
-interface AuthContextType {
-  user: User | null;
-  token: string | null;
-  isLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextType | null>(null);
-
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'auth_user';
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    // Restore auth state from localStorage
-    const storedToken = localStorage.getItem(TOKEN_KEY);
-    const storedUser = localStorage.getItem(USER_KEY);
-
-    if (storedToken && storedUser) {
-      setToken(storedToken);
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(USER_KEY);
-      }
+function getStoredAuth() {
+  if (typeof window === 'undefined') return { token: null, user: null };
+  const storedToken = localStorage.getItem(TOKEN_KEY);
+  const storedUser = localStorage.getItem(USER_KEY);
+  if (storedToken && storedUser) {
+    try {
+      return { token: storedToken, user: JSON.parse(storedUser) as User };
+    } catch {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      return { token: null, user: null };
     }
-    setIsLoading(false);
-  }, []);
+  }
+  return { token: null, user: null };
+}
 
-  const login = async (username: string, password: string) => {
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const storedAuth = getStoredAuth();
+  const [user, setUser] = useState<User | null>(storedAuth.user);
+  const [token, setToken] = useState<string | null>(storedAuth.token);
+  const [isLoading] = useState(false);
+
+  const login = useCallback(async (username: string, password: string) => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -60,9 +50,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
     localStorage.setItem(TOKEN_KEY, data.token);
     localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     if (token) {
       try {
         await fetch('/api/auth/logout', {
@@ -77,9 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
-  };
+  }, [token]);
 
-  const changePassword = async (currentPassword: string, newPassword: string) => {
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     if (!token) {
       throw new Error('Not authenticated');
     }
@@ -97,19 +87,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const error = await res.json().catch(() => ({ error: 'Password change failed' }));
       throw new Error(error.error || 'Password change failed');
     }
-  };
+  }, [token]);
 
   return (
     <AuthContext.Provider value={{ user, token, isLoading, login, logout, changePassword }}>
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 }

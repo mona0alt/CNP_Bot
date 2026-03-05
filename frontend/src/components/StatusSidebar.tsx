@@ -20,7 +20,6 @@ export function StatusSidebar({ jid, apiBase }: StatusSidebarProps) {
 
   useEffect(() => {
     if (!jid) {
-      setStatus(null);
       return;
     }
 
@@ -42,12 +41,13 @@ export function StatusSidebar({ jid, apiBase }: StatusSidebarProps) {
     return () => clearInterval(interval);
   }, [jid, apiBase]);
 
+  // Early return when jid is null - no need to set state
   if (!jid || !status) return null;
 
   return (
     <div className="w-64 border-l bg-card p-4 flex flex-col gap-6 text-sm">
       <h3 className="font-semibold mb-2">Status</h3>
-      
+
       <div className="space-y-4">
         <div>
           <div className="flex items-center gap-2 text-muted-foreground mb-1">

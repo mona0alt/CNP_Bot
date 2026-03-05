@@ -3,6 +3,26 @@ import type { Message, ContentBlock } from "@/lib/types";
 import { parseMessageContent } from "@/lib/message-parser";
 import { applyEventToBlocks } from "@/lib/message-utils";
 
+interface StreamEvent {
+  type: string;
+  content_block?: {
+    type: string;
+    text?: string;
+    id?: string;
+    name?: string;
+    input?: unknown;
+  };
+  delta?: {
+    type: string;
+    text?: string;
+    partial_json?: string;
+  };
+  index?: number;
+  tool_use_id?: string;
+  is_error?: boolean;
+  content?: unknown;
+}
+
 interface UseChatWebSocketOptions {
   jid: string | null;
   apiBase: string;
@@ -58,7 +78,7 @@ export function useChatWebSocket({
             type: string;
             data?: Message;
             chunk?: string;
-            event?: any;
+            event?: StreamEvent;
             chat_jid?: string;
             content?: string;
             sender?: string;
@@ -71,7 +91,7 @@ export function useChatWebSocket({
             setMessages((prev) => {
               if (event.type === 'tool_result') {
                 const msgIndex = [...prev].reverse().findIndex(m =>
-                  m.is_bot_message && m.content.includes(event.tool_use_id)
+                  m.is_bot_message && m.content.includes(event.tool_use_id || '')
                 );
                 if (msgIndex !== -1) {
                   const actualIndex = prev.length - 1 - msgIndex;

@@ -1,9 +1,33 @@
 import type { ContentBlock } from "./types";
 
-export function applyEventToBlocks(blocks: ContentBlock[], event: any): ContentBlock[] {
+interface StreamEvent {
+  type: string;
+  content_block?: {
+    type: string;
+    text?: string;
+    id?: string;
+    name?: string;
+    input?: unknown;
+  };
+  delta?: {
+    type: string;
+    text?: string;
+    partial_json?: string;
+  };
+  index?: number;
+  tool_use_id?: string;
+  is_error?: boolean;
+  content?: unknown;
+}
+
+interface ToolContent {
+  text?: string;
+}
+
+export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): ContentBlock[] {
   const newBlocks = [...blocks];
 
-  if (event.type === 'content_block_start') {
+  if (event.type === 'content_block_start' && event.content_block) {
     newBlocks.push({
       type: event.content_block.type,
       text: event.content_block.text || '',
@@ -12,18 +36,18 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: any): ContentB
       input: event.content_block.input,
       status: event.content_block.type === 'tool_use' ? 'calling' : undefined
     });
-  } else if (event.type === 'content_block_delta') {
+  } else if (event.type === 'content_block_delta' && event.delta && event.index !== undefined) {
     const index = event.index;
     if (newBlocks[index]) {
       const block = { ...newBlocks[index] };
       if (event.delta.type === 'text_delta') {
-        block.text = (block.text || '') + event.delta.text;
+        block.text = (block.text || '') + (event.delta.text || '');
       } else if (event.delta.type === 'input_json_delta') {
-        block.partial_json = (block.partial_json || '') + event.delta.partial_json;
+        block.partial_json = (block.partial_json || '') + (event.delta.partial_json || '');
       }
       newBlocks[index] = block;
     }
-  } else if (event.type === 'content_block_stop') {
+  } else if (event.type === 'content_block_stop' && event.index !== undefined) {
     const index = event.index;
     if (newBlocks[index]) {
       const block = { ...newBlocks[index] };
@@ -44,7 +68,7 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: any): ContentB
       const block = { ...newBlocks[index] };
       block.status = event.is_error ? 'error' : 'executed';
       if (Array.isArray(event.content)) {
-        block.result = event.content.map((c: any) => c.text || JSON.stringify(c)).join('\n');
+        block.result = event.content.map((c: ToolContent) => c.text || JSON.stringify(c)).join('\n');
       } else {
         block.result = event.content;
       }
