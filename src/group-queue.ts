@@ -1,8 +1,9 @@
-import { ChildProcess } from 'child_process';
+import { ChildProcess, exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
 import { DATA_DIR, MAX_CONCURRENT_CONTAINERS } from './config.js';
+import { stopContainer } from './container-runtime.js';
 import { logger } from './logger.js';
 
 interface QueuedTask {
@@ -61,9 +62,17 @@ export class GroupQueue {
 
     logger.info({ groupJid }, 'Stopping group process');
     state.interrupted = true;
-    
+
+    if (state.containerName) {
+      exec(stopContainer(state.containerName), { timeout: 15000 }, (err) => {
+        if (err) {
+          logger.warn({ groupJid, containerName: state.containerName, err }, 'Failed to stop container');
+        }
+      });
+    }
+
     if (state.process && !state.process.killed) {
-      state.process.kill('SIGTERM'); 
+      state.process.kill('SIGTERM');
     }
   }
 
@@ -199,14 +208,30 @@ export class GroupQueue {
    */
   closeStdin(groupJid: string): void {
     const state = this.getGroup(groupJid);
-    if (!state.active || !state.groupFolder) return;
 
-    const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
+    // Determine folder: use state.groupFolder or derive from jid
+    let folder = state.groupFolder;
+    if (!folder) {
+      // Try to derive folder from jid for web chats
+      if (groupJid.startsWith('web:')) {
+        folder = groupJid.replace(/:/g, '-');
+      } else if (groupJid === 'web:default') {
+        folder = 'main';
+      }
+    }
+
+    if (!folder) {
+      logger.warn({ groupJid }, 'Cannot determine folder for closeStdin');
+      return;
+    }
+
+    const inputDir = path.join(DATA_DIR, 'ipc', folder, 'input');
     try {
       fs.mkdirSync(inputDir, { recursive: true });
       fs.writeFileSync(path.join(inputDir, '_close'), '');
-    } catch {
-      // ignore
+      logger.info({ groupJid, folder }, 'Wrote _close sentinel');
+    } catch (err) {
+      logger.error({ err, groupJid, folder }, 'Failed to write _close sentinel');
     }
   }
 

@@ -17,3 +17,5 @@ export interface AuthContextType {
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);
+export { AuthProvider } from './AuthContext.tsx';
+export { useAuth } from './useAuth';

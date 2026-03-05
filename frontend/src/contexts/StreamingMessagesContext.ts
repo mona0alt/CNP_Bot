@@ -11,3 +11,5 @@ interface StreamingMessagesContextType {
 }
 
 export const StreamingMessagesContext = createContext<StreamingMessagesContextType | null>(null);
+export { StreamingMessagesProvider } from './StreamingMessagesContext.tsx';
+export { useStreamingMessages } from './useStreamingMessages';

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -12,69 +12,77 @@ interface MarkdownRendererProps {
 }
 
 export function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
+  const components: Components = {
+    code(props) {
+      const inline = 'inline' in props ? (props as { inline?: boolean }).inline : undefined;
+      const className = props.className as string | undefined;
+      const children = props.children;
+      const rest = { ...props };
+      delete (rest as { inline?: boolean }).inline;
+      const match = /language-(\w+)/.exec(className || '');
+      const language = match ? match[1] : '';
+
+      if (!inline && match) {
+        return (
+          <CodeBlock language={language} value={String(children).replace(/\n$/, '')} />
+        );
+      }
+
+      return (
+        <code className={cn("bg-muted px-1.5 py-0.5 rounded text-sm font-mono", className)} {...rest}>
+          {children}
+        </code>
+      );
+    },
+    li(props) {
+      const checked = 'checked' in props ? (props as { checked?: boolean | null }).checked : undefined;
+      const { children, ...rest } = props;
+      if (checked !== null && checked !== undefined) {
+        return (
+          <li {...rest} className="flex items-start gap-2 list-none my-1">
+            <div className="mt-1 shrink-0">
+              <input
+                type="checkbox"
+                checked={checked}
+                readOnly
+                className="h-3.5 w-3.5 rounded border-primary/50 text-primary focus:ring-primary bg-background"
+              />
+            </div>
+            <div className="flex-1">{children}</div>
+          </li>
+        );
+      }
+      return <li {...rest}>{children}</li>;
+    },
+    a(props) {
+      return <a target="_blank" rel="noopener noreferrer" className="text-primary underline hover:opacity-80 font-medium" {...props} />;
+    },
+    pre({ children }) {
+      return <div className="not-prose">{children}</div>;
+    },
+    table({ children }) {
+      return (
+        <div className="overflow-x-auto my-4 rounded-md border">
+          <table className="w-full text-sm text-left">{children}</table>
+        </div>
+      );
+    },
+    thead({ children }) {
+      return <thead className="bg-muted text-muted-foreground uppercase text-xs">{children}</thead>;
+    },
+    th({ children }) {
+      return <th className="px-4 py-2 font-medium border-b">{children}</th>;
+    },
+    td({ children }) {
+      return <td className="px-4 py-2 border-b last:border-0">{children}</td>;
+    }
+  };
+
   return (
     <div className={cn("prose prose-sm max-w-none dark:prose-invert break-words leading-normal", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={{
-          code({ inline, className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '');
-            const language = match ? match[1] : '';
-
-            if (!inline && match) {
-              return (
-                <CodeBlock language={language} value={String(children).replace(/\n$/, '')} />
-              );
-            }
-
-            return (
-              <code className={cn("bg-muted px-1.5 py-0.5 rounded text-sm font-mono", className)} {...props}>
-                {children}
-              </code>
-            );
-          },
-          li(props) {
-            const { children, checked, ...rest } = props;
-            if (checked !== null && checked !== undefined) {
-                return (
-                    <li {...rest} className="flex items-start gap-2 list-none my-1">
-                        <div className="mt-1 shrink-0">
-                            <input
-                                type="checkbox"
-                                checked={checked}
-                                readOnly
-                                className="h-3.5 w-3.5 rounded border-primary/50 text-primary focus:ring-primary bg-background"
-                            />
-                        </div>
-                        <div className="flex-1">{children}</div>
-                    </li>
-                )
-            }
-            return <li {...props}>{children}</li>
-          },
-          a(props) {
-              return <a target="_blank" rel="noopener noreferrer" className="text-primary underline hover:opacity-80 font-medium" {...props} />
-          },
-          pre({ children }) {
-              return <div className="not-prose">{children}</div>
-          },
-          table({ children }) {
-              return (
-                  <div className="overflow-x-auto my-4 rounded-md border">
-                      <table className="w-full text-sm text-left">{children}</table>
-                  </div>
-              )
-          },
-          thead({ children }) {
-              return <thead className="bg-muted text-muted-foreground uppercase text-xs">{children}</thead>
-          },
-          th({ children }) {
-              return <th className="px-4 py-2 font-medium border-b">{children}</th>
-          },
-          td({ children }) {
-              return <td className="px-4 py-2 border-b last:border-0">{children}</td>
-          }
-        }}
+        components={components}
       >
         {content}
       </ReactMarkdown>

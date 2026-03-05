@@ -30,6 +30,7 @@ import {
   getRouterState,
   getUserByUsername,
   initDatabase,
+  deleteSession,
   setRegisteredGroup,
   setRouterState,
   setSession,
@@ -703,8 +704,20 @@ async function main(): Promise<void> {
     },
     onDeleteChat: (jid) => {
       logger.info({ jid }, 'Deleting chat, stopping container process');
+      queue.stopGroup(jid);
       // Write _close sentinel to gracefully stop the container
       queue.closeStdin(jid);
+      const group = registeredGroups[jid];
+      let folder = group?.folder;
+      if (!folder && jid.startsWith('web:')) {
+        folder = jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
+      }
+      if (folder) {
+        delete sessions[folder];
+        deleteSession(folder);
+      }
+      delete lastAgentTimestamp[jid];
+      saveState();
     },
   });
 

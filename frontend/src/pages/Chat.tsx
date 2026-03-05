@@ -122,8 +122,8 @@ export function Chat() {
       const savedStreaming = getStreamingMessages(selectedJid);
       if (savedStreaming && savedStreaming.length > 0) {
         // 合并：数据库消息 + 流式消息（去除重复）
-        const streamingIds = new Set(savedStreaming.map(m => m.id));
-        const filteredData = data.filter(m => !streamingIds.has(m.id));
+        const streamingIds = new Set(savedStreaming.map((m: Message) => m.id));
+        const filteredData = data.filter((m: Message) => !streamingIds.has(m.id));
         // 流式消息放在最后
         setMessages([...filteredData, ...savedStreaming]);
       } else {

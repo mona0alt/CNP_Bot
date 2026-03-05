@@ -70,7 +70,13 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): 
       if (Array.isArray(event.content)) {
         block.result = event.content.map((c: ToolContent) => c.text || JSON.stringify(c)).join('\n');
       } else {
-        block.result = event.content;
+        if (event.content === null || event.content === undefined) {
+          block.result = undefined;
+        } else if (typeof event.content === 'object') {
+          block.result = event.content as object;
+        } else {
+          block.result = String(event.content);
+        }
       }
       newBlocks[index] = block;
     }
