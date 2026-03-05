@@ -3,8 +3,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   _initTestDatabase,
   createTask,
+  canAccessChat,
+  deleteChatByRole,
   deleteTask,
   getAllChats,
+  getChatsByRole,
   getMessagesSince,
   getNewMessages,
   getTaskById,
@@ -263,6 +266,37 @@ describe('storeChatMetadata', () => {
     storeChatMetadata('group@g.us', '2024-01-01T00:00:01.000Z');
     const chats = getAllChats();
     expect(chats[0].last_message_time).toBe('2024-01-01T00:00:05.000Z');
+  });
+});
+
+describe('chat RBAC accessors', () => {
+  beforeEach(() => {
+    storeChatMetadata('web:user-a', '2024-01-01T00:00:00.000Z', 'A Chat', 'web', false, 'user-a');
+    storeChatMetadata('web:user-b', '2024-01-01T00:00:00.000Z', 'B Chat', 'web', false, 'user-b');
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z', 'Group', 'web', true);
+  });
+
+  it('returns only owned chats for user role', () => {
+    const chats = getChatsByRole('user-a', 'user');
+    expect(chats).toHaveLength(1);
+    expect(chats[0].jid).toBe('web:user-a');
+  });
+
+  it('returns all chats for admin role', () => {
+    const chats = getChatsByRole('admin-id', 'admin');
+    expect(chats).toHaveLength(3);
+  });
+
+  it('checks access by role and ownership', () => {
+    expect(canAccessChat('web:user-a', 'user-a', 'user')).toBe(true);
+    expect(canAccessChat('web:user-a', 'user-b', 'user')).toBe(false);
+    expect(canAccessChat('web:user-a', 'admin-id', 'admin')).toBe(true);
+  });
+
+  it('deletes only when role has access', () => {
+    expect(deleteChatByRole('web:user-a', 'user-b', 'user')).toBe(false);
+    expect(deleteChatByRole('web:user-a', 'user-a', 'user')).toBe(true);
+    expect(canAccessChat('web:user-a', 'admin-id', 'admin')).toBe(false);
   });
 });
 

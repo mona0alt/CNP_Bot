@@ -4,6 +4,7 @@ import { Folder, Cpu, Activity } from "lucide-react";
 interface StatusSidebarProps {
   jid: string | null;
   apiBase: string;
+  token: string | null;
 }
 
 interface GroupStatus {
@@ -15,17 +16,21 @@ interface GroupStatus {
   };
 }
 
-export function StatusSidebar({ jid, apiBase }: StatusSidebarProps) {
+export function StatusSidebar({ jid, apiBase, token }: StatusSidebarProps) {
   const [status, setStatus] = useState<GroupStatus | null>(null);
 
   useEffect(() => {
-    if (!jid) {
+    if (!jid || !token) {
       return;
     }
 
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`${apiBase}/api/groups/${encodeURIComponent(jid)}/status`);
+        const res = await fetch(`${apiBase}/api/groups/${encodeURIComponent(jid)}/status`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
         if (res.ok) {
           const data = await res.json();
           setStatus(data);
@@ -39,7 +44,7 @@ export function StatusSidebar({ jid, apiBase }: StatusSidebarProps) {
     // Poll status every 10 seconds
     const interval = setInterval(fetchStatus, 10000);
     return () => clearInterval(interval);
-  }, [jid, apiBase]);
+  }, [jid, apiBase, token]);
 
   // Early return when jid is null - no need to set state
   if (!jid || !status) return null;

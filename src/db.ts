@@ -16,7 +16,8 @@ function createSchema(database: Database.Database): void {
       name TEXT,
       last_message_time TEXT,
       channel TEXT,
-      is_group INTEGER DEFAULT 0
+      is_group INTEGER DEFAULT 0,
+      user_id TEXT
     );
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT,
@@ -128,6 +129,18 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* columns already exist */
   }
+
+  try {
+    database.exec(
+      `ALTER TABLE chats ADD COLUMN user_id TEXT`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
+  database.exec(
+    `CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id)`,
+  );
 }
 
 export function initDatabase(): void {
@@ -157,33 +170,37 @@ export function storeChatMetadata(
   name?: string,
   channel?: string,
   isGroup?: boolean,
+  userId?: string,
 ): void {
   const ch = channel ?? null;
   const group = isGroup === undefined ? null : isGroup ? 1 : 0;
+  const ownerId = userId ?? null;
 
   if (name) {
     // Update with name, preserving existing timestamp if newer
     db.prepare(
       `
-      INSERT INTO chats (jid, name, last_message_time, channel, is_group) VALUES (?, ?, ?, ?, ?)
+      INSERT INTO chats (jid, name, last_message_time, channel, is_group, user_id) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(jid) DO UPDATE SET
         name = excluded.name,
         last_message_time = MAX(last_message_time, excluded.last_message_time),
         channel = COALESCE(excluded.channel, channel),
-        is_group = COALESCE(excluded.is_group, is_group)
+        is_group = COALESCE(excluded.is_group, is_group),
+        user_id = COALESCE(excluded.user_id, user_id)
     `,
-    ).run(chatJid, name, timestamp, ch, group);
+    ).run(chatJid, name, timestamp, ch, group, ownerId);
   } else {
     // Update timestamp only, preserve existing name if any
     db.prepare(
       `
-      INSERT INTO chats (jid, name, last_message_time, channel, is_group) VALUES (?, ?, ?, ?, ?)
+      INSERT INTO chats (jid, name, last_message_time, channel, is_group, user_id) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(jid) DO UPDATE SET
         last_message_time = MAX(last_message_time, excluded.last_message_time),
         channel = COALESCE(excluded.channel, channel),
-        is_group = COALESCE(excluded.is_group, is_group)
+        is_group = COALESCE(excluded.is_group, is_group),
+        user_id = COALESCE(excluded.user_id, user_id)
     `,
-    ).run(chatJid, chatJid, timestamp, ch, group);
+    ).run(chatJid, chatJid, timestamp, ch, group, ownerId);
   }
 }
 
@@ -211,10 +228,8 @@ export interface ChatInfo {
   is_group: number;
 }
 
-/**
- * Get all known chats, ordered by most recent activity.
- */
-export function getAllChats(): ChatInfo[] {
+function queryChats(whereClause?: string, params: unknown[] = []): ChatInfo[] {
+  const where = whereClause ? `WHERE ${whereClause}` : '';
   return db
     .prepare(
       `
@@ -239,10 +254,43 @@ export function getAllChats(): ChatInfo[] {
         LIMIT 1
       ) AS last_user_message
     FROM chats c
+    ${where}
     ORDER BY c.last_message_time DESC
   `,
     )
-    .all() as ChatInfo[];
+    .all(...params) as ChatInfo[];
+}
+
+/**
+ * Get all known chats, ordered by most recent activity.
+ */
+export function getAllChats(): ChatInfo[] {
+  return queryChats();
+}
+
+export function getChatsForUser(userId: string): ChatInfo[] {
+  return queryChats('c.user_id = ?', [userId]);
+}
+
+export function getChatsByRole(
+  userId: string,
+  role: 'admin' | 'user',
+): ChatInfo[] {
+  if (role === 'admin') {
+    return getAllChats();
+  }
+  return getChatsForUser(userId);
+}
+
+export function canAccessChat(
+  chatJid: string,
+  userId: string,
+  role: 'admin' | 'user',
+): boolean {
+  const row = role === 'admin'
+    ? db.prepare('SELECT 1 FROM chats WHERE jid = ?').get(chatJid)
+    : db.prepare('SELECT 1 FROM chats WHERE jid = ? AND user_id = ?').get(chatJid, userId);
+  return Boolean(row);
 }
 
 /**
@@ -253,6 +301,18 @@ export function deleteChat(jid: string): void {
     db.prepare('DELETE FROM messages WHERE chat_jid = ?').run(jid);
     db.prepare('DELETE FROM chats WHERE jid = ?').run(jid);
   })();
+}
+
+export function deleteChatByRole(
+  jid: string,
+  userId: string,
+  role: 'admin' | 'user',
+): boolean {
+  if (!canAccessChat(jid, userId, role)) {
+    return false;
+  }
+  deleteChat(jid);
+  return true;
 }
 
 /**
@@ -272,7 +332,7 @@ export function getLastGroupSync(): string | null {
 export function setLastGroupSync(): void {
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT OR REPLACE INTO chats (jid, name, last_message_time) VALUES ('__group_sync__', '__group_sync__', ?)`,
+    `INSERT OR REPLACE INTO chats (jid, name, last_message_time, user_id) VALUES ('__group_sync__', '__group_sync__', ?, NULL)`,
   ).run(now);
 }
 

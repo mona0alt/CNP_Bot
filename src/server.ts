@@ -13,11 +13,12 @@ import {
   getAllRegisteredGroups,
   getRecentMessages,
   getAllTasks,
-  getAllChats,
+  getChatsByRole,
+  canAccessChat,
   getMessagesSinceAll,
   storeChatMetadata,
   storeMessageDirect,
-  deleteChat,
+  deleteChatByRole,
   getUserByUsername,
   getUserById,
   getAllUsers,
@@ -82,10 +83,18 @@ function requireAdmin(
   next();
 }
 
+function verifyToken(token: string): AuthUser | null {
+  try {
+    return jwt.verify(token, JWT_SECRET) as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
 export interface ServerOpts {
   port?: number;
   sendMessage?: (jid: string, text: string) => Promise<void>;
-  onWebUserMessage?: (jid: string, text: string) => Promise<{
+  onWebUserMessage?: (jid: string, text: string, userId: string) => Promise<{
     id: string;
     chat_jid: string;
     sender: string;
@@ -151,9 +160,10 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     }
   });
 
-  app.get('/api/chats', (req, res) => {
+  app.get('/api/chats', authenticateToken, (req, res) => {
     try {
-      const chats = getAllChats();
+      const authReq = req as AuthRequest;
+      const chats = getChatsByRole(authReq.user!.userId, authReq.user!.role);
       res.json(chats);
     } catch (err) {
       logger.error({ err }, 'Failed to fetch chats');
@@ -161,11 +171,12 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     }
   });
 
-  app.post('/api/chats', (req, res) => {
+  app.post('/api/chats', authenticateToken, (req, res) => {
     try {
+      const authReq = req as AuthRequest;
       const jid = 'web:' + randomUUID();
       const timestamp = new Date().toISOString();
-      storeChatMetadata(jid, timestamp, 'New Chat', 'web', false);
+      storeChatMetadata(jid, timestamp, 'New Chat', 'web', false, authReq.user!.userId);
       res.status(201).json({
         jid,
         name: 'New Chat',
@@ -179,14 +190,18 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     }
   });
 
-  app.delete('/api/chats/:jid', (req, res) => {
+  app.delete('/api/chats/:jid', authenticateToken, (req, res) => {
     try {
-      const { jid } = req.params;
+      const authReq = req as AuthRequest;
+      const { jid } = req.params as { jid: string };
+      const deleted = deleteChatByRole(jid, authReq.user!.userId, authReq.user!.role);
+      if (!deleted) {
+        return res.status(404).json({ error: 'Chat not found' });
+      }
       // Call onDeleteChat to stop the container process if running
       if (opts.onDeleteChat) {
         opts.onDeleteChat(jid);
       }
-      deleteChat(jid);
       res.status(200).json({ success: true });
     } catch (err) {
       logger.error({ err }, 'Failed to delete chat');
@@ -194,9 +209,14 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     }
   });
 
-  app.get('/api/groups/:jid/status', (req, res) => {
+  app.get('/api/groups/:jid/status', authenticateToken, (req, res) => {
     try {
-      const { jid } = req.params;
+      const authReq = req as AuthRequest;
+      const { jid } = req.params as { jid: string };
+      const allowed = canAccessChat(jid, authReq.user!.userId, authReq.user!.role);
+      if (!allowed) {
+        return res.status(404).json({ error: 'Chat not found' });
+      }
       const groups = getAllRegisteredGroups();
       const group = groups[jid];
       
@@ -218,9 +238,14 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     }
   });
 
-  app.get('/api/groups/:jid/messages', (req, res) => {
+  app.get('/api/groups/:jid/messages', authenticateToken, (req, res) => {
     try {
-      const { jid } = req.params;
+      const authReq = req as AuthRequest;
+      const { jid } = req.params as { jid: string };
+      const allowed = canAccessChat(jid, authReq.user!.userId, authReq.user!.role);
+      if (!allowed) {
+        return res.status(404).json({ error: 'Chat not found' });
+      }
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
       const since = typeof req.query.since === 'string' ? req.query.since : null;
       const messages = since
@@ -233,7 +258,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     }
   });
 
-  app.post('/api/groups/:jid/messages', async (req, res) => {
+  app.post('/api/groups/:jid/messages', authenticateToken, async (req, res) => {
     const schema = z.object({
       content: z.string().trim().min(1).max(5000),
     });
@@ -243,7 +268,12 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       return res.status(400).json({ error: 'Invalid request body' });
     }
 
-    const { jid } = req.params;
+    const authReq = req as AuthRequest;
+    const { jid } = req.params as { jid: string };
+    const allowed = canAccessChat(jid, authReq.user!.userId, authReq.user!.role);
+    if (!allowed) {
+      return res.status(404).json({ error: 'Chat not found' });
+    }
     const isWebChat = jid.startsWith('web:');
     const timestamp = new Date().toISOString();
 
@@ -252,7 +282,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         if (!opts.onWebUserMessage) {
           return res.status(500).json({ error: 'Web chat not enabled' });
         }
-        const stored = await opts.onWebUserMessage(jid, parsed.data.content);
+        const stored = await opts.onWebUserMessage(jid, parsed.data.content, authReq.user!.userId);
         return res.status(201).json(stored);
       } catch (err) {
         logger.error({ err, jid }, 'Failed to handle web chat message');
@@ -284,8 +314,13 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     }
   });
 
-  app.get('/api/groups/:jid/stream', (req, res) => {
-    const { jid } = req.params;
+  app.get('/api/groups/:jid/stream', authenticateToken, (req, res) => {
+    const authReq = req as AuthRequest;
+    const { jid } = req.params as { jid: string };
+    const allowed = canAccessChat(jid, authReq.user!.userId, authReq.user!.role);
+    if (!allowed) {
+      return res.status(404).json({ error: 'Chat not found' });
+    }
     const since = typeof req.query.since === 'string' ? req.query.since : '';
     const limit = req.query.limit ? parseInt(req.query.limit as string) : 200;
     res.status(200);
@@ -559,6 +594,20 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     try {
       const u = new URL(req.url || '', 'http://localhost');
       const jid = u.searchParams.get('jid') || 'web:default';
+      const token = u.searchParams.get('token');
+      if (!token) {
+        socket.close(1008, 'Authentication required');
+        return;
+      }
+      const authUser = verifyToken(token);
+      if (!authUser) {
+        socket.close(1008, 'Invalid token');
+        return;
+      }
+      if (!canAccessChat(jid, authUser.userId, authUser.role)) {
+        socket.close(1008, 'Chat not found');
+        return;
+      }
       
       clientEntry = { ws: socket, jid };
       connectedSockets.add(clientEntry);
@@ -606,7 +655,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
             const isWebChat = jid.startsWith('web:');
             if (isWebChat) {
               if (!opts.onWebUserMessage) return;
-              const created = await opts.onWebUserMessage(jid, content);
+              const created = await opts.onWebUserMessage(jid, content, authUser.userId);
               sendJson({ type: 'message', data: created });
             } else {
               const timestamp = new Date().toISOString();

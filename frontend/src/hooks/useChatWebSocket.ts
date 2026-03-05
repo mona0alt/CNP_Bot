@@ -26,6 +26,7 @@ interface StreamEvent {
 interface UseChatWebSocketOptions {
   jid: string | null;
   apiBase: string;
+  token: string | null;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setIsGenerating: (v: boolean) => void;
 }
@@ -33,6 +34,7 @@ interface UseChatWebSocketOptions {
 export function useChatWebSocket({
   jid,
   apiBase,
+  token,
   setMessages,
   setIsGenerating,
 }: UseChatWebSocketOptions) {
@@ -40,8 +42,18 @@ export function useChatWebSocket({
   const messageIdsRef = useRef<Set<string>>(new Set());
 
   const fetchMessages = useCallback(async (chatJid: string): Promise<Message[]> => {
+    if (!token) {
+      return [];
+    }
     try {
-      const res = await fetch(`${apiBase}/api/groups/${chatJid}/messages?limit=200`);
+      const res = await fetch(`${apiBase}/api/groups/${chatJid}/messages?limit=200`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        return [];
+      }
       const data = (await res.json()) as Message[];
       messageIdsRef.current = new Set(data.map((m) => m.id));
       return data;
@@ -49,14 +61,14 @@ export function useChatWebSocket({
       console.error("Failed to fetch messages", error);
       return [];
     }
-  }, [apiBase]);
+  }, [apiBase, token]);
 
   useEffect(() => {
     wsRef.current?.close();
     wsRef.current = null;
     messageIdsRef.current = new Set();
 
-    if (!jid) return;
+    if (!jid || !token) return;
 
     let cancelled = false;
 
@@ -68,7 +80,7 @@ export function useChatWebSocket({
       const wsHost = import.meta.env.DEV
         ? `${location.hostname}:3000`
         : location.host;
-      const url = `${proto}://${wsHost}/ws?jid=${encodeURIComponent(jid)}&since=${encodeURIComponent(lastTs)}`;
+      const url = `${proto}://${wsHost}/ws?jid=${encodeURIComponent(jid)}&since=${encodeURIComponent(lastTs)}&token=${encodeURIComponent(token)}`;
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
@@ -247,7 +259,7 @@ export function useChatWebSocket({
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [jid, apiBase, fetchMessages, setMessages, setIsGenerating]);
+  }, [jid, token, apiBase, fetchMessages, setMessages, setIsGenerating]);
 
   const sendMessage = useCallback((content: string) => {
     const ws = wsRef.current;

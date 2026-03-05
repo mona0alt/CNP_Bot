@@ -655,7 +655,7 @@ async function main(): Promise<void> {
       const text = formatOutbound(rawText);
       if (text) await channel.sendMessage(jid, text);
     },
-    onWebUserMessage: async (jid, text) => {
+    onWebUserMessage: async (jid, text, userId) => {
       // Auto-register new web chats so they can be processed by the agent
       if (jid.startsWith('web:') && !registeredGroups[jid]) {
         logger.info({ jid }, 'Auto-registering new web chat session');
@@ -674,7 +674,7 @@ async function main(): Promise<void> {
       }
 
       const timestamp = new Date().toISOString();
-      storeChatMetadata(jid, timestamp, jid === 'web:default' ? 'Web Chat' : jid, 'web', false);
+      storeChatMetadata(jid, timestamp, jid === 'web:default' ? 'Web Chat' : jid, 'web', false, userId);
       const msg: NewMessage = {
         id: randomUUID(),
         chat_jid: jid,

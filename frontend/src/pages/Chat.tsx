@@ -6,6 +6,7 @@ import { ChatSidebar, MessageList, MessageInput } from "@/components/Chat";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useChatWebSocket } from "@/hooks/useChatWebSocket";
 import { useStreamingMessages } from "@/contexts/StreamingMessagesContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function Chat() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -19,18 +20,27 @@ export function Chat() {
   const pinnedToBottomRef = useRef(true);
 
   const { saveStreamingMessages, getStreamingMessages, clearStreamingMessages } = useStreamingMessages();
+  const { token } = useAuth();
 
   const apiBase = import.meta.env.DEV
     ? `${location.protocol}//${location.hostname}:3000`
     : "";
 
+  const authHeaders = useMemo<HeadersInit | undefined>(() => {
+    if (!token) return undefined;
+    return { Authorization: `Bearer ${token}` };
+  }, [token]);
+
   // Chat list operations
   const fetchChats = useCallback(() => {
-    fetch(`${apiBase}/api/chats`)
+    if (!token) return;
+    fetch(`${apiBase}/api/chats`, {
+      headers: authHeaders,
+    })
       .then((res) => res.json())
       .then(setChats)
       .catch(console.error);
-  }, [apiBase]);
+  }, [apiBase, authHeaders, token]);
 
   const updateChatPreviewFromUserMessage = (jid: string, content: string, timestamp: string) => {
     const sessionTitle = content.trim();
@@ -70,7 +80,11 @@ export function Chat() {
 
   const handleCreateChat = async () => {
     try {
-      const res = await fetch(`${apiBase}/api/chats`, { method: "POST" });
+      if (!token) return;
+      const res = await fetch(`${apiBase}/api/chats`, {
+        method: "POST",
+        headers: authHeaders,
+      });
       if (!res.ok) throw new Error("Failed to create chat");
       const newChat = await res.json();
       fetchChats();
@@ -82,8 +96,10 @@ export function Chat() {
 
   const handleDeleteChat = async (jid: string) => {
     try {
+      if (!token) return;
       const res = await fetch(`${apiBase}/api/chats/${encodeURIComponent(jid)}`, {
         method: "DELETE",
+        headers: authHeaders,
       });
       if (!res.ok) throw new Error("Failed to delete chat");
       setChats((prev) => prev.filter((c) => c.jid !== jid));
@@ -99,6 +115,7 @@ export function Chat() {
   const { sendMessage, stopGenerating, fetchMessages } = useChatWebSocket({
     jid: selectedJid,
     apiBase,
+    token,
     setMessages,
     setIsGenerating,
   });
@@ -303,7 +320,7 @@ export function Chat() {
         )}
       </div>
 
-      <StatusSidebar jid={selectedJid} apiBase={apiBase} />
+      <StatusSidebar jid={selectedJid} apiBase={apiBase} token={token} />
 
       <ConfirmDialog
         open={showDeleteDialog}
