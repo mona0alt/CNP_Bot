@@ -29,6 +29,7 @@ interface UseChatWebSocketOptions {
   token: string | null;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setIsGenerating: (v: boolean) => void;
+  onUnauthorized?: () => void | Promise<void>;
 }
 
 export function useChatWebSocket({
@@ -37,6 +38,7 @@ export function useChatWebSocket({
   token,
   setMessages,
   setIsGenerating,
+  onUnauthorized,
 }: UseChatWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const messageIdsRef = useRef<Set<string>>(new Set());
@@ -51,6 +53,10 @@ export function useChatWebSocket({
           Authorization: `Bearer ${token}`,
         },
       });
+      if (res.status === 401 || res.status === 403) {
+        await onUnauthorized?.();
+        return [];
+      }
       if (!res.ok) {
         return [];
       }
@@ -61,7 +67,7 @@ export function useChatWebSocket({
       console.error("Failed to fetch messages", error);
       return [];
     }
-  }, [apiBase, token]);
+  }, [apiBase, token, onUnauthorized]);
 
   useEffect(() => {
     wsRef.current?.close();

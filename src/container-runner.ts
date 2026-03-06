@@ -195,6 +195,9 @@ function readSecrets(): Record<string, string> {
       result[key] = process.env[key]!;
     }
   }
+  if (result.ANTHROPIC_AUTH_TOKEN && !result.ANTHROPIC_API_KEY) {
+    result.ANTHROPIC_API_KEY = result.ANTHROPIC_AUTH_TOKEN;
+  }
   return result;
 }
 
@@ -321,7 +324,7 @@ export async function runContainerAgent(
       
       spawnOptions.env = {
           ...process.env,
-          // HOME: path.dirname(groupSessionsDir), // Use real HOME to pick up user config
+          HOME: path.dirname(groupSessionsDir),
           WORKSPACE_ROOT: tempWorkspace,
           IPC_DIR: path.join(tempWorkspace, 'ipc'),
           TZ: TIMEZONE,

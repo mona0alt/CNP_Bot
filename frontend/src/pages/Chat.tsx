@@ -20,7 +20,7 @@ export function Chat() {
   const pinnedToBottomRef = useRef(true);
 
   const { saveStreamingMessages, getStreamingMessages, clearStreamingMessages } = useStreamingMessages();
-  const { token } = useAuth();
+  const { token, logout } = useAuth();
 
   const apiBase = import.meta.env.DEV
     ? `${location.protocol}//${location.hostname}:3000`
@@ -31,16 +31,31 @@ export function Chat() {
     return { Authorization: `Bearer ${token}` };
   }, [token]);
 
+  const handleUnauthorized = useCallback(async () => {
+    await logout();
+    window.location.href = "/login";
+  }, [logout]);
+
   // Chat list operations
-  const fetchChats = useCallback(() => {
+  const fetchChats = useCallback(async () => {
     if (!token) return;
-    fetch(`${apiBase}/api/chats`, {
-      headers: authHeaders,
-    })
-      .then((res) => res.json())
-      .then(setChats)
-      .catch(console.error);
-  }, [apiBase, authHeaders, token]);
+    try {
+      const res = await fetch(`${apiBase}/api/chats`, {
+        headers: authHeaders,
+      });
+      if (res.status === 401 || res.status === 403) {
+        await handleUnauthorized();
+        return;
+      }
+      if (!res.ok) {
+        throw new Error("Failed to fetch chats");
+      }
+      const data = await res.json();
+      setChats(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [apiBase, authHeaders, token, handleUnauthorized]);
 
   const updateChatPreviewFromUserMessage = (jid: string, content: string, timestamp: string) => {
     const sessionTitle = content.trim();
@@ -85,6 +100,10 @@ export function Chat() {
         method: "POST",
         headers: authHeaders,
       });
+      if (res.status === 401 || res.status === 403) {
+        await handleUnauthorized();
+        return;
+      }
       if (!res.ok) throw new Error("Failed to create chat");
       const newChat = await res.json();
       fetchChats();
@@ -101,6 +120,10 @@ export function Chat() {
         method: "DELETE",
         headers: authHeaders,
       });
+      if (res.status === 401 || res.status === 403) {
+        await handleUnauthorized();
+        return;
+      }
       if (!res.ok) throw new Error("Failed to delete chat");
       setChats((prev) => prev.filter((c) => c.jid !== jid));
       if (selectedJid === jid) {
@@ -118,6 +141,7 @@ export function Chat() {
     token,
     setMessages,
     setIsGenerating,
+    onUnauthorized: handleUnauthorized,
   });
 
   // Initial load

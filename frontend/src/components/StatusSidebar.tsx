@@ -18,9 +18,11 @@ interface GroupStatus {
 
 export function StatusSidebar({ jid, apiBase, token }: StatusSidebarProps) {
   const [status, setStatus] = useState<GroupStatus | null>(null);
+  const effectiveToken =
+    token ?? (typeof window !== "undefined" ? localStorage.getItem("auth_token") : null);
 
   useEffect(() => {
-    if (!jid || !token) {
+    if (!jid || !effectiveToken) {
       return;
     }
 
@@ -28,7 +30,7 @@ export function StatusSidebar({ jid, apiBase, token }: StatusSidebarProps) {
       try {
         const res = await fetch(`${apiBase}/api/groups/${encodeURIComponent(jid)}/status`, {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${effectiveToken}`,
           },
         });
         if (res.ok) {
@@ -44,7 +46,7 @@ export function StatusSidebar({ jid, apiBase, token }: StatusSidebarProps) {
     // Poll status every 10 seconds
     const interval = setInterval(fetchStatus, 10000);
     return () => clearInterval(interval);
-  }, [jid, apiBase, token]);
+  }, [jid, apiBase, effectiveToken]);
 
   // Early return when jid is null - no need to set state
   if (!jid || !status) return null;

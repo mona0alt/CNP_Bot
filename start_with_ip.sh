@@ -29,6 +29,20 @@ if [ "$1" == "--docker" ]; then
         exit 1
     fi
 
+    set -a
+    . .env
+    set +a
+
+    missing_vars=()
+    [ -z "$JUMPSERVER_HOST" ] && missing_vars+=("JUMPSERVER_HOST")
+    [ -z "$JUMPSERVER_USER" ] && missing_vars+=("JUMPSERVER_USER")
+    [ -z "$JUMPSERVER_PASS" ] && missing_vars+=("JUMPSERVER_PASS")
+
+    if [ ${#missing_vars[@]} -ne 0 ]; then
+        echo "Error: Missing required env vars in .env: ${missing_vars[*]}"
+        exit 1
+    fi
+
     echo "Building Docker image..."
     docker build -t cnp-bot .
 

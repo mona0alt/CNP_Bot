@@ -4,6 +4,7 @@ node_modules/
 .oms/
 # Build output
 dist/
+k8s/
 
 # Local data & auth
 store/

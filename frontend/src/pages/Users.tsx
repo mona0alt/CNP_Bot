@@ -14,7 +14,7 @@ interface UserData {
 }
 
 export function Users() {
-  const { token } = useAuth();
+  const { token, logout } = useAuth();
   const [users, setUsers] = useState<UserData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -29,11 +29,20 @@ export function Users() {
   const [formDisplayName, setFormDisplayName] = useState('');
   const [formError, setFormError] = useState('');
 
+  const handleUnauthorized = useCallback(async () => {
+    await logout();
+    window.location.href = "/login";
+  }, [logout]);
+
   const fetchUsers = useCallback(async () => {
     try {
       const res = await fetch('/api/users', {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401 || res.status === 403) {
+        await handleUnauthorized();
+        return;
+      }
       if (!res.ok) throw new Error('Failed to fetch users');
       const data = await res.json();
       setUsers(data);
@@ -42,7 +51,7 @@ export function Users() {
     } finally {
       setIsLoading(false);
     }
-  }, [token]);
+  }, [token, handleUnauthorized]);
 
   useEffect(() => {
     fetchUsers();
@@ -108,6 +117,10 @@ export function Users() {
         body: JSON.stringify(body),
       });
 
+      if (res.status === 401 || res.status === 403) {
+        await handleUnauthorized();
+        return;
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Operation failed' }));
         throw new Error(err.error || 'Operation failed');
@@ -129,6 +142,10 @@ export function Users() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
+      if (res.status === 401 || res.status === 403) {
+        await handleUnauthorized();
+        return;
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Delete failed' }));
         throw new Error(err.error || 'Delete failed');
