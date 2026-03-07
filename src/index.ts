@@ -265,8 +265,28 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             id: event.content_block.id,
             name: event.content_block.name,
             input: event.content_block.input,
-            status: 'calling'
-          });
+            status: 'calling',
+            blockIndex: event.index
+          } as any);
+        } else if (event.type === 'content_block_delta' && event.delta && event.index !== undefined) {
+          const block = pendingToolBlocks.find(b => (b as any).blockIndex === event.index);
+          if (block && event.delta.type === 'input_json_delta') {
+            const existingPartial = (block as any).partial_json || '';
+            (block as any).partial_json = existingPartial + (event.delta.partial_json || '');
+          }
+        } else if (event.type === 'content_block_stop' && event.index !== undefined) {
+          const block = pendingToolBlocks.find(b => (b as any).blockIndex === event.index);
+          if (block) {
+            const partialJson = (block as any).partial_json;
+            if (partialJson) {
+              try {
+                block.input = JSON.parse(partialJson);
+              } catch {
+                block.input = partialJson;
+              }
+              delete (block as any).partial_json;
+            }
+          }
         } else if (event.type === 'tool_result') {
           // Update existing tool block with result
           const toolIndex = pendingToolBlocks.findIndex(b => b.id === event.tool_use_id);

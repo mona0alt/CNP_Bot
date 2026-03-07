@@ -23,6 +23,9 @@ export function ToolCallCard({
 
   const inputString = useMemo(() => {
     if (typeof input === "string") return input;
+    if (typeof input === "object" && input !== null && "command" in input) {
+      return String((input as { command: unknown }).command);
+    }
     return JSON.stringify(input, null, 2);
   }, [input]);
 

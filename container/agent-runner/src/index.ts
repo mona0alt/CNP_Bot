@@ -398,6 +398,7 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  const pendingToolBlocks = new Map<number, { partial_json?: string; input?: unknown; toolId?: string }>();
 
   let systemPromptAppend = '';
   // Load global CLAUDE.md as shared system context for all groups
@@ -512,6 +513,31 @@ async function runQuery(
     }
 
     if (message.type === 'stream_event') {
+      const event = (message as any).event;
+      if (event) {
+        if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+          const index = event.index;
+          pendingToolBlocks.set(index, { partial_json: '', toolId: event.content_block.id });
+        } else if (event.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') {
+          const index = event.index;
+          let block = pendingToolBlocks.get(index);
+          if (!block) {
+            block = { partial_json: '' };
+            pendingToolBlocks.set(index, block);
+          }
+          block.partial_json = (block.partial_json || '') + (event.delta.partial_json || '');
+        } else if (event.type === 'content_block_stop' && event.index !== undefined) {
+          const index = event.index;
+          const block = pendingToolBlocks.get(index);
+          if (block?.partial_json) {
+            try {
+              block.input = JSON.parse(block.partial_json);
+            } catch {
+              block.input = block.partial_json;
+            }
+          }
+        }
+      }
       writeOutput({
         status: 'success',
         result: null,
@@ -528,9 +554,18 @@ async function runQuery(
         if (typeof resultObj.result === 'string') {
            textResult = resultObj.result;
         } else if (Array.isArray(resultObj.result)) {
-           // If result is an array of blocks (e.g. text + tool_use), serialize it
-           // This preserves the structure for the frontend
-           textResult = JSON.stringify(resultObj.result);
+           const blocks = [...resultObj.result];
+           for (const block of blocks) {
+             if (block.type === 'tool_use' && block.id) {
+               for (const pending of pendingToolBlocks.values()) {
+                 if (pending.toolId === block.id && pending.input !== undefined) {
+                   block.input = pending.input;
+                   break;
+                 }
+               }
+             }
+           }
+           textResult = JSON.stringify(blocks);
         }
       }
 

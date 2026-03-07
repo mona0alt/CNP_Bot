@@ -74,7 +74,8 @@ export function MessageList({ messages }: MessageListProps) {
           {sortedBlocks.map((block, bIdx) => {
             if (block.type === 'tool_use') {
               let inputObj = block.input || {};
-              if (!block.input && block.partial_json) {
+              const isEmptyObject = typeof inputObj === 'object' && inputObj !== null && Object.keys(inputObj).length === 0;
+              if (isEmptyObject && block.partial_json) {
                 try {
                   inputObj = JSON.parse(block.partial_json);
                 } catch {

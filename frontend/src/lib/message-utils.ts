@@ -52,11 +52,12 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): 
     if (newBlocks[index]) {
       const block = { ...newBlocks[index] };
       if (block.type === 'tool_use') {
-        if (block.partial_json && !block.input) {
+        const isEmptyObject = typeof block.input === 'object' && block.input !== null && Object.keys(block.input as object).length === 0;
+        if (block.partial_json && isEmptyObject) {
           try {
             block.input = JSON.parse(block.partial_json);
           } catch {
-            // Keep partial if parsing fails
+            block.input = block.partial_json;
           }
         }
       }
