@@ -66,7 +66,9 @@ COPY --chown=node:node . .
 
 # Copy custom skills
 RUN mkdir -p /home/node/.claude/skills/jumpserver
+RUN mkdir -p /home/node/.claude/skills/prometheus
 COPY --chown=node:node container/skills/jumpserver /home/node/.claude/skills/jumpserver
+COPY --chown=node:node container/skills/prometheus /home/node/.claude/skills/prometheus
 
 # Build Agent Runner
 RUN cd container/agent-runner && npm run build

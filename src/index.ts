@@ -266,16 +266,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             name: event.content_block.name,
             input: event.content_block.input,
             status: 'calling',
-            blockIndex: event.index
+            blockIndex: event.index,
+            blockId: event.content_block.id
           } as any);
-        } else if (event.type === 'content_block_delta' && event.delta && event.index !== undefined) {
-          const block = pendingToolBlocks.find(b => (b as any).blockIndex === event.index);
+        } else if (event.type === 'content_block_delta' && event.delta) {
+          const block = event.content_block?.id 
+            ? pendingToolBlocks.find(b => (b as any).blockId === event.content_block.id)
+            : pendingToolBlocks.find(b => (b as any).blockIndex === event.index);
           if (block && event.delta.type === 'input_json_delta') {
             const existingPartial = (block as any).partial_json || '';
             (block as any).partial_json = existingPartial + (event.delta.partial_json || '');
           }
-        } else if (event.type === 'content_block_stop' && event.index !== undefined) {
-          const block = pendingToolBlocks.find(b => (b as any).blockIndex === event.index);
+        } else if (event.type === 'content_block_stop') {
+          const block = event.content_block?.id 
+            ? pendingToolBlocks.find(b => (b as any).blockId === event.content_block.id)
+            : pendingToolBlocks.find(b => (b as any).blockIndex === event.index);
           if (block) {
             const partialJson = (block as any).partial_json;
             if (partialJson) {
