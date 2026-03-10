@@ -19,7 +19,10 @@ import {
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './container-runner.js';
-import { cleanupOrphans, ensureContainerRuntimeRunning } from './container-runtime.js';
+import {
+  cleanupOrphans,
+  ensureContainerRuntimeRunning,
+} from './container-runtime.js';
 import {
   getAllChats,
   getAllRegisteredGroups,
@@ -46,6 +49,11 @@ import { startSchedulerLoop } from './task-scheduler.js';
 import { startServer } from './server.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+import {
+  executeSlashCommand,
+  isSlashCommand,
+  updateSdkCommands,
+} from './slash-commands.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -67,14 +75,19 @@ async function ensureDefaultAdmin(): Promise<void> {
     role: 'admin',
     display_name: 'Administrator',
   });
-  logger.info('Created default admin user (username: admin, password: admin123)');
+  logger.info(
+    'Created default admin user (username: admin, password: admin123)',
+  );
 }
 
 let lastTimestamp = '';
 let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
-export const groupStats: Record<string, { usage?: { input_tokens: number, output_tokens: number } }> = {};
+export const groupStats: Record<
+  string,
+  { usage?: { input_tokens: number; output_tokens: number } }
+> = {};
 let messageLoopRunning = false;
 
 let web: WebChannel;
@@ -99,7 +112,10 @@ function loadState(): void {
       const groupDir = resolveGroupFolderPath(group.folder);
       fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
     } catch (err) {
-      logger.warn({ group: group.name, err }, 'Failed to ensure group folder exists');
+      logger.warn(
+        { group: group.name, err },
+        'Failed to ensure group folder exists',
+      );
     }
   }
 
@@ -111,10 +127,7 @@ function loadState(): void {
 
 function saveState(): void {
   setRouterState('last_timestamp', lastTimestamp);
-  setRouterState(
-    'last_agent_timestamp',
-    JSON.stringify(lastAgentTimestamp),
-  );
+  setRouterState('last_agent_timestamp', JSON.stringify(lastAgentTimestamp));
 }
 
 function registerGroup(jid: string, group: RegisteredGroup): void {
@@ -160,7 +173,9 @@ export function getAvailableGroups(): import('./container-runner.js').AvailableG
 }
 
 /** @internal - exported for testing */
-export function _setRegisteredGroups(groups: Record<string, RegisteredGroup>): void {
+export function _setRegisteredGroups(
+  groups: Record<string, RegisteredGroup>,
+): void {
   registeredGroups = groups;
 }
 
@@ -182,13 +197,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const isMainGroup = group.folder === MAIN_GROUP_FOLDER;
 
   const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
-  const missedMessages = getMessagesSince(chatJid, sinceTimestamp, ASSISTANT_NAME);
+  const missedMessages = getMessagesSince(
+    chatJid,
+    sinceTimestamp,
+    ASSISTANT_NAME,
+  );
 
   if (missedMessages.length === 0) return true;
 
   // Only require trigger if the group is configured for it.
   // We explicitly exempt web:default to ensure web chat always works without trigger.
-  const needsTrigger = chatJid !== 'web:default' && group.requiresTrigger !== false;
+  const needsTrigger =
+    chatJid !== 'web:default' && group.requiresTrigger !== false;
 
   if (needsTrigger) {
     const hasTrigger = missedMessages.some((m) =>
@@ -198,6 +218,24 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   const prompt = formatMessages(missedMessages);
+
+  // Check if the last user message is a slash command
+  const lastUserMessage = missedMessages.filter((m) => !m.is_bot_message).pop();
+
+  if (lastUserMessage && isSlashCommand(lastUserMessage.content)) {
+    const result = await executeSlashCommand(
+      lastUserMessage.content.trim(),
+      chatJid,
+      group.folder,
+    );
+
+    if (result) {
+      // Built-in command was executed, send result to user and skip agent
+      await channel.sendMessage?.(chatJid, result.message);
+      return true;
+    }
+    // If result is null, it's a custom command - let it pass through to the agent
+  }
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -217,7 +255,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const resetIdleTimer = () => {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
-      logger.debug({ group: group.name }, 'Idle timeout, closing container stdin');
+      logger.debug(
+        { group: group.name },
+        'Idle timeout, closing container stdin',
+      );
       queue.closeStdin(chatJid);
     }, IDLE_TIMEOUT);
   };
@@ -225,7 +266,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
   let outputSentToUser = false;
-  let pendingToolBlocks: Array<{ type: string; id?: string; name?: string; input?: any; status?: string; result?: any }> = [];
+  let pendingToolBlocks: Array<{
+    type: string;
+    id?: string;
+    name?: string;
+    input?: any;
+    status?: string;
+    result?: any;
+  }> = [];
 
   const agentResult = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
@@ -252,14 +300,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
 
     if (result.usage) {
-        groupStats[chatJid] = { ...groupStats[chatJid], usage: result.usage };
+      groupStats[chatJid] = { ...groupStats[chatJid], usage: result.usage };
     }
 
     // Collect tool_use blocks from stream events to include in final message
     if (result.streamEvent) {
       const event = result.streamEvent.event;
       if (event) {
-        if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+        if (
+          event.type === 'content_block_start' &&
+          event.content_block?.type === 'tool_use'
+        ) {
           pendingToolBlocks.push({
             type: 'tool_use',
             id: event.content_block.id,
@@ -267,20 +318,29 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             input: event.content_block.input,
             status: 'calling',
             blockIndex: event.index,
-            blockId: event.content_block.id
+            blockId: event.content_block.id,
           } as any);
         } else if (event.type === 'content_block_delta' && event.delta) {
-          const block = event.content_block?.id 
-            ? pendingToolBlocks.find(b => (b as any).blockId === event.content_block.id)
-            : pendingToolBlocks.find(b => (b as any).blockIndex === event.index);
+          const block = event.content_block?.id
+            ? pendingToolBlocks.find(
+                (b) => (b as any).blockId === event.content_block.id,
+              )
+            : pendingToolBlocks.find(
+                (b) => (b as any).blockIndex === event.index,
+              );
           if (block && event.delta.type === 'input_json_delta') {
             const existingPartial = (block as any).partial_json || '';
-            (block as any).partial_json = existingPartial + (event.delta.partial_json || '');
+            (block as any).partial_json =
+              existingPartial + (event.delta.partial_json || '');
           }
         } else if (event.type === 'content_block_stop') {
-          const block = event.content_block?.id 
-            ? pendingToolBlocks.find(b => (b as any).blockId === event.content_block.id)
-            : pendingToolBlocks.find(b => (b as any).blockIndex === event.index);
+          const block = event.content_block?.id
+            ? pendingToolBlocks.find(
+                (b) => (b as any).blockId === event.content_block.id,
+              )
+            : pendingToolBlocks.find(
+                (b) => (b as any).blockIndex === event.index,
+              );
           if (block) {
             const partialJson = (block as any).partial_json;
             if (partialJson) {
@@ -294,14 +354,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           }
         } else if (event.type === 'tool_result') {
           // Update existing tool block with result
-          const toolIndex = pendingToolBlocks.findIndex(b => b.id === event.tool_use_id);
+          const toolIndex = pendingToolBlocks.findIndex(
+            (b) => b.id === event.tool_use_id,
+          );
           if (toolIndex !== -1) {
             pendingToolBlocks[toolIndex] = {
               ...pendingToolBlocks[toolIndex],
               status: event.is_error ? 'error' : 'executed',
               result: Array.isArray(event.content)
-                ? event.content.map((c: any) => c.text || JSON.stringify(c)).join('\n')
-                : event.content
+                ? event.content
+                    .map((c: any) => c.text || JSON.stringify(c))
+                    .join('\n')
+                : event.content,
             };
           }
         }
@@ -309,7 +373,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
 
     if (result.result) {
-      const raw = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
+      const raw =
+        typeof result.result === 'string'
+          ? result.result
+          : JSON.stringify(result.result);
 
       // Build final content: combine pending tool blocks with the result text
       let finalContent = raw;
@@ -319,7 +386,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         let textContent = raw;
         if (!raw.trim().startsWith('[')) {
           // Legacy text processing
-          textContent = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+          textContent = raw
+            .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+            .trim();
         }
 
         // If result is a JSON array, merge tool blocks into it
@@ -328,25 +397,39 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             const existingBlocks = JSON.parse(raw);
             if (Array.isArray(existingBlocks)) {
               // Prepend tool_use blocks at the beginning
-              finalContent = JSON.stringify([...pendingToolBlocks, ...existingBlocks]);
+              finalContent = JSON.stringify([
+                ...pendingToolBlocks,
+                ...existingBlocks,
+              ]);
             }
           } catch {
             // If parsing fails, create a new array with tool blocks + text
-            finalContent = JSON.stringify([...pendingToolBlocks, { type: 'text', text: textContent }]);
+            finalContent = JSON.stringify([
+              ...pendingToolBlocks,
+              { type: 'text', text: textContent },
+            ]);
           }
         } else {
           // Create array with tool blocks + text
-          finalContent = JSON.stringify([...pendingToolBlocks, { type: 'text', text: textContent }]);
+          finalContent = JSON.stringify([
+            ...pendingToolBlocks,
+            { type: 'text', text: textContent },
+          ]);
         }
       } else if (raw.trim().startsWith('[') && raw.trim().endsWith(']')) {
         // Already a JSON array, keep as-is
         finalContent = raw;
       } else {
         // Legacy text processing for plain text results
-        finalContent = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        finalContent = raw
+          .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+          .trim();
       }
 
-      logger.info({ group: group.name }, `Agent output: ${finalContent.slice(0, 200)}, toolBlocks: ${pendingToolBlocks.length}`);
+      logger.info(
+        { group: group.name },
+        `Agent output: ${finalContent.slice(0, 200)}, toolBlocks: ${pendingToolBlocks.length}`,
+      );
       if (finalContent) {
         await channel.sendMessage(chatJid, finalContent);
         outputSentToUser = true;
@@ -372,14 +455,20 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (agentResult.status === 'error' || hadError) {
     // If the process was interrupted by user, don't treat it as an error that needs retry.
     if (queue.isInterrupted(chatJid)) {
-      logger.info({ group: group.name }, 'Agent execution interrupted by user, skipping cursor rollback');
+      logger.info(
+        { group: group.name },
+        'Agent execution interrupted by user, skipping cursor rollback',
+      );
       return true;
     }
 
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
     if (outputSentToUser) {
-      logger.warn({ group: group.name }, 'Agent error after output was sent, skipping cursor rollback to prevent duplicates');
+      logger.warn(
+        { group: group.name },
+        'Agent error after output was sent, skipping cursor rollback to prevent duplicates',
+      );
       return true;
     }
 
@@ -387,24 +476,30 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     // We treat "exited with code 1" as a sign that the local state (cwd/home) doesn't match the session ID.
     const errorMessage = agentResult.error || '';
     if (errorMessage.includes('exited with code 1')) {
-        logger.warn({ group: group.name, error: errorMessage }, 'Detected possible session corruption/loss. Invalidating session and forcing full history reload.');
-        
-        // Clear session
-        delete sessions[group.folder];
-        setSession(group.folder, '');
-        
-        // Reset timestamp to re-fetch FULL history on next retry
-        lastAgentTimestamp[chatJid] = '';
-        saveState();
-        
-        // Return false to trigger retry (which will now use new session + full history)
-        return false;
+      logger.warn(
+        { group: group.name, error: errorMessage },
+        'Detected possible session corruption/loss. Invalidating session and forcing full history reload.',
+      );
+
+      // Clear session
+      delete sessions[group.folder];
+      setSession(group.folder, '');
+
+      // Reset timestamp to re-fetch FULL history on next retry
+      lastAgentTimestamp[chatJid] = '';
+      saveState();
+
+      // Return false to trigger retry (which will now use new session + full history)
+      return false;
     }
 
     // Roll back cursor so retries can re-process these messages
     lastAgentTimestamp[chatJid] = previousCursor;
     saveState();
-    logger.warn({ group: group.name }, 'Agent error, rolled back message cursor for retry');
+    logger.warn(
+      { group: group.name },
+      'Agent error, rolled back message cursor for retry',
+    );
     return false;
   }
 
@@ -452,6 +547,10 @@ async function runAgent(
           sessions[group.folder] = output.newSessionId;
           setSession(group.folder, output.newSessionId);
         }
+        // Update slash commands cache when received from SDK
+        if (output.slashCommands && output.slashCommands.length > 0) {
+          updateSdkCommands(output.slashCommands);
+        }
         await onOutput(output);
       }
     : undefined;
@@ -467,7 +566,8 @@ async function runAgent(
         isMain,
         assistantName: ASSISTANT_NAME,
       },
-      (proc, containerName) => queue.registerProcess(chatJid, proc, containerName, group.folder),
+      (proc, containerName) =>
+        queue.registerProcess(chatJid, proc, containerName, group.folder),
       wrappedOnOutput,
     );
 
@@ -534,14 +634,17 @@ async function startMessageLoop(): Promise<void> {
 
           const channel = findChannel(channels, chatJid);
           if (!channel) {
-            console.log(`Warning: no channel owns JID ${chatJid}, skipping messages`);
+            console.log(
+              `Warning: no channel owns JID ${chatJid}, skipping messages`,
+            );
             continue;
           }
 
           // Only require trigger if the group is configured for it.
           // We explicitly exempt web:default to ensure web chat always works without trigger,
           // regardless of DB state (though it should be registered with requiresTrigger: false).
-          const needsTrigger = chatJid !== 'web:default' && group.requiresTrigger !== false;
+          const needsTrigger =
+            chatJid !== 'web:default' && group.requiresTrigger !== false;
 
           // For non-main groups, only act on trigger messages.
           // Non-trigger messages accumulate in DB and get pulled as
@@ -550,7 +653,7 @@ async function startMessageLoop(): Promise<void> {
             // Check if there is an active container for this group
             // If active, we pipe all messages (even without trigger)
             const isActive = queue.isGroupActive(chatJid);
-            
+
             if (!isActive) {
               const hasTrigger = groupMessages.some((m) =>
                 TRIGGER_PATTERN.test(m.content.trim()),
@@ -562,20 +665,16 @@ async function startMessageLoop(): Promise<void> {
           // Pull all messages since lastAgentTimestamp so non-trigger
           // context that accumulated between triggers is included.
           const sinceTs = lastAgentTimestamp[chatJid] || '';
-          const allPending = getMessagesSince(
-            chatJid,
-            sinceTs,
-            ASSISTANT_NAME,
-          );
-          
+          const allPending = getMessagesSince(chatJid, sinceTs, ASSISTANT_NAME);
+
           // If allPending is empty, it means we've already processed everything up to lastAgentTimestamp.
           // However, groupMessages contains the new messages that triggered this loop iteration.
           // We must ensure we don't re-process messages that are already covered by lastAgentTimestamp.
           // This happens if processGroupMessages updated lastAgentTimestamp concurrently.
           const messagesToSend =
-            allPending.length > 0 
-              ? allPending 
-              : groupMessages.filter(m => m.timestamp > sinceTs);
+            allPending.length > 0
+              ? allPending
+              : groupMessages.filter((m) => m.timestamp > sinceTs);
 
           if (messagesToSend.length === 0) continue;
 
@@ -590,9 +689,11 @@ async function startMessageLoop(): Promise<void> {
               messagesToSend[messagesToSend.length - 1].timestamp;
             saveState();
             // Show typing indicator while the container processes the piped message
-            channel.setTyping?.(chatJid, true)?.catch((err) =>
-              logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
-            );
+            channel
+              .setTyping?.(chatJid, true)
+              ?.catch((err) =>
+                logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
+              );
           } else {
             // No active container — enqueue for a new one
             queue.enqueueMessageCheck(chatJid);
@@ -666,8 +767,13 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (_chatJid: string, msg: NewMessage) => storeMessage(msg),
-    onChatMetadata: (chatJid: string, timestamp: string, name?: string, channel?: string, isGroup?: boolean) =>
-      storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
+    onChatMetadata: (
+      chatJid: string,
+      timestamp: string,
+      name?: string,
+      channel?: string,
+      isGroup?: boolean,
+    ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     registeredGroups: () => registeredGroups,
   };
 
@@ -687,7 +793,8 @@ async function main(): Promise<void> {
 
         // Use a unique folder for new web chats to ensure session isolation
         // Only web:default shares the main folder
-        const folder = jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
+        const folder =
+          jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
 
         registerGroup(jid, {
           name: 'New Chat',
@@ -699,7 +806,14 @@ async function main(): Promise<void> {
       }
 
       const timestamp = new Date().toISOString();
-      storeChatMetadata(jid, timestamp, jid === 'web:default' ? 'Web Chat' : jid, 'web', false, userId);
+      storeChatMetadata(
+        jid,
+        timestamp,
+        jid === 'web:default' ? 'Web Chat' : jid,
+        'web',
+        false,
+        userId,
+      );
       const msg: NewMessage = {
         id: randomUUID(),
         chat_jid: jid,
@@ -735,7 +849,8 @@ async function main(): Promise<void> {
       const group = registeredGroups[jid];
       let folder = group?.folder;
       if (!folder && jid.startsWith('web:')) {
-        folder = jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
+        folder =
+          jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
       }
       if (folder) {
         delete sessions[folder];
@@ -755,7 +870,8 @@ async function main(): Promise<void> {
     registeredGroups: () => registeredGroups,
     getSessions: () => sessions,
     queue,
-    onProcess: (groupJid, proc, containerName, groupFolder) => queue.registerProcess(groupJid, proc, containerName, groupFolder),
+    onProcess: (groupJid, proc, containerName, groupFolder) =>
+      queue.registerProcess(groupJid, proc, containerName, groupFolder),
     sendMessage: async (jid, rawText) => {
       const channel = findChannel(channels, jid);
       if (!channel) {
@@ -776,7 +892,8 @@ async function main(): Promise<void> {
     registerGroup,
     syncGroupMetadata: () => Promise.resolve(),
     getAvailableGroups,
-    writeGroupsSnapshot: (gf, im, ag, rj) => writeGroupsSnapshot(gf, im, ag, rj),
+    writeGroupsSnapshot: (gf, im, ag, rj) =>
+      writeGroupsSnapshot(gf, im, ag, rj),
   });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
@@ -789,7 +906,8 @@ async function main(): Promise<void> {
 // Guard: only run when executed directly, not when imported by tests
 const isDirectRun =
   process.argv[1] &&
-  new URL(import.meta.url).pathname === new URL(`file://${process.argv[1]}`).pathname;
+  new URL(import.meta.url).pathname ===
+    new URL(`file://${process.argv[1]}`).pathname;
 
 if (isDirectRun) {
   main().catch((err) => {

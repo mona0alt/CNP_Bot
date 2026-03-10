@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare, Trash2 } from "lucide-react";
-import type { Chat, Message } from "@/lib/types";
-import { StatusSidebar } from "@/components/StatusSidebar";
-import { ChatSidebar, MessageList, MessageInput } from "@/components/Chat";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { useChatWebSocket } from "@/hooks/useChatWebSocket";
-import { useStreamingMessages } from "@/contexts/StreamingMessagesContext";
-import { useAuth } from "@/contexts/AuthContext";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MessageSquare, Trash2 } from 'lucide-react';
+import type { Chat, Message, SlashCommand } from '@/lib/types';
+import { StatusSidebar } from '@/components/StatusSidebar';
+import { ChatSidebar, MessageList, MessageInput } from '@/components/Chat';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { useChatWebSocket } from '@/hooks/useChatWebSocket';
+import { useStreamingMessages } from '@/contexts/StreamingMessagesContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 export function Chat() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -14,17 +14,22 @@ export function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [newMessage, setNewMessage] = useState("");
+  const [newMessage, setNewMessage] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
 
-  const { saveStreamingMessages, getStreamingMessages, clearStreamingMessages } = useStreamingMessages();
+  const {
+    saveStreamingMessages,
+    getStreamingMessages,
+    clearStreamingMessages,
+  } = useStreamingMessages();
   const { token, logout } = useAuth();
 
   const apiBase = import.meta.env.DEV
     ? `${location.protocol}//${location.hostname}:3000`
-    : "";
+    : '';
 
   const authHeaders = useMemo<HeadersInit | undefined>(() => {
     if (!token) return undefined;
@@ -33,7 +38,7 @@ export function Chat() {
 
   const handleUnauthorized = useCallback(async () => {
     await logout();
-    window.location.href = "/login";
+    window.location.href = '/login';
   }, [logout]);
 
   // Chat list operations
@@ -48,7 +53,7 @@ export function Chat() {
         return;
       }
       if (!res.ok) {
-        throw new Error("Failed to fetch chats");
+        throw new Error('Failed to fetch chats');
       }
       const data = await res.json();
       setChats(Array.isArray(data) ? data : []);
@@ -57,7 +62,11 @@ export function Chat() {
     }
   }, [apiBase, authHeaders, token, handleUnauthorized]);
 
-  const updateChatPreviewFromUserMessage = (jid: string, content: string, timestamp: string) => {
+  const updateChatPreviewFromUserMessage = (
+    jid: string,
+    content: string,
+    timestamp: string,
+  ) => {
     const sessionTitle = content.trim();
     if (!sessionTitle) return;
 
@@ -76,7 +85,7 @@ export function Chat() {
       } else {
         next.push({
           jid,
-          name: "New Chat",
+          name: 'New Chat',
           last_message_time: timestamp,
           last_message: content,
           last_user_message: sessionTitle,
@@ -87,7 +96,7 @@ export function Chat() {
       next.sort(
         (a, b) =>
           new Date(b.last_message_time || 0).getTime() -
-          new Date(a.last_message_time || 0).getTime()
+          new Date(a.last_message_time || 0).getTime(),
       );
       return next;
     });
@@ -97,40 +106,43 @@ export function Chat() {
     try {
       if (!token) return;
       const res = await fetch(`${apiBase}/api/chats`, {
-        method: "POST",
+        method: 'POST',
         headers: authHeaders,
       });
       if (res.status === 401 || res.status === 403) {
         await handleUnauthorized();
         return;
       }
-      if (!res.ok) throw new Error("Failed to create chat");
+      if (!res.ok) throw new Error('Failed to create chat');
       const newChat = await res.json();
       fetchChats();
       setSelectedJid(newChat.jid);
     } catch (error) {
-      console.error("Failed to create chat", error);
+      console.error('Failed to create chat', error);
     }
   };
 
   const handleDeleteChat = async (jid: string) => {
     try {
       if (!token) return;
-      const res = await fetch(`${apiBase}/api/chats/${encodeURIComponent(jid)}`, {
-        method: "DELETE",
-        headers: authHeaders,
-      });
+      const res = await fetch(
+        `${apiBase}/api/chats/${encodeURIComponent(jid)}`,
+        {
+          method: 'DELETE',
+          headers: authHeaders,
+        },
+      );
       if (res.status === 401 || res.status === 403) {
         await handleUnauthorized();
         return;
       }
-      if (!res.ok) throw new Error("Failed to delete chat");
+      if (!res.ok) throw new Error('Failed to delete chat');
       setChats((prev) => prev.filter((c) => c.jid !== jid));
       if (selectedJid === jid) {
         setSelectedJid(null);
       }
     } catch (error) {
-      console.error("Failed to delete chat", error);
+      console.error('Failed to delete chat', error);
     }
   };
 
@@ -147,7 +159,27 @@ export function Chat() {
   // Initial load
   useEffect(() => {
     fetchChats();
-  }, [fetchChats]);
+
+    // Fetch slash commands
+    fetch(`${apiBase}/api/slash-commands`, {
+      headers: authHeaders,
+    })
+      .then((res) => {
+        if (res.status === 401 || res.status === 403) {
+          handleUnauthorized();
+          return [];
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setSlashCommands(data);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to fetch slash commands:', err);
+      });
+  }, [fetchChats, apiBase, authHeaders]);
 
   // Load messages when chat is selected
   useEffect(() => {
@@ -164,7 +196,9 @@ export function Chat() {
       if (savedStreaming && savedStreaming.length > 0) {
         // 合并：数据库消息 + 流式消息（去除重复）
         const streamingIds = new Set(savedStreaming.map((m: Message) => m.id));
-        const filteredData = data.filter((m: Message) => !streamingIds.has(m.id));
+        const filteredData = data.filter(
+          (m: Message) => !streamingIds.has(m.id),
+        );
         // 流式消息放在最后
         setMessages([...filteredData, ...savedStreaming]);
       } else {
@@ -180,7 +214,7 @@ export function Chat() {
     if (messages.some((m) => m.chat_jid !== selectedJid)) return;
 
     const streamingBotMessages = messages.filter(
-      (m) => m.is_bot_message && m.id.startsWith("stream-")
+      (m) => m.is_bot_message && m.id.startsWith('stream-'),
     );
 
     if (streamingBotMessages.length > 0) {
@@ -193,7 +227,7 @@ export function Chat() {
   useEffect(() => {
     if (!selectedJid || isGenerating) return;
     const hasStreamingMessage = messages.some(
-      (m) => m.chat_jid === selectedJid && m.id.startsWith("stream-")
+      (m) => m.chat_jid === selectedJid && m.id.startsWith('stream-'),
     );
     if (!hasStreamingMessage) {
       const timer = setTimeout(() => {
@@ -217,7 +251,7 @@ export function Chat() {
 
     const content = newMessage.trim();
     const timestamp = new Date().toISOString();
-    setNewMessage("");
+    setNewMessage('');
     setIsGenerating(true);
 
     // Try WebSocket first (sendMessage is always defined, but checks WebSocket state internally)
@@ -229,7 +263,7 @@ export function Chat() {
       content,
       timestamp,
       is_from_me: true,
-      is_bot_message: false
+      is_bot_message: false,
     };
     setMessages((prev) => [...prev, optimisticMsg]);
     updateChatPreviewFromUserMessage(selectedJid, content, timestamp);
@@ -238,14 +272,14 @@ export function Chat() {
     // Fallback to HTTP
     try {
       const res = await fetch(`${apiBase}/api/groups/${selectedJid}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
       });
       const created = (await res.json()) as Message;
       setMessages((prev) => [...prev, created]);
     } catch (error) {
-      console.error("Failed to send message", error);
+      console.error('Failed to send message', error);
       setIsGenerating(false);
     }
   };
@@ -257,7 +291,10 @@ export function Chat() {
 
   // Render items with date separators
   const renderItems = useMemo(() => {
-    const items: Array<{ type: "date" } & { key: string; label: string } | { type: "msg" } & { key: string; msg: Message }> = [];
+    const items: Array<
+      | ({ type: 'date' } & { key: string; label: string })
+      | ({ type: 'msg' } & { key: string; msg: Message })
+    > = [];
     let lastDay: string | null = null;
 
     for (const msg of messages) {
@@ -265,14 +302,20 @@ export function Chat() {
       const dayKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
       if (dayKey !== lastDay) {
         lastDay = dayKey;
-        items.push({ type: "date", key: `date:${dayKey}`, label: d.toLocaleDateString() });
+        items.push({
+          type: 'date',
+          key: `date:${dayKey}`,
+          label: d.toLocaleDateString(),
+        });
       }
-      items.push({ type: "msg", key: msg.id, msg });
+      items.push({ type: 'msg', key: msg.id, msg });
     }
     return items;
   }, [messages]);
 
-  const chatName = selectedJid ? chats.find(c => c.jid === selectedJid)?.name || selectedJid : null;
+  const chatName = selectedJid
+    ? chats.find((c) => c.jid === selectedJid)?.name || selectedJid
+    : null;
 
   return (
     <div className="flex h-full">
@@ -309,10 +352,12 @@ export function Chat() {
               }}
             >
               {loading ? (
-                <div className="text-center text-muted-foreground">Loading...</div>
+                <div className="text-center text-muted-foreground">
+                  Loading...
+                </div>
               ) : (
                 renderItems.map((it) => {
-                  if (it.type === "date") {
+                  if (it.type === 'date') {
                     return (
                       <div key={it.key} className="flex justify-center my-4">
                         <div className="px-3 py-1 rounded-full bg-muted text-muted-foreground text-xs">
@@ -332,6 +377,7 @@ export function Chat() {
               onSend={handleSendMessage}
               onStop={handleStop}
               isGenerating={isGenerating}
+              slashCommands={slashCommands}
             />
           </>
         ) : (

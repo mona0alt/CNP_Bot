@@ -1,4 +1,8 @@
-import express, { type Request, type Response, type NextFunction } from 'express';
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+} from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -31,6 +35,7 @@ import {
 } from './db.js';
 import { logger } from './logger.js';
 import { ASSISTANT_NAME, JWT_SECRET, JWT_EXPIRES_IN } from './config.js';
+import { getSlashCommands } from './slash-commands.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,7 +99,11 @@ function verifyToken(token: string): AuthUser | null {
 export interface ServerOpts {
   port?: number;
   sendMessage?: (jid: string, text: string) => Promise<void>;
-  onWebUserMessage?: (jid: string, text: string, userId: string) => Promise<{
+  onWebUserMessage?: (
+    jid: string,
+    text: string,
+    userId: string,
+  ) => Promise<{
     id: string;
     chat_jid: string;
     sender: string;
@@ -106,7 +115,9 @@ export interface ServerOpts {
   }>;
   onStopGeneration?: (jid: string) => void;
   onDeleteChat?: (jid: string) => void;
-  getGroupStats?: (jid: string) => { usage?: { input_tokens: number, output_tokens: number } } | undefined;
+  getGroupStats?: (
+    jid: string,
+  ) => { usage?: { input_tokens: number; output_tokens: number } } | undefined;
 }
 
 export interface BroadcastCapability {
@@ -118,7 +129,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
   const app = express();
   app.use(cors());
   app.use(express.json());
-  
+
   // Store connected sockets
   const connectedSockets = new Set<{ ws: WebSocket; jid: string }>();
 
@@ -136,7 +147,13 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
   };
 
   try {
-    storeChatMetadata('web:default', new Date().toISOString(), 'Web Chat', 'web', false);
+    storeChatMetadata(
+      'web:default',
+      new Date().toISOString(),
+      'Web Chat',
+      'web',
+      false,
+    );
   } catch (err) {
     logger.warn({ err }, 'Failed to ensure web chat exists');
   }
@@ -148,6 +165,16 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       assistantName: ASSISTANT_NAME,
       uptime: process.uptime(),
     });
+  });
+
+  app.get('/api/slash-commands', async (req, res) => {
+    try {
+      const commands = await getSlashCommands();
+      res.json(commands);
+    } catch (err) {
+      logger.error({ err }, 'Failed to get slash commands');
+      res.status(500).json({ error: 'Failed to get slash commands' });
+    }
   });
 
   app.get('/api/groups', (req, res) => {
@@ -176,7 +203,14 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       const authReq = req as AuthRequest;
       const jid = 'web:' + randomUUID();
       const timestamp = new Date().toISOString();
-      storeChatMetadata(jid, timestamp, 'New Chat', 'web', false, authReq.user!.userId);
+      storeChatMetadata(
+        jid,
+        timestamp,
+        'New Chat',
+        'web',
+        false,
+        authReq.user!.userId,
+      );
       res.status(201).json({
         jid,
         name: 'New Chat',
@@ -194,7 +228,11 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     try {
       const authReq = req as AuthRequest;
       const { jid } = req.params as { jid: string };
-      const deleted = deleteChatByRole(jid, authReq.user!.userId, authReq.user!.role);
+      const deleted = deleteChatByRole(
+        jid,
+        authReq.user!.userId,
+        authReq.user!.role,
+      );
       if (!deleted) {
         return res.status(404).json({ error: 'Chat not found' });
       }
@@ -213,13 +251,17 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     try {
       const authReq = req as AuthRequest;
       const { jid } = req.params as { jid: string };
-      const allowed = canAccessChat(jid, authReq.user!.userId, authReq.user!.role);
+      const allowed = canAccessChat(
+        jid,
+        authReq.user!.userId,
+        authReq.user!.role,
+      );
       if (!allowed) {
         return res.status(404).json({ error: 'Chat not found' });
       }
       const groups = getAllRegisteredGroups();
       const group = groups[jid];
-      
+
       if (!group) {
         return res.status(404).json({ error: 'Group not found' });
       }
@@ -230,7 +272,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       res.json({
         workingDirectory: group.folder,
         model,
-        usage: stats?.usage || { input_tokens: 0, output_tokens: 0 }
+        usage: stats?.usage || { input_tokens: 0, output_tokens: 0 },
       });
     } catch (err) {
       logger.error({ err }, 'Failed to fetch group status');
@@ -242,12 +284,17 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     try {
       const authReq = req as AuthRequest;
       const { jid } = req.params as { jid: string };
-      const allowed = canAccessChat(jid, authReq.user!.userId, authReq.user!.role);
+      const allowed = canAccessChat(
+        jid,
+        authReq.user!.userId,
+        authReq.user!.role,
+      );
       if (!allowed) {
         return res.status(404).json({ error: 'Chat not found' });
       }
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
-      const since = typeof req.query.since === 'string' ? req.query.since : null;
+      const since =
+        typeof req.query.since === 'string' ? req.query.since : null;
       const messages = since
         ? getMessagesSinceAll(jid, since, limit)
         : getRecentMessages(jid, limit);
@@ -270,7 +317,11 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
 
     const authReq = req as AuthRequest;
     const { jid } = req.params as { jid: string };
-    const allowed = canAccessChat(jid, authReq.user!.userId, authReq.user!.role);
+    const allowed = canAccessChat(
+      jid,
+      authReq.user!.userId,
+      authReq.user!.role,
+    );
     if (!allowed) {
       return res.status(404).json({ error: 'Chat not found' });
     }
@@ -282,7 +333,11 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         if (!opts.onWebUserMessage) {
           return res.status(500).json({ error: 'Web chat not enabled' });
         }
-        const stored = await opts.onWebUserMessage(jid, parsed.data.content, authReq.user!.userId);
+        const stored = await opts.onWebUserMessage(
+          jid,
+          parsed.data.content,
+          authReq.user!.userId,
+        );
         return res.status(201).json(stored);
       } catch (err) {
         logger.error({ err, jid }, 'Failed to handle web chat message');
@@ -302,7 +357,13 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     };
 
     try {
-      storeChatMetadata(jid, timestamp, undefined, 'web', jid.endsWith('@g.us'));
+      storeChatMetadata(
+        jid,
+        timestamp,
+        undefined,
+        'web',
+        jid.endsWith('@g.us'),
+      );
       storeMessageDirect(msg);
       if (opts.sendMessage) {
         await opts.sendMessage(jid, parsed.data.content);
@@ -317,7 +378,11 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
   app.get('/api/groups/:jid/stream', authenticateToken, (req, res) => {
     const authReq = req as AuthRequest;
     const { jid } = req.params as { jid: string };
-    const allowed = canAccessChat(jid, authReq.user!.userId, authReq.user!.role);
+    const allowed = canAccessChat(
+      jid,
+      authReq.user!.userId,
+      authReq.user!.role,
+    );
     if (!allowed) {
       return res.status(404).json({ error: 'Chat not found' });
     }
@@ -347,7 +412,9 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         }
       } catch (err) {
         logger.error({ err, jid }, 'SSE stream error');
-        res.write(`event: error\ndata: ${JSON.stringify({ error: 'stream_error' })}\n\n`);
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ error: 'stream_error' })}\n\n`,
+        );
       }
     };
     const interval = setInterval(tick, 1000);
@@ -450,7 +517,10 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const validPassword = await bcrypt.compare(currentPassword, user.password_hash);
+    const validPassword = await bcrypt.compare(
+      currentPassword,
+      user.password_hash,
+    );
     if (!validPassword) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
@@ -579,7 +649,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
   // Fallback for SPA routing
   app.get(/.*/, (req, res) => {
     if (req.path.startsWith('/api')) {
-        return res.status(404).json({ error: 'Not Found' });
+      return res.status(404).json({ error: 'Not Found' });
     }
     res.sendFile(path.join(frontendPath, 'index.html'));
   });
@@ -608,7 +678,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         socket.close(1008, 'Chat not found');
         return;
       }
-      
+
       clientEntry = { ws: socket, jid };
       connectedSockets.add(clientEntry);
 
@@ -645,17 +715,26 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         try {
           const parsed = JSON.parse(String(data) || '{}') as any;
           if (parsed?.type === 'stop') {
-             if (opts.onStopGeneration) {
-               opts.onStopGeneration(jid);
-             }
-             return;
+            if (opts.onStopGeneration) {
+              opts.onStopGeneration(jid);
+            }
+            return;
           }
-          if (parsed && parsed.type === 'send' && typeof parsed.content === 'string' && parsed.content.trim()) {
+          if (
+            parsed &&
+            parsed.type === 'send' &&
+            typeof parsed.content === 'string' &&
+            parsed.content.trim()
+          ) {
             const content = String(parsed.content).trim();
             const isWebChat = jid.startsWith('web:');
             if (isWebChat) {
               if (!opts.onWebUserMessage) return;
-              const created = await opts.onWebUserMessage(jid, content, authUser.userId);
+              const created = await opts.onWebUserMessage(
+                jid,
+                content,
+                authUser.userId,
+              );
               sendJson({ type: 'message', data: created });
             } else {
               const timestamp = new Date().toISOString();
@@ -670,7 +749,13 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
                 is_bot_message: true,
               };
               try {
-                storeChatMetadata(jid, timestamp, undefined, 'web', jid.endsWith('@g.us'));
+                storeChatMetadata(
+                  jid,
+                  timestamp,
+                  undefined,
+                  'web',
+                  jid.endsWith('@g.us'),
+                );
                 storeMessageDirect(msg);
                 if (opts.sendMessage) {
                   await opts.sendMessage(jid, content);

@@ -1,7 +1,8 @@
-import { useRef } from "react";
-import { Send, Square } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { SlashCommandPopup } from "@/components/SlashCommandPopup";
+import { useRef, useState, useEffect, useCallback } from 'react';
+import { Send, Square } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { SlashCommandPopup } from '@/components/SlashCommandPopup';
+import type { SlashCommand } from '@/lib/types';
 
 interface MessageInputProps {
   value: string;
@@ -9,6 +10,7 @@ interface MessageInputProps {
   onSend: () => void;
   onStop: () => void;
   isGenerating: boolean;
+  slashCommands?: SlashCommand[];
 }
 
 export function MessageInput({
@@ -17,37 +19,83 @@ export function MessageInput({
   onSend,
   onStop,
   isGenerating,
+  slashCommands = [],
 }: MessageInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const showSlashCommands = value === "/";
+  const [showPopup, setShowPopup] = useState(false);
+  const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0 });
+  const [filter, setFilter] = useState('');
+
+  const updatePopupPosition = useCallback(() => {
+    if (inputRef.current) {
+      const rect = inputRef.current.getBoundingClientRect();
+      setPopupPosition({
+        top: rect.top,
+        left: rect.left,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    updatePopupPosition();
+    window.addEventListener('resize', updatePopupPosition);
+    window.addEventListener('scroll', updatePopupPosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePopupPosition);
+      window.removeEventListener('scroll', updatePopupPosition, true);
+    };
+  }, [updatePopupPosition]);
+
+  useEffect(() => {
+    if (value === '/') {
+      setShowPopup(true);
+      setFilter('');
+    } else if (value.startsWith('/')) {
+      const cmdPart = value.slice(1);
+      const spaceIdx = cmdPart.indexOf(' ');
+      const searchTerm = spaceIdx === -1 ? cmdPart : cmdPart.slice(0, spaceIdx);
+      setFilter(searchTerm);
+      setShowPopup(true);
+    } else {
+      setShowPopup(false);
+      setFilter('');
+    }
+  }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      if (showSlashCommands) {
-        onChange("");
+      if (showPopup) {
+        // Let the popup handle it
+        return;
       }
       onSend();
     }
-    if (e.key === "Escape") {
-      onChange("");
+    if (e.key === 'Escape') {
+      setShowPopup(false);
+      onChange('');
     }
+  };
+
+  const handleSelectCommand = (command: string) => {
+    onChange(command + ' ');
+    setShowPopup(false);
+    inputRef.current?.focus();
+  };
+
+  const handleClosePopup = () => {
+    setShowPopup(false);
   };
 
   return (
     <div className="p-4 border-t bg-card/50 relative">
-      {showSlashCommands && (
+      {showPopup && slashCommands.length > 0 && (
         <SlashCommandPopup
-          onSelect={(cmd) => {
-            onChange("");
-            if (cmd === "/clear") {
-              if (confirm("Clear chat history view?")) {
-                // Parent will handle clearing
-              }
-            }
-          }}
-          onClose={() => onChange("")}
-          position={{ top: 0, left: 0 }}
+          commands={slashCommands}
+          onSelect={handleSelectCommand}
+          onClose={handleClosePopup}
+          position={popupPosition}
+          filter={filter}
         />
       )}
       <div className="flex gap-2">
@@ -58,21 +106,27 @@ export function MessageInput({
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isGenerating}
-          placeholder={isGenerating ? "Agent is thinking..." : "Type a message... (try /)"}
+          placeholder={
+            isGenerating ? 'Agent is thinking...' : 'Type a message... (try /)'
+          }
           className="flex-1 bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
         />
         <button
           onClick={isGenerating ? onStop : onSend}
           disabled={!isGenerating && !value.trim()}
           className={cn(
-            "px-4 py-2 rounded-md disabled:opacity-50 flex items-center justify-center transition-colors",
+            'px-4 py-2 rounded-md disabled:opacity-50 flex items-center justify-center transition-colors',
             isGenerating
-              ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              : "bg-primary text-primary-foreground hover:bg-primary/90"
+              ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              : 'bg-primary text-primary-foreground hover:bg-primary/90',
           )}
-          title={isGenerating ? "Stop generating" : "Send message"}
+          title={isGenerating ? 'Stop generating' : 'Send message'}
         >
-          {isGenerating ? <Square size={18} fill="currentColor" /> : <Send size={18} />}
+          {isGenerating ? (
+            <Square size={18} fill="currentColor" />
+          ) : (
+            <Send size={18} />
+          )}
         </button>
       </div>
     </div>

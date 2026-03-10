@@ -24,6 +24,13 @@ export interface ContentBlock {
   name?: string;
   input?: unknown;
   partial_json?: string;
-  status?: "calling" | "executed" | "error";
+  status?: 'calling' | 'executed' | 'error';
   result?: string | object;
+}
+
+export interface SlashCommand {
+  command: string;
+  description: string;
+  allowedTools?: string[];
+  source: 'sdk' | 'custom';
 }
