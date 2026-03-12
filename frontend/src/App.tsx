@@ -6,6 +6,7 @@ import { Login } from "@/pages/Login";
 import { Users } from "@/pages/Users";
 import { StreamingMessagesProvider } from "@/contexts/StreamingMessagesContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -76,11 +77,13 @@ function AppRoutes() {
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <StreamingMessagesProvider>
-          <AppRoutes />
-        </StreamingMessagesProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <StreamingMessagesProvider>
+            <AppRoutes />
+          </StreamingMessagesProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }

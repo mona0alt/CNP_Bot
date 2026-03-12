@@ -42,15 +42,15 @@ export function ToolCallCard({
   }[status];
 
   const statusColor = {
-    calling: "text-blue-500",
-    executed: "text-emerald-500",
-    error: "text-red-500",
+    calling: "text-blue-500 dark:text-blue-400",
+    executed: "text-emerald-500 dark:text-emerald-400",
+    error: "text-red-500 dark:text-red-400",
   }[status];
 
   const borderColor = {
-    calling: "border-blue-200 dark:border-blue-900",
-    executed: "border-emerald-200 dark:border-emerald-900",
-    error: "border-red-200 dark:border-red-900",
+    calling: "border-blue-300 dark:border-blue-800",
+    executed: "border-emerald-300 dark:border-emerald-800",
+    error: "border-red-300 dark:border-red-800",
   }[status];
 
   // Add a helper to truncate long tool names

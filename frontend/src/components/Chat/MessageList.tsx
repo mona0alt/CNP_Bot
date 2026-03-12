@@ -14,7 +14,10 @@ interface MessageListProps {
 export function MessageList({ messages }: MessageListProps) {
   const renderItems = messages.map((msg, idx) => {
     const outgoing = !!msg.is_from_me;
-    const bubble = outgoing ? "bg-emerald-600 text-white" : "bg-card border border-border text-foreground";
+    // Light theme: sent messages use primary color, received use white bg with border
+    const bubble = outgoing
+      ? "bg-primary text-primary-foreground"
+      : "bg-card border border-border text-foreground";
 
     const blocks = parseMessageContent(msg.content);
     const hasThinkingTag = /<(commentary|thinking|think|internal)>/.test(msg.content);
@@ -91,7 +94,7 @@ export function MessageList({ messages }: MessageListProps) {
                   status={block.status || 'calling'}
                   result={block.result}
                   defaultExpanded={false}
-                  className={outgoing ? "border-emerald-400/50" : ""}
+                  className={outgoing ? "dark:border-emerald-400/50 border-emerald-500/30" : ""}
                 />
               );
             }

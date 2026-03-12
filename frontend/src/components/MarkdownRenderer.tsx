@@ -2,9 +2,10 @@ import { useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { vscDarkPlus, solarizedlight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Copy, Check, Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/contexts/ThemeContext';
 
 interface MarkdownRendererProps {
   content: string;
@@ -12,6 +13,8 @@ interface MarkdownRendererProps {
 }
 
 export function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
+  const { theme } = useTheme();
+
   const components: Components = {
     code(props) {
       const inline = 'inline' in props ? (props as { inline?: boolean }).inline : undefined;
@@ -24,7 +27,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
 
       if (!inline && match) {
         return (
-          <CodeBlock language={language} value={String(children).replace(/\n$/, '')} />
+          <CodeBlock language={language} value={String(children).replace(/\n$/, '')} theme={theme} />
         );
       }
 
@@ -78,8 +81,10 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
     }
   };
 
+  const proseClass = theme === "dark" ? "prose-invert" : "";
+
   return (
-    <div className={cn("prose prose-sm max-w-none dark:prose-invert break-words leading-normal", className)}>
+    <div className={cn("prose prose-sm max-w-none break-words leading-normal", proseClass, className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={components}
@@ -90,7 +95,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
   );
 }
 
-function CodeBlock({ language, value }: { language: string; value: string }) {
+function CodeBlock({ language, value, theme }: { language: string; value: string; theme: "dark" | "light" }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -99,16 +104,33 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const codeStyle = theme === "dark" ? vscDarkPlus : solarizedlight;
+  const isLight = theme === "light";
+
   return (
-    <div className="rounded-md border border-border my-2 overflow-hidden w-full bg-zinc-950 text-zinc-50 shadow-sm">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border-b border-zinc-800">
-        <div className="flex items-center gap-2 text-xs text-zinc-400 font-medium font-mono">
+    <div className={cn(
+      "rounded-md border border-border my-2 overflow-hidden w-full shadow-sm",
+      isLight ? "bg-zinc-50 text-zinc-900" : "bg-zinc-950 text-zinc-50"
+    )}>
+      <div className={cn(
+        "flex items-center justify-between px-3 py-1.5 border-b",
+        isLight ? "bg-zinc-100 border-zinc-200" : "bg-zinc-900 border-zinc-800"
+      )}>
+        <div className={cn(
+          "flex items-center gap-2 text-xs font-medium font-mono",
+          isLight ? "text-zinc-500" : "text-zinc-400"
+        )}>
           <Terminal size={12} />
           <span className="uppercase">{language}</span>
         </div>
         <button
           onClick={handleCopy}
-          className="p-1 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-zinc-100"
+          className={cn(
+            "p-1 rounded transition-colors",
+            isLight
+              ? "hover:bg-zinc-200 text-zinc-500 hover:text-zinc-900"
+              : "hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100"
+          )}
           title="Copy code"
         >
           {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
@@ -117,7 +139,7 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
       <div className="overflow-x-auto">
         <SyntaxHighlighter
           language={language}
-          style={vscDarkPlus}
+          style={codeStyle}
           customStyle={{ margin: 0, padding: '1rem', background: 'transparent', fontSize: '0.85rem', lineHeight: '1.5' }}
           wrapLines={true}
           PreTag="div"

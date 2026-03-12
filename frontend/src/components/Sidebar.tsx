@@ -2,11 +2,13 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
-import { LayoutDashboard, MessageSquare, Users, LogOut, Key, User } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
+import { LayoutDashboard, MessageSquare, Users, LogOut, Key, User, Sun, Moon } from "lucide-react";
 
 export function Sidebar() {
   const location = useLocation();
   const { user, logout, changePassword } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -88,6 +90,17 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Theme toggle */}
+      <div className="mt-4 pt-4 border-t">
+        <button
+          onClick={toggleTheme}
+          className="w-full flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+        </button>
+      </div>
 
       {/* User section at bottom */}
       <div className="mt-auto pt-4 border-t">
