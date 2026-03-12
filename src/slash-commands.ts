@@ -156,7 +156,8 @@ export function mergeCommands(sdkCommands: string[]): SlashCommand[] {
   const result: SlashCommand[] = [...DEFAULT_COMMANDS];
 
   // Add SDK commands (skip if already exists from defaults)
-  for (const cmd of sdkCommands) {
+  for (const rawCmd of sdkCommands) {
+    const cmd = rawCmd.startsWith('/') ? rawCmd : `/${rawCmd}`;
     if (!result.find((c) => c.command === cmd)) {
       result.push({
         command: cmd,

@@ -156,11 +156,8 @@ export function Chat() {
     onUnauthorized: handleUnauthorized,
   });
 
-  // Initial load
-  useEffect(() => {
-    fetchChats();
-
-    // Fetch slash commands
+  const fetchSlashCommands = useCallback(() => {
+    if (!token) return;
     fetch(`${apiBase}/api/slash-commands`, {
       headers: authHeaders,
     })
@@ -179,7 +176,13 @@ export function Chat() {
       .catch((err) => {
         console.error('Failed to fetch slash commands:', err);
       });
-  }, [fetchChats, apiBase, authHeaders]);
+  }, [apiBase, authHeaders, handleUnauthorized, token]);
+
+  // Initial load
+  useEffect(() => {
+    fetchChats();
+    fetchSlashCommands();
+  }, [fetchChats, fetchSlashCommands]);
 
   // Load messages when chat is selected
   useEffect(() => {
@@ -378,6 +381,7 @@ export function Chat() {
               onStop={handleStop}
               isGenerating={isGenerating}
               slashCommands={slashCommands}
+              onSlash={fetchSlashCommands}
             />
           </>
         ) : (

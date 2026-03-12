@@ -11,6 +11,7 @@ interface MessageInputProps {
   onStop: () => void;
   isGenerating: boolean;
   slashCommands?: SlashCommand[];
+  onSlash?: () => void;
 }
 
 export function MessageInput({
@@ -20,6 +21,7 @@ export function MessageInput({
   onStop,
   isGenerating,
   slashCommands = [],
+  onSlash,
 }: MessageInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [showPopup, setShowPopup] = useState(false);
@@ -50,17 +52,23 @@ export function MessageInput({
     if (value === '/') {
       setShowPopup(true);
       setFilter('');
+      onSlash?.();
     } else if (value.startsWith('/')) {
       const cmdPart = value.slice(1);
       const spaceIdx = cmdPart.indexOf(' ');
       const searchTerm = spaceIdx === -1 ? cmdPart : cmdPart.slice(0, spaceIdx);
       setFilter(searchTerm);
       setShowPopup(true);
+      // Only call onSlash if we haven't already shown the popup (to avoid too many calls)
+      // But we are in useEffect, so we don't know if popup was already shown unless we check state
+      if (!showPopup) {
+         onSlash?.();
+      }
     } else {
       setShowPopup(false);
       setFilter('');
     }
-  }, [value]);
+  }, [value, onSlash, showPopup]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
@@ -78,7 +86,8 @@ export function MessageInput({
   };
 
   const handleSelectCommand = (command: string) => {
-    onChange(command + ' ');
+    const safeCommand = command.startsWith('/') ? command : `/${command}`;
+    onChange(safeCommand + ' ');
     setShowPopup(false);
     inputRef.current?.focus();
   };
