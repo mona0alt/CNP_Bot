@@ -6,12 +6,15 @@ import { parseThoughts } from "@/lib/thought-parser";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { ToolCallCard } from "@/components/ToolCallCard";
 import { ThoughtProcess } from "@/components/ThoughtProcess";
+import { useTheme } from "@/contexts/ThemeContext";
 
 interface MessageListProps {
   messages: Message[];
 }
 
 export function MessageList({ messages }: MessageListProps) {
+  const { theme } = useTheme();
+
   const renderItems = messages.map((msg, idx) => {
     const outgoing = !!msg.is_from_me;
     // Light theme: sent messages use primary color, received use white bg with border
@@ -22,7 +25,11 @@ export function MessageList({ messages }: MessageListProps) {
     const blocks = parseMessageContent(msg.content);
     const hasThinkingTag = /<(commentary|thinking|think|internal)>/.test(msg.content);
     const displayName = hasThinkingTag ? "Thinking" : (msg.is_bot_message ? "CNP-Bot" : msg.sender_name);
-    const avatarColor = hasThinkingTag ? "bg-amber-500" : (msg.is_bot_message ? "bg-blue-600" : "bg-muted");
+    const avatarColor = hasThinkingTag
+      ? "bg-amber-500"
+      : (msg.is_bot_message
+          ? (theme === "light" ? "bg-muted" : "bg-blue-600")
+          : "bg-muted");
 
     // Sort blocks: tool_use first, then thought, then everything else
     const sortedBlocks = [...blocks].sort((a, b) => {
