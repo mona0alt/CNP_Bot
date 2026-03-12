@@ -26,19 +26,28 @@ export function MessageList({ messages }: MessageListProps) {
 
     // Sort blocks: tool_use first, then thought, then everything else
     const sortedBlocks = [...blocks].sort((a, b) => {
-      // tool_use always comes first
-      if (a.type === 'tool_use' && b.type !== 'tool_use') return -1;
-      if (a.type !== 'tool_use' && b.type === 'tool_use') return 1;
-      // thought (parsed from text blocks) comes after tool_use but before regular text
+      // thinking blocks always come first
+      const aIsThoughtBlock = a.type === 'thinking' || a.type === 'redacted_thinking';
+      const bIsThoughtBlock = b.type === 'thinking' || b.type === 'redacted_thinking';
+      if (aIsThoughtBlock && !bIsThoughtBlock) return -1;
+      if (!aIsThoughtBlock && bIsThoughtBlock) return 1;
+
+      // thought (parsed from text blocks) comes before tool_use
       const aHasThought = a.type === 'text' && /<(commentary|thinking|think|internal)>/.test(a.text || '');
       const bHasThought = b.type === 'text' && /<(commentary|thinking|think|internal)>/.test(b.text || '');
-      if (aHasThought && !bHasThought) return 1;
-      if (!aHasThought && bHasThought) return -1;
+      if (aHasThought && !bHasThought) return -1;
+      if (!aHasThought && bHasThought) return 1;
+
+      // tool_use comes after thoughts
+      if (a.type === 'tool_use' && b.type !== 'tool_use') return -1;
+      if (a.type !== 'tool_use' && b.type === 'tool_use') return 1;
+      
       return 0;
     });
 
     const hasVisibleContent = sortedBlocks.some((block) => {
       if (block.type === 'tool_use') return true;
+      if (block.type === 'thinking' || block.type === 'redacted_thinking') return true;
       const segments = parseThoughts(block.text || "");
       if (segments.length === 0) return false;
       return segments.some((seg) => {
@@ -97,6 +106,17 @@ export function MessageList({ messages }: MessageListProps) {
                   className={outgoing ? "dark:border-emerald-400/50 border-emerald-500/30" : ""}
                 />
               );
+            }
+
+            if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+                return (
+                  <ThoughtProcess
+                    key={`thought-block-${bIdx}`}
+                    content={block.text || (block.type === 'redacted_thinking' ? "Thinking process is redacted." : "")}
+                    isComplete={true} 
+                    autoCollapse={true}
+                  />
+                );
             }
 
             // Parse thoughts from text blocks

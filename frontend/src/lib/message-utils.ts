@@ -13,6 +13,7 @@ interface StreamEvent {
     type: string;
     text?: string;
     partial_json?: string;
+    thinking?: string;
   };
   index?: number;
   tool_use_id?: string;
@@ -44,6 +45,8 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): 
         block.text = (block.text || '') + (event.delta.text || '');
       } else if (event.delta.type === 'input_json_delta') {
         block.partial_json = (block.partial_json || '') + (event.delta.partial_json || '');
+      } else if (event.delta.type === 'thinking_delta') {
+        block.text = (block.text || '') + (event.delta.thinking || '');
       }
       newBlocks[index] = block;
     }

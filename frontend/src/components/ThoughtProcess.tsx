@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { Brain, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Brain, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 
 interface ThoughtProcessProps {
@@ -8,26 +8,36 @@ interface ThoughtProcessProps {
   autoCollapse?: boolean;
 }
 
-export function ThoughtProcess({ content, isComplete }: ThoughtProcessProps) {
+export function ThoughtProcess({ content, isComplete, autoCollapse }: ThoughtProcessProps) {
   const { theme } = useTheme();
   const isLight = theme === "light";
-  const lineRef = useRef<HTMLDivElement>(null);
+  const [isExpanded, setIsExpanded] = useState(!isComplete || !autoCollapse);
+  const [hasUserInteracted, setHasUserInteracted] = useState(false);
 
   useEffect(() => {
-    if (!lineRef.current) return;
-    const element = lineRef.current;
-    element.scrollTo({ left: element.scrollWidth, behavior: 'smooth' });
-  }, [content, isComplete]);
+    // Only auto-collapse if the user hasn't manually interacted with the toggle
+    if (isComplete && autoCollapse && !hasUserInteracted) {
+      setIsExpanded(false);
+    }
+  }, [isComplete, autoCollapse, hasUserInteracted]);
+
+  const toggleExpansion = () => {
+    setIsExpanded(!isExpanded);
+    setHasUserInteracted(true);
+  };
 
   if (!content && isComplete) return null;
 
   return (
     <div className="border rounded-lg my-2 overflow-hidden bg-card border-amber-500/30">
       {/* Header - matches ToolCallCard header style */}
-      <div className={isLight
-        ? "w-full flex items-center justify-between px-3 py-2 bg-amber-50 border-b border-amber-100 text-left"
-        : "w-full flex items-center justify-between px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 text-left"
-      }>
+      <div 
+        className={`${isLight
+          ? "w-full flex items-center justify-between px-3 py-2 bg-amber-50 border-b border-amber-100 text-left"
+          : "w-full flex items-center justify-between px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 text-left"
+        } cursor-pointer hover:opacity-80 transition-opacity`}
+        onClick={toggleExpansion}
+      >
         <div className={`flex items-center gap-2 ${isLight ? "text-amber-700" : "text-amber-200"}`}>
           <div className={`p-1 rounded-md ${isLight ? "bg-amber-100 border-amber-200" : "bg-amber-500/20 border-amber-500/30"}`}>
             <Brain size={14} className={!isComplete
@@ -52,20 +62,26 @@ export function ThoughtProcess({ content, isComplete }: ThoughtProcessProps) {
               <span className={`h-1.5 w-1.5 rounded-full animate-pulse ${isLight ? "bg-amber-400" : "bg-amber-400"}`} />
             </>
           )}
+          {isExpanded ? (
+            <ChevronDown size={14} className={isLight ? "text-amber-500" : "text-amber-400"} />
+          ) : (
+            <ChevronRight size={14} className={isLight ? "text-amber-500" : "text-amber-400"} />
+          )}
         </div>
       </div>
 
-      {/* Content - horizontal scroll for updates */}
-      <div className="px-4 py-2 text-sm bg-muted/10">
-        <div
-          ref={lineRef}
-          className={`overflow-x-auto whitespace-nowrap scrollbar-none leading-6 ${isLight ? "text-amber-800" : "text-amber-100/90"}`}
-        >
-          <span className="inline-block min-w-full pr-6">
-            {content || "Thinking..."}
-          </span>
+      {/* Content - text wrapping enabled */}
+      {isExpanded && (
+        <div className="px-4 py-2 text-sm bg-muted/10">
+          <div
+            className={`whitespace-pre-wrap break-words leading-6 ${isLight ? "text-amber-800" : "text-amber-100/90"}`}
+          >
+            <span>
+              {content || "Thinking..."}
+            </span>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
