@@ -27,6 +27,17 @@ export function MessageInput({
   const [showPopup, setShowPopup] = useState(false);
   const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0 });
   const [filter, setFilter] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const prevShowPopupRef = useRef(false);
+
+  // 计算过滤后的命令列表
+  const filteredCommands = slashCommands.filter((cmd) => {
+    const searchTerm = filter.toLowerCase();
+    return (
+      cmd.command.toLowerCase().includes(searchTerm) ||
+      cmd.description.toLowerCase().includes(searchTerm)
+    );
+  });
 
   const updatePopupPosition = useCallback(() => {
     if (inputRef.current) {
@@ -48,40 +59,75 @@ export function MessageInput({
     };
   }, [updatePopupPosition]);
 
+  // 当 filter 改变时，重置选中的索引
   useEffect(() => {
+    setSelectedIndex(0);
+  }, [filter]);
+
+  useEffect(() => {
+    // 如果是命令后跟空格+参数的情况，不显示弹窗
+    if (value.startsWith('/') && value.includes(' ')) {
+      setShowPopup(false);
+      setFilter('');
+      prevShowPopupRef.current = false;
+      return;
+    }
+
     if (value === '/') {
+      if (!prevShowPopupRef.current) {
+        onSlash?.();
+      }
       setShowPopup(true);
       setFilter('');
-      onSlash?.();
     } else if (value.startsWith('/')) {
       const cmdPart = value.slice(1);
       const spaceIdx = cmdPart.indexOf(' ');
       const searchTerm = spaceIdx === -1 ? cmdPart : cmdPart.slice(0, spaceIdx);
       setFilter(searchTerm);
-      setShowPopup(true);
-      // Only call onSlash if we haven't already shown the popup (to avoid too many calls)
-      // But we are in useEffect, so we don't know if popup was already shown unless we check state
-      if (!showPopup) {
-         onSlash?.();
+      if (!prevShowPopupRef.current) {
+        onSlash?.();
       }
+      setShowPopup(true);
     } else {
       setShowPopup(false);
       setFilter('');
     }
-  }, [value, onSlash, showPopup]);
+    prevShowPopupRef.current = showPopup;
+  }, [value, onSlash]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      if (showPopup) {
-        // Let the popup handle it
+    if (showPopup && filteredCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex((prev) =>
+          prev < filteredCommands.length - 1 ? prev + 1 : 0
+        );
         return;
       }
-      onSend();
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex((prev) =>
+          prev > 0 ? prev - 1 : filteredCommands.length - 1
+        );
+        return;
+      }
+      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        if (filteredCommands[selectedIndex]) {
+          handleSelectCommand(filteredCommands[selectedIndex].command);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowPopup(false);
+        onChange('');
+        return;
+      }
     }
-    if (e.key === 'Escape') {
-      setShowPopup(false);
-      onChange('');
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      onSend();
     }
   };
 
@@ -105,6 +151,8 @@ export function MessageInput({
           onClose={handleClosePopup}
           position={popupPosition}
           filter={filter}
+          selectedIndex={selectedIndex}
+          onHover={setSelectedIndex}
         />
       )}
       <div className="flex gap-2">

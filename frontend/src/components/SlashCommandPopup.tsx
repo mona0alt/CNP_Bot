@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { HelpCircle, Terminal, Activity, Sparkles } from 'lucide-react';
 import type { SlashCommand } from '@/lib/types';
 
@@ -8,6 +8,8 @@ interface SlashCommandPopupProps {
   onClose: () => void;
   position: { top: number; left: number };
   filter?: string;
+  selectedIndex?: number;
+  onHover?: (index: number) => void;
 }
 
 const defaultIcons: Record<
@@ -30,9 +32,10 @@ export function SlashCommandPopup({
   onClose,
   position,
   filter = '',
+  selectedIndex = 0,
+  onHover,
 }: SlashCommandPopupProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const [selectedIndex, setSelectedIndex] = useState(0);
 
   const filteredCommands = commands.filter((cmd) => {
     const searchTerm = filter.toLowerCase();
@@ -41,42 +44,6 @@ export function SlashCommandPopup({
       cmd.description.toLowerCase().includes(searchTerm)
     );
   });
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedIndex((prev) =>
-          prev < filteredCommands.length - 1 ? prev + 1 : 0,
-        );
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredCommands.length - 1,
-        );
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (filteredCommands[selectedIndex]) {
-          onSelect(filteredCommands[selectedIndex].command);
-        }
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    },
-    [filteredCommands, selectedIndex, onSelect, onClose],
-  );
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [handleKeyDown]);
-
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [filter]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -144,7 +111,7 @@ export function SlashCommandPopup({
                   : 'hover:bg-accent hover:text-accent-foreground'
               }`}
               onClick={() => onSelect(cmd.command)}
-              onMouseEnter={() => setSelectedIndex(index)}
+              onMouseEnter={() => onHover?.(index)}
             >
               <Icon
                 size={14}
