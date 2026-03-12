@@ -67,7 +67,7 @@ export function MessageList({ messages }: MessageListProps) {
         >
           {hasThinkingTag ? <Brain size={16} /> : (msg.is_bot_message ? <Bot size={16} /> : <User size={16} />)}
         </div>
-        <div className={cn("p-3 rounded-2xl text-sm min-w-[100px]", bubble)}>
+        <div className={cn("p-3 rounded-2xl text-sm min-w-[100px] mt-2 first:mt-0", bubble)}>
           {!outgoing ? (
             <div className="font-semibold text-xs mb-1 opacity-70">
               {displayName}
@@ -139,5 +139,5 @@ export function MessageList({ messages }: MessageListProps) {
     );
   });
 
-  return <div className="space-y-4">{renderItems}</div>;
+  return <div className="space-y-6">{renderItems}</div>;
 }

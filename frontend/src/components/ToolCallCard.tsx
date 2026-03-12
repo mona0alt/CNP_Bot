@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/contexts/ThemeContext";
 import { ChevronDown, ChevronRight, Terminal, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 
 export interface ToolCallCardProps {
@@ -19,6 +20,7 @@ export function ToolCallCard({
   className,
   defaultExpanded = false,
 }: ToolCallCardProps) {
+  const { theme } = useTheme();
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const inputString = useMemo(() => {
@@ -41,26 +43,29 @@ export function ToolCallCard({
     error: AlertCircle,
   }[status];
 
+  const isLight = theme === "light";
+
+  // 简洁的浅色主题配色 - 参考 minimax 风格
   const statusColor = {
-    calling: "text-blue-500 dark:text-blue-400",
-    executed: "text-emerald-500 dark:text-emerald-400",
-    error: "text-red-500 dark:text-red-400",
+    calling: isLight ? "text-blue-600" : "text-blue-400",
+    executed: isLight ? "text-zinc-600" : "text-emerald-400",
+    error: isLight ? "text-red-600" : "text-red-400",
   }[status];
 
   const borderColor = {
-    calling: "border-blue-300 dark:border-blue-800",
-    executed: "border-emerald-300 dark:border-emerald-800",
-    error: "border-red-300 dark:border-red-800",
+    calling: isLight ? "border-blue-200" : "border-blue-800/60",
+    executed: isLight ? "border-zinc-200" : "border-emerald-800/60",
+    error: isLight ? "border-red-200" : "border-red-800/60",
   }[status];
 
   // Add a helper to truncate long tool names
   const truncatedToolName = toolName.length > 30 ? `${toolName.substring(0, 30)}...` : toolName;
 
-  // Add special styling for different tool statuses
-  const statusBgColor = {
-    calling: "bg-blue-50 dark:bg-blue-900/20",
-    executed: "bg-emerald-50 dark:bg-emerald-900/20",
-    error: "bg-red-50 dark:bg-red-900/20",
+  // 浅色模式使用更简洁的背景
+  const statusBgColor = isLight ? "bg-zinc-50" : {
+    calling: "bg-blue-900/20",
+    executed: "bg-emerald-900/20",
+    error: "bg-red-900/20",
   }[status];
 
   return (
@@ -129,7 +134,9 @@ export function ToolCallCard({
                 <div className="relative group">
                   <pre className={cn(
                     "text-xs p-2 rounded-md overflow-x-auto font-mono whitespace-pre-wrap break-all",
-                    status === "error" ? "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300" : "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300"
+                    isLight
+                      ? (status === "error" ? "bg-red-100 text-red-800 border border-red-200" : "bg-blue-50 text-blue-800 border border-blue-100")
+                      : (status === "error" ? "bg-red-900/30 text-red-300" : "bg-emerald-900/30 text-emerald-300")
                   )}>
                     {resultString}
                   </pre>
