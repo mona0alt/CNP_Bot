@@ -86,7 +86,15 @@ let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 export const groupStats: Record<
   string,
-  { usage?: { input_tokens: number; output_tokens: number } }
+  {
+    usage?: {
+      input_tokens: number;
+      output_tokens: number;
+      context_window?: number;
+      model_usage?: Record<string, import('./container-runner.js').ModelUsageEntry>;
+      cost_usd?: number;
+    };
+  }
 > = {};
 let messageLoopRunning = false;
 
@@ -841,6 +849,25 @@ async function main(): Promise<void> {
       logger.info({ jid }, 'Received stop request');
       queue.stopGroup(jid);
     },
+    onCreateChat: (jid, _userId) => {
+      if (!jid.startsWith('web:') || registeredGroups[jid]) return;
+      logger.info({ jid }, 'Pre-registering and warming up new web chat session');
+      const folder =
+        jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
+      const group: RegisteredGroup = {
+        name: 'New Chat',
+        folder,
+        trigger: `@${ASSISTANT_NAME}`,
+        added_at: new Date().toISOString(),
+        requiresTrigger: false,
+      };
+      registerGroup(jid, group);
+      // Start warmup container (empty prompt = skip initial query, wait for IPC)
+      runAgent(group, '', jid).catch((err) =>
+        logger.warn({ jid, err }, 'Warmup container failed'),
+      );
+    },
+    isGroupActive: (jid) => queue.isGroupActive(jid),
     onDeleteChat: (jid) => {
       logger.info({ jid }, 'Deleting chat, stopping container process');
       queue.stopGroup(jid);

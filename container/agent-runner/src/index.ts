@@ -35,6 +35,16 @@ interface ContainerInput {
   secrets?: Record<string, string>;
 }
 
+interface ModelUsageEntry {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  costUSD?: number;
+}
+
 interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
@@ -45,6 +55,8 @@ interface ContainerOutput {
     input_tokens: number;
     output_tokens: number;
     context_window?: number;
+    model_usage?: Record<string, ModelUsageEntry>;
+    cost_usd?: number;
   };
   slashCommands?: string[];
 }
@@ -671,6 +683,8 @@ async function runQuery(
           inputTokens?: number;
           outputTokens?: number;
         };
+        modelUsage?: Record<string, ModelUsageEntry>;
+        total_cost_usd?: number;
       };
       let textResult: string | null = null;
 
@@ -703,6 +717,8 @@ async function runQuery(
       const usage = resultObj.usage;
       const inputTokens = usage?.input_tokens ?? usage?.inputTokens ?? 0;
       const outputTokens = usage?.output_tokens ?? usage?.outputTokens ?? 0;
+      const modelUsage = resultObj.modelUsage as Record<string, ModelUsageEntry> | undefined;
+      const costUsd = (resultObj as any).total_cost_usd ?? 0;
 
       writeOutput({
         status: 'success',
@@ -711,6 +727,8 @@ async function runQuery(
         usage: {
           input_tokens: inputTokens,
           output_tokens: outputTokens,
+          model_usage: modelUsage,
+          cost_usd: costUsd,
         },
       });
     }
@@ -784,6 +802,20 @@ async function main(): Promise<void> {
   if (pending.length > 0) {
     log(`Draining ${pending.length} pending IPC messages into initial prompt`);
     prompt += '\n' + pending.join('\n');
+  }
+
+  // Warmup mode: if no prompt provided, skip initial query and wait for first IPC message
+  if (!prompt) {
+    log('Warmup mode: no prompt, signaling ready and waiting for first IPC message...');
+    writeOutput({ status: 'success', result: null });
+    const firstMessage = await waitForIpcMessage();
+    if (firstMessage === null) {
+      log('Close sentinel received during warmup, exiting');
+      return;
+    }
+    log(`Warmup: received first message (${firstMessage.length} chars)`);
+    prompt = firstMessage;
+    // Falls through to the query loop below
   }
 
   // Query loop: run query → wait for IPC message → run new query → repeat

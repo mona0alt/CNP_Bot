@@ -118,6 +118,8 @@ export interface ServerOpts {
   getGroupStats?: (
     jid: string,
   ) => { usage?: { input_tokens: number; output_tokens: number } } | undefined;
+  onCreateChat?: (jid: string, userId: string) => void;
+  isGroupActive?: (jid: string) => boolean;
 }
 
 export interface BroadcastCapability {
@@ -211,6 +213,9 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         false,
         authReq.user!.userId,
       );
+      if (opts.onCreateChat) {
+        opts.onCreateChat(jid, authReq.user!.userId);
+      }
       res.status(201).json({
         jid,
         name: 'New Chat',
@@ -261,18 +266,26 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       }
       const groups = getAllRegisteredGroups();
       const group = groups[jid];
+      const model = process.env.MODEL || 'claude-3-5-sonnet-20241022'; // Default fallback
 
       if (!group) {
-        return res.status(404).json({ error: 'Group not found' });
+        return res.json({
+          workingDirectory: null,
+          model,
+          usage: { input_tokens: 0, output_tokens: 0 },
+          processReady: false,
+          isActive: false,
+        });
       }
 
       const stats = opts.getGroupStats ? opts.getGroupStats(jid) : undefined;
-      const model = process.env.MODEL || 'claude-3-5-sonnet-20241022'; // Default fallback
 
       res.json({
         workingDirectory: group.folder,
         model,
         usage: stats?.usage || { input_tokens: 0, output_tokens: 0 },
+        processReady: true,
+        isActive: opts.isGroupActive ? opts.isGroupActive(jid) : false,
       });
     } catch (err) {
       logger.error({ err }, 'Failed to fetch group status');

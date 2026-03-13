@@ -43,6 +43,16 @@ export interface ContainerInput {
   secrets?: Record<string, string>;
 }
 
+export interface ModelUsageEntry {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  costUSD?: number;
+}
+
 export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
@@ -53,6 +63,8 @@ export interface ContainerOutput {
     input_tokens: number;
     output_tokens: number;
     context_window?: number;
+    model_usage?: Record<string, ModelUsageEntry>;
+    cost_usd?: number;
   };
   slashCommands?: string[];
 }
