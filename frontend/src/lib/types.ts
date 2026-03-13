@@ -17,16 +17,32 @@ export interface Message {
   is_bot_message: boolean;
 }
 
-export interface ContentBlock {
-  type: string;
-  text?: string;
-  id?: string;
-  name?: string;
-  input?: unknown;
-  partial_json?: string;
-  status?: 'calling' | 'executed' | 'error';
-  result?: string | object;
+export interface PrometheusChartBlock {
+  type: 'prometheus_chart';
+  title: string;
+  unit: string;
+  timeRange: string;
+  datasource?: string;
+  series: Array<{
+    instance: string;
+    data: Array<[number, number]>;
+  }>;
 }
+
+export type ContentBlock =
+  | { type: 'text'; text?: string; [key: string]: unknown }
+  | {
+      type: 'tool_use';
+      id?: string;
+      name?: string;
+      input?: unknown;
+      partial_json?: string;
+      status?: 'calling' | 'executed' | 'error';
+      result?: string | object;
+      [key: string]: unknown;
+    }
+  | { type: 'thinking' | 'redacted_thinking'; text?: string; [key: string]: unknown }
+  | PrometheusChartBlock;
 
 export interface SlashCommand {
   command: string;
