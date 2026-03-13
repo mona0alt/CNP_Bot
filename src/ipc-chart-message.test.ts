@@ -42,7 +42,7 @@ describe('processChartMessageIpc', () => {
       'main', true, deps,
     );
     expect(deps.sendMessage).toHaveBeenCalledOnce();
-    const sent = JSON.parse((deps.sendMessage as any).mock.calls[0][1]);
+    const sent = JSON.parse(vi.mocked(deps.sendMessage).mock.calls[0][1]);
     expect(sent).toEqual([CHART_BLOCK]);
   });
 
@@ -68,6 +68,15 @@ describe('processChartMessageIpc', () => {
     const deps = makeDeps({ 'other@g.us': OTHER_GROUP });
     await processChartMessageIpc(
       { type: 'chart_message', chatJid: 'other@g.us', chart: undefined as any },
+      'main', true, deps,
+    );
+    expect(deps.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when chatJid field is missing', async () => {
+    const deps = makeDeps({ 'other@g.us': OTHER_GROUP });
+    await processChartMessageIpc(
+      { type: 'chart_message', chatJid: undefined, chart: CHART_BLOCK },
       'main', true, deps,
     );
     expect(deps.sendMessage).not.toHaveBeenCalled();

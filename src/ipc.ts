@@ -393,7 +393,7 @@ export async function processChartMessageIpc(
   data: {
     type: string;
     chatJid?: string;
-    chart?: unknown;
+    chart?: object;
   },
   sourceGroup: string,
   isMain: boolean,
