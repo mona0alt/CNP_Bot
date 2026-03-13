@@ -5,6 +5,8 @@ import { parseMessageContent } from "@/lib/message-parser";
 import { parseThoughts } from "@/lib/thought-parser";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { ToolCallCard } from "@/components/ToolCallCard";
+import { PrometheusChartCard } from '@/components/PrometheusChartCard';
+import type { PrometheusChartBlock } from '@/lib/types';
 import { ThoughtProcess } from "@/components/ThoughtProcess";
 import { useTheme } from "@/contexts/ThemeContext";
 
@@ -54,6 +56,7 @@ export function MessageList({ messages }: MessageListProps) {
 
     const hasVisibleContent = sortedBlocks.some((block) => {
       if (block.type === 'tool_use') return true;
+      if (block.type === 'prometheus_chart') return true;
       if (block.type === 'thinking' || block.type === 'redacted_thinking') return true;
       const segments = parseThoughts(block.text || "");
       if (segments.length === 0) return false;
@@ -113,6 +116,15 @@ export function MessageList({ messages }: MessageListProps) {
                   result={block.result}
                   defaultExpanded={false}
                   className={outgoing ? "dark:border-emerald-400/50 border-emerald-500/30" : ""}
+                />
+              );
+            }
+
+            if (block.type === 'prometheus_chart') {
+              return (
+                <PrometheusChartCard
+                  key={`chart-${bIdx}`}
+                  block={block as PrometheusChartBlock}
                 />
               );
             }

@@ -30,13 +30,13 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): 
 
   if (event.type === 'content_block_start' && event.content_block) {
     newBlocks.push({
-      type: event.content_block.type,
+      type: event.content_block.type as ContentBlock['type'],
       text: event.content_block.text || '',
       id: event.content_block.id,
       name: event.content_block.name,
       input: event.content_block.input,
       status: event.content_block.type === 'tool_use' ? 'calling' : undefined
-    });
+    } as ContentBlock);
   } else if (event.type === 'content_block_delta' && event.delta && event.index !== undefined) {
     const index = event.index;
     if (newBlocks[index]) {

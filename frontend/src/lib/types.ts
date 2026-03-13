@@ -27,6 +27,7 @@ export interface PrometheusChartBlock {
     instance: string;
     data: Array<[number, number]>;
   }>;
+  [key: string]: unknown;
 }
 
 export type ContentBlock =

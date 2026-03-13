@@ -155,7 +155,7 @@ export function useChatWebSocket({
                   blocks[0].text = (blocks[0].text || "") + payload.chunk;
                   return [...prev.slice(0, -1), { ...last, content: JSON.stringify(blocks) }];
                 } else if (blocks.length > 0 && blocks[blocks.length - 1].type === 'text') {
-                  blocks[blocks.length - 1].text = (blocks[blocks.length - 1].text || "") + payload.chunk;
+                  blocks[blocks.length - 1].text = (blocks[blocks.length - 1].text || "") + (payload.chunk || "");
                   return [...prev.slice(0, -1), { ...last, content: JSON.stringify(blocks) }];
                 } else {
                   if (blocks.length === 0 || blocks[blocks.length - 1].type !== 'text') {
