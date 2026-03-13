@@ -163,12 +163,17 @@ async function main() {
     }),
   );
 
+  // Determine displayed datasource label
+  const detectedSources = instances.map((ip) => forceDatasource || detectDatasource(ip));
+  const uniqueSources = [...new Set(detectedSources)];
+  const displayDatasource = uniqueSources.length === 1 ? uniqueSources[0] : 'mixed';
+
   const chartBlock = {
     type: 'prometheus_chart',
     title: metricDef.title,
     unit: metricDef.unit,
     timeRange: range,
-    datasource: forceDatasource || detectDatasource(instances[0]),
+    datasource: displayDatasource,
     series: seriesResults,
   };
 
