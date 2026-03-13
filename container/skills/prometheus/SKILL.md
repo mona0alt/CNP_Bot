@@ -367,3 +367,42 @@ Errors on individual instances don't fail the entire query — they appear with 
 - Instance labels typically show `host:port` format
 - When using `--all`, queries run in parallel for faster results
 - Config is stored outside the skill directory so it persists across skill updates
+
+## 监控图表（折线图卡片）
+
+使用 `chart.js` 将 Prometheus 时序数据渲染为前端 Grafana 风格折线图卡片。
+
+### 用法
+
+```bash
+cd ~/.openclaw/workspace/skills/prometheus
+node scripts/chart.js \
+  --metric cpu \
+  --instances "10.246.10.85,10.246.10.86" \
+  [--range 1h] \
+  [--datasource portal] \
+  --chat-jid "$NANOCLAW_CHAT_JID"
+```
+
+> `$NANOCLAW_CHAT_JID` 由运行时自动注入，可直接引用。
+
+### 支持的 --metric 值
+
+| 值 | 图表标题 | 单位 |
+|----|----------|------|
+| `cpu` | CPU 使用率 | % |
+| `memory` | 内存使用率 | % |
+| `disk` | 磁盘使用率 | % |
+| `load` | 系统负载 (1m) | — |
+| `network_rx` | 网络接收 | B/s |
+| `network_tx` | 网络发送 | B/s |
+
+### 参数
+
+| 参数 | 必填 | 默认 | 说明 |
+|------|------|------|------|
+| `--metric` | ✓ | — | 指标名称 |
+| `--instances` | ✓ | — | 逗号分隔节点 IP，多节点显示多条折线 |
+| `--range` | — | `1h` | 时间范围：`15m` / `1h` / `6h` / `24h` |
+| `--datasource` | — | 自动检测 | 强制指定 `portal` 或 `paas` |
+| `--chat-jid` | ✓ | `$NANOCLAW_CHAT_JID` | 目标会话 JID |
