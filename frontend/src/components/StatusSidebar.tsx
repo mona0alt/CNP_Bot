@@ -69,7 +69,6 @@ export function StatusSidebar({ jid, apiBase, token }: StatusSidebarProps) {
   // Derive actual model names from modelUsage keys, fallback to configured model
   const modelUsage = status.usage.model_usage;
   const modelNames = modelUsage ? Object.keys(modelUsage) : null;
-  const displayModel = modelNames && modelNames.length > 0 ? modelNames[0] : status.model;
 
   // Aggregate cache tokens across all models
   let totalCacheRead = 0;
@@ -124,24 +123,33 @@ export function StatusSidebar({ jid, apiBase, token }: StatusSidebarProps) {
         </div>
         )}
 
+        {(modelNames && modelNames.length > 0 || status.model) && (
         <div>
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
             <Cpu size={16} />
             <span className="text-xs font-medium">Model</span>
           </div>
-          <div className="text-xs font-mono break-all">
-            {displayModel}
-          </div>
-          {modelNames && modelNames.length > 1 && (
-            <div className="mt-1 space-y-0.5">
-              {modelNames.slice(1).map((m) => (
-                <div key={m} className="text-xs font-mono break-all text-muted-foreground">
-                  {m}
+          {modelNames && modelNames.length > 0 ? (
+            <>
+              <div className="text-xs font-mono break-all">{modelNames[0]}</div>
+              {modelNames.length > 1 && (
+                <div className="mt-1 space-y-0.5">
+                  {modelNames.slice(1).map((m) => (
+                    <div key={m} className="text-xs font-mono break-all text-muted-foreground">
+                      {m}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+            </>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-mono break-all text-muted-foreground">{status.model}</span>
+              <span className="text-xs text-muted-foreground/50">(configured)</span>
             </div>
           )}
         </div>
+        )}
 
         <div>
           <div className="flex items-center gap-2 text-muted-foreground mb-1">

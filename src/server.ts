@@ -266,7 +266,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       }
       const groups = getAllRegisteredGroups();
       const group = groups[jid];
-      const model = process.env.MODEL || 'claude-3-5-sonnet-20241022'; // Default fallback
+      const model = process.env.MODEL || process.env.ANTHROPIC_MODEL || '';
 
       if (!group) {
         return res.json({
