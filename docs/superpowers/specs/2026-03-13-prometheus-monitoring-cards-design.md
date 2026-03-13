@@ -59,7 +59,7 @@ interface PrometheusChartBlock {
   type: "prometheus_chart";
   title: string;          // 显示标题，如 "CPU 使用率"
   unit: string;           // 单位，如 "%" | "GB" | "MB/s"
-  timeRange: string;      // 时间范围标签，如 "1h"
+  timeRange: string;      // 仅作展示标签（如 "1h"），前端不用于坐标轴计算
   datasource?: string;    // 数据源名称，如 "portal" | "paas"
   series: Array<{
     instance: string;     // 节点标识，如 "10.246.10.85"
@@ -101,9 +101,11 @@ node ~/.openclaw/workspace/skills/prometheus/scripts/chart.js \
   --metric cpu \
   --instances "10.246.10.85,10.246.10.86" \
   --range 1h \
-  [--instance-name portal] \
-  --chat-jid "$CHAT_JID"
+  [--datasource portal] \
+  --chat-jid "$NANOCLAW_CHAT_JID"
 ```
+
+> `$NANOCLAW_CHAT_JID` 由容器运行时自动注入，无需手动传入。
 
 ### 支持的 `--metric` 快捷名
 
@@ -123,7 +125,7 @@ node ~/.openclaw/workspace/skills/prometheus/scripts/chart.js \
 | `--metric` | 是 | — | 指标名称（见上表） |
 | `--instances` | 是 | — | 逗号分隔的节点 IP 列表 |
 | `--range` | 否 | `1h` | 时间范围：`15m` / `1h` / `6h` / `24h` |
-| `--instance-name` | 否 | 自动检测 | 强制指定 prometheus 数据源 |
+| `--datasource` | 否 | 自动检测 | 强制指定 prometheus 数据源（`portal` / `paas`） |
 | `--chat-jid` | 是 | — | 目标会话 JID |
 
 ### 内部流程
@@ -132,7 +134,9 @@ node ~/.openclaw/workspace/skills/prometheus/scripts/chart.js \
 2. 自动检测每个 instance IP 对应的 prometheus 数据源（复用 SKILL.md 中的网段规则）
 3. 调用 `rangeQuery(promql, now-range, now, { step: 60, instance: datasource })`
 4. 将结果格式化为 `prometheus_chart` content block
-5. 写入 `$DATA_DIR/ipc/{groupFolder}/messages/chart-{ts}.json`
+5. 写入 `/workspace/ipc/messages/chart-{ts}.json`
+
+> `/workspace/ipc` 是容器运行时固定挂载的 IPC 目录（见 `src/container-runner.ts:175`），无需任何环境变量拼接路径。
 
 ---
 
@@ -167,6 +171,24 @@ PrometheusChartCard
 - 网格线：`#f3f4f6`
 - 文字：`#111827` / `#6b7280`
 
+### `ContentBlock` 类型更新
+
+`frontend/src/lib/types.ts` 中的 `ContentBlock` 扩展为判别联合类型：
+
+```typescript
+export type ContentBlock =
+  | { type: "text"; text?: string; [key: string]: unknown }
+  | { type: "tool_use"; id?: string; name?: string; input?: unknown; status?: "calling" | "executed" | "error"; result?: string | object; [key: string]: unknown }
+  | { type: "thinking" | "redacted_thinking"; [key: string]: unknown }
+  | PrometheusChartBlock;
+```
+
+`MessageList.tsx` 的 `hasVisibleContent` 检查须新增：
+
+```ts
+if (block.type === 'prometheus_chart') return true;
+```
+
 ### 图表库
 
 **Recharts**（`recharts` npm 包），选型理由：
@@ -178,10 +200,22 @@ PrometheusChartCard
 
 ## IPC 处理（src/ipc.ts）
 
-在 `processIpcFiles` 中新增对 `chart_message` 类型的处理：
+`chart_message` 在 **messages 目录**处理分支中处理（与现有 `message` 类型同一分支），必须通过相同的授权检查：
 
-1. 读取 `chart` 字段，序列化为 JSON 存入消息 `content`（格式与其他 content block 一致：JSON array）
-2. 调用 `sendMessage(chatJid, JSON.stringify([chartBlock]))`，WebChannel 将其存入 DB 并广播
+```ts
+if (data.type === 'chart_message' && data.chatJid && data.chart) {
+  const targetGroup = registeredGroups[data.chatJid];
+  if (isMain || (targetGroup && targetGroup.folder === sourceGroup)) {
+    await deps.sendMessage(data.chatJid, JSON.stringify([data.chart]));
+  } else {
+    logger.warn({ chatJid: data.chatJid, sourceGroup }, 'Unauthorized chart_message attempt blocked');
+  }
+}
+```
+
+`sendMessage(jid, text)` 接受 `string` 类型的 `text`，传入 `JSON.stringify([chartBlock])` 符合现有签名。`WebChannel.sendMessage` 将其存入 DB 作为消息的 `content` 字段。
+
+前端 `MessageList.tsx:25` 对**所有消息**调用 `parseMessageContent(msg.content)`（不区分渠道），该函数尝试 `JSON.parse`，成功则还原为 `ContentBlock[]`，失败则降级为文本块。因此 chart block 会被正确反序列化并渲染，无需任何额外处理。
 
 ---
 
@@ -194,6 +228,7 @@ PrometheusChartCard
 | `CHAT_JID` 未设置 | `chart.js` 打印错误并退出，不写 IPC 文件 |
 | 数据点少于 2 个 | 正常渲染，Recharts 退化为散点显示 |
 | 网段未知（无法自动判断数据源） | `chart.js` 打印警告，尝试 `--all` 查询两个数据源 |
+| IPC 文件缺少 `chart` 字段或格式错误 | 文件移入 `errors/` 目录，不发送消息（与现有 IPC 错误处理一致） |
 
 ---
 
