@@ -91,6 +91,9 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   );
                 }
               }
+              if (data.type === 'chart_message') {
+                await processChartMessageIpc(data, sourceGroup, isMain, deps);
+              }
               fs.unlinkSync(filePath);
             } catch (err) {
               logger.error(
@@ -383,5 +386,31 @@ export async function processTaskIpc(
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');
+  }
+}
+
+export async function processChartMessageIpc(
+  data: {
+    type: string;
+    chatJid?: string;
+    chart?: unknown;
+  },
+  sourceGroup: string,
+  isMain: boolean,
+  deps: IpcDeps,
+): Promise<void> {
+  if (!data.chatJid || !data.chart) return;
+
+  const registeredGroups = deps.registeredGroups();
+  const targetGroup = registeredGroups[data.chatJid];
+
+  if (isMain || (targetGroup && targetGroup.folder === sourceGroup)) {
+    await deps.sendMessage(data.chatJid, JSON.stringify([data.chart]));
+    logger.info({ chatJid: data.chatJid, sourceGroup }, 'IPC chart message sent');
+  } else {
+    logger.warn(
+      { chatJid: data.chatJid, sourceGroup },
+      'Unauthorized chart_message attempt blocked',
+    );
   }
 }
