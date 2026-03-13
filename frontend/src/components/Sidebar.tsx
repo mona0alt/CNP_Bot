@@ -62,83 +62,85 @@ export function Sidebar() {
   };
 
   return (
-    <div className="w-64 border-r border-border h-screen p-4 flex flex-col bg-card">
-      <div className="mb-8 px-4">
+    <div className="w-64 border-r border-border h-screen flex flex-col bg-card">
+      <div className="h-[60px] flex items-center px-6 border-b shrink-0">
         <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
           <MessageSquare className="w-6 h-6" />
           CNP-Bot
         </h1>
       </div>
-      <nav className="space-y-2">
-        {links.map((link) => {
-          const Icon = link.icon;
-          const isActive = location.pathname === link.href;
-          return (
-            <Link
-              key={link.href}
-              to={link.href}
-              className={cn(
-                "flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-            >
-              <Icon className="w-4 h-4" />
-              {link.label}
-            </Link>
-          );
-        })}
-      </nav>
+      <div className="flex-1 flex flex-col p-4 overflow-y-auto">
+        <nav className="space-y-2">
+          {links.map((link) => {
+            const Icon = link.icon;
+            const isActive = location.pathname === link.href;
+            return (
+              <Link
+                key={link.href}
+                to={link.href}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                <Icon className="w-4 h-4" />
+                {link.label}
+              </Link>
+            );
+          })}
+        </nav>
 
-      {/* Theme toggle */}
-      <div className="mt-4 pt-4 border-t">
-        <button
-          onClick={toggleTheme}
-          className="w-full flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-        >
-          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
-        </button>
-      </div>
-
-      {/* User section at bottom */}
-      <div className="mt-auto pt-4 border-t">
-        <div className="relative">
+        {/* Theme toggle */}
+        <div className="mt-4 pt-4 border-t">
           <button
-            onClick={() => setShowUserMenu(!showUserMenu)}
+            onClick={toggleTheme}
             className="w-full flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
-            <User className="w-4 h-4" />
-            <span className="flex-1 text-left truncate">
-              {user?.display_name || user?.username}
-            </span>
+            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
           </button>
+        </div>
 
-          {showUserMenu && (
-            <div className="absolute bottom-full left-0 right-0 mb-2 bg-popover border rounded-md shadow-lg overflow-hidden">
-              <div className="px-4 py-2 text-xs text-muted-foreground border-b">
-                {user?.role === "admin" ? "Administrator" : "User"}
+        {/* User section at bottom */}
+        <div className="mt-auto pt-4 border-t">
+          <div className="relative">
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="w-full flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <User className="w-4 h-4" />
+              <span className="flex-1 text-left truncate">
+                {user?.display_name || user?.username}
+              </span>
+            </button>
+
+            {showUserMenu && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-popover border rounded-md shadow-lg overflow-hidden">
+                <div className="px-4 py-2 text-xs text-muted-foreground border-b">
+                  {user?.role === "admin" ? "Administrator" : "User"}
+                </div>
+                <button
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    setShowPasswordModal(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-muted transition-colors"
+                >
+                  <Key className="w-4 h-4" />
+                  Change Password
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-muted transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Logout
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  setShowUserMenu(false);
-                  setShowPasswordModal(true);
-                }}
-                className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-muted transition-colors"
-              >
-                <Key className="w-4 h-4" />
-                Change Password
-              </button>
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-muted transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                Logout
-              </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 

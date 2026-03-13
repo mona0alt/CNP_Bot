@@ -330,11 +330,11 @@ export function Chat() {
         onDeleteChat={handleDeleteChat}
       />
 
-      <div className="flex-1 flex flex-col bg-background">
+      <div className="flex-1 flex flex-col bg-background h-full overflow-hidden">
         {selectedJid ? (
           <>
-            <div className="p-4 border-b flex items-center justify-between bg-card/50">
-              <h3 className="font-semibold">{chatName}</h3>
+            <div className="h-[60px] px-4 border-b flex items-center justify-between bg-card/50 shrink-0">
+              <h3 className="font-semibold text-lg">{chatName}</h3>
               <button
                 onClick={() => setShowDeleteDialog(true)}
                 className="p-2 text-muted-foreground hover:text-destructive rounded-md hover:bg-muted transition-colors"

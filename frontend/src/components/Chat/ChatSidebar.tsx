@@ -35,7 +35,7 @@ export function ChatSidebar({
 
   return (
     <div className="w-80 border-r bg-card flex flex-col">
-      <div className="p-4 border-b flex items-center justify-between">
+      <div className="h-[60px] px-4 border-b flex items-center justify-between shrink-0">
         <h2 className="text-lg font-semibold">Chats</h2>
         <button
           onClick={onCreateChat}
