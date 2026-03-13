@@ -71,8 +71,10 @@ export function MessageList({ messages }: MessageListProps) {
       <div
         key={msg.id || idx}
         className={cn(
-          "flex gap-3 max-w-[80%]",
-          outgoing ? "ml-auto flex-row-reverse" : ""
+          "flex gap-3",
+          outgoing
+            ? "ml-auto flex-row-reverse max-w-[70%]"
+            : "w-full"
         )}
       >
         <div
@@ -83,7 +85,7 @@ export function MessageList({ messages }: MessageListProps) {
         >
           {hasThinkingTag ? <Brain size={16} /> : (msg.is_bot_message ? <Bot size={16} /> : <User size={16} />)}
         </div>
-        <div className={cn("p-3 rounded-2xl text-sm min-w-[100px] mt-2 first:mt-0", bubble)}>
+        <div className={cn("p-3 rounded-2xl text-sm min-w-[100px] mt-2 first:mt-0", bubble, !outgoing && "flex-1 min-w-0")}>
           {!outgoing ? (
             <div className="font-semibold text-xs mb-1 opacity-70">
               {displayName}
