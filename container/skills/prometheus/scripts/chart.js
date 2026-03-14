@@ -177,7 +177,7 @@ async function main() {
     series: seriesResults,
   };
 
-  const ipcMessagesDir = '/workspace/ipc/messages';
+  const ipcMessagesDir = join(process.env.IPC_DIR || '/workspace/ipc', 'messages');
   mkdirSync(ipcMessagesDir, { recursive: true });
 
   const filename = `chart-${Date.now()}.json`;

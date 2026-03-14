@@ -53,9 +53,13 @@ export async function rangeQuery(query, start, end, options = {}) {
   const targetInstance = getInstance(instance);
   const url = buildUrl(targetInstance, '/api/v1/query_range');
   const params = new URLSearchParams({ query, start, end, step: String(step) });
-  
-  const response = await fetch(`${url}?${params}`, {
-    headers: createAuthHeader(targetInstance)
+
+  // Use POST to avoid proxy mangling of special characters (e.g. != encoded as %21%3D)
+  // in URL query strings. Prometheus supports POST for all query endpoints.
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...createAuthHeader(targetInstance) },
+    body: params.toString(),
   });
   
   const result = await handleResponse(response);

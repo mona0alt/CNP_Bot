@@ -1,31 +1,22 @@
-FROM registry.gwm.cn/debian:stable
+FROM m.daocloud.io/docker.io/debian:latest
+
+# Set proxy for build
+ENV http_proxy=http://192.168.0.109:7890
+ENV https_proxy=http://192.168.0.109:7890
+ENV HTTP_PROXY=http://192.168.0.109:7890
+ENV HTTPS_PROXY=http://192.168.0.109:7890
+ENV no_proxy=localhost,127.0.0.1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
-    gnupg \
     ca-certificates \
-    chromium \
     fonts-liberation \
     fonts-noto-color-emoji \
-    libgbm1 \
-    libnss3 \
-    libatk-bridge2.0-0 \
-    libgtk-3-0 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libasound2 \
-    libpangocairo-1.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxshmfence1 \
     git \
     build-essential \
     python3 \
     sqlite3 \
-    tmux \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20

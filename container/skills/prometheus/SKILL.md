@@ -7,6 +7,22 @@ description: Query Prometheus monitoring data to check server metrics, resource 
 
 Query Prometheus monitoring data from one or multiple instances. Supports federation across multiple Prometheus servers with a single command.
 
+## ⚠️ 核心规则：必须生成图表卡片
+
+**当用户查询 CPU、内存、磁盘、负载、网络等监控指标时，你必须在文字回复之后调用 `chart.js` 生成折线图卡片。**
+
+```bash
+cd ~/.claude/skills/prometheus
+node scripts/chart.js --metric <cpu|memory|disk|load|network_rx|network_tx> \
+  --instances "<IP>" \
+  --range 1h \
+  --chat-jid "$NANOCLAW_CHAT_JID"
+```
+
+- 调用 `chart.js` 后，前端会自动渲染出 Grafana 风格的折线图卡片。
+- 如需查询多个指标，依次调用多次 `chart.js`（每个指标单独一次）。
+- 如用户只是查询状态（如 `up`）或非图表指标，可以只用文字回复，无需生成图表。
+
 ## 数据源快速判断
 
 ### 查询前必读
@@ -130,11 +146,11 @@ node scripts/cli.js query 'up{region="daye",env_zh="生产环境"}' -i paas
 Run the interactive configuration wizard:
 
 ```bash
-cd ~/.openclaw/workspace/skills/prometheus
+cd ~/.claude/skills/prometheus
 node scripts/cli.js init
 ```
 
-This will create a `prometheus.json` config file in your OpenClaw workspace (`~/.openclaw/workspace/prometheus.json`).
+This will create a `prometheus.json` config file in your skill workspace (`~/.claude/skills/prometheus/prometheus.json`).
 
 ### 2. Start Querying
 
@@ -156,14 +172,13 @@ node scripts/cli.js instances
 By default, the skill looks for config in your OpenClaw workspace:
 
 ```
-~/.openclaw/workspace/prometheus.json
+~/.claude/skills/prometheus/prometheus.json
 ```
 
 **Priority order:**
 1. Path from `PROMETHEUS_CONFIG` environment variable
-2. `~/.openclaw/workspace/prometheus.json`
-3. `~/.openclaw/workspace/config/prometheus.json`
-4. `./prometheus.json` (current directory)
+2. `~/.claude/skills/prometheus/prometheus.json` (当前 skill 目录)
+3. `./prometheus.json` (current directory)
 5. `~/.config/prometheus/config.json`
 
 ### Config Format
@@ -226,7 +241,7 @@ node scripts/cli.js init
 #### Query Metrics
 
 ```bash
-cd ~/.openclaw/workspace/skills/prometheus
+cd ~/.claude/skills/prometheus
 
 # Query default instance
 node scripts/cli.js query 'up'
@@ -375,7 +390,7 @@ Errors on individual instances don't fail the entire query — they appear with 
 ### 用法
 
 ```bash
-cd ~/.openclaw/workspace/skills/prometheus
+cd ~/.claude/skills/prometheus
 node scripts/chart.js \
   --metric cpu \
   --instances "10.246.10.85,10.246.10.86" \

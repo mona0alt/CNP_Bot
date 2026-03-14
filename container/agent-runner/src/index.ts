@@ -763,6 +763,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Inject runtime context into process.env so Bash subprocesses (e.g. chart.js) can read them.
+  // These are not secrets, so it is safe to expose them to child processes.
+  process.env.NANOCLAW_CHAT_JID = containerInput.chatJid;
+  process.env.NANOCLAW_GROUP_FOLDER = containerInput.groupFolder;
+  process.env.NANOCLAW_IS_MAIN = containerInput.isMain ? '1' : '0';
+
   // Build SDK env: merge secrets into process.env for the SDK only.
   // Secrets never touch process.env itself, so Bash subprocesses can't see them.
   const sdkEnv: Record<string, string | undefined> = { ...process.env };
