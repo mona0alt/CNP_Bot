@@ -7,9 +7,9 @@ description: Query Prometheus monitoring data to check server metrics, resource 
 
 Query Prometheus monitoring data from one or multiple instances. Supports federation across multiple Prometheus servers with a single command.
 
-## ⚠️ 核心规则：必须生成图表卡片
+## ⚠️ 核心规则：必须使用 chart.js 生成图表卡片
 
-**当用户查询 CPU、内存、磁盘、负载、网络等监控指标时，你必须在文字回复之后调用 `chart.js` 生成折线图卡片。**
+**当用户查询 CPU、内存、磁盘、负载、网络等监控指标时，你必须使用 `chart.js` 生成折线图卡片。**
 
 ```bash
 cd ~/.claude/skills/prometheus
@@ -17,6 +17,19 @@ node scripts/chart.js --metric <cpu|memory|disk|load|network_rx|network_tx> \
   --instances "<IP>" \
   --range 1h \
   --chat-jid "$NANOCLAW_CHAT_JID"
+```
+
+### 正确用法示例
+
+```bash
+# 查询单节点内存（保定管理环境 → portal）
+node scripts/chart.js --metric memory --instances "10.245.16.28" --range 1h --datasource portal --chat-jid "$NANOCLAW_CHAT_JID"
+
+# 查询多节点 CPU（多条折线）
+node scripts/chart.js --metric cpu --instances "10.245.16.28,10.245.16.29" --range 1h --datasource portal --chat-jid "$NANOCLAW_CHAT_JID"
+
+# 查询磁盘使用率
+node scripts/chart.js --metric disk --instances "10.255.23.41" --range 1h --datasource paas --chat-jid "$NANOCLAW_CHAT_JID"
 ```
 
 - 调用 `chart.js` 后，前端会自动渲染出 Grafana 风格的折线图卡片。
