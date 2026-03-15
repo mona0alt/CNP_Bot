@@ -43,6 +43,43 @@ export function useChatWebSocket({
   const wsRef = useRef<WebSocket | null>(null);
   const messageIdsRef = useRef<Set<string>>(new Set());
 
+  const findActiveStreamIndex = useCallback((messages: Message[]) => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (
+        message.chat_jid === jid &&
+        message.is_bot_message &&
+        message.id.startsWith('stream-')
+      ) {
+        return index;
+      }
+    }
+
+    return -1;
+  }, [jid]);
+
+  const findLastMatchingBotMessageIndex = useCallback((
+    messages: Message[],
+    predicate: (message: Message) => boolean,
+  ) => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.chat_jid === jid && message.is_bot_message && predicate(message)) {
+        return index;
+      }
+    }
+
+    return -1;
+  }, [jid]);
+
+  const isStandaloneChartMessage = useCallback((message: Message) => {
+    const blocks = parseMessageContent(message.content);
+    return (
+      blocks.length > 0 &&
+      blocks.every((block) => block.type === 'prometheus_chart')
+    );
+  }, []);
+
   const fetchMessages = useCallback(async (chatJid: string): Promise<Message[]> => {
     if (!token) {
       return [];
@@ -108,22 +145,26 @@ export function useChatWebSocket({
             const event = payload.event;
             setMessages((prev) => {
               if (event.type === 'tool_result') {
-                const msgIndex = [...prev].reverse().findIndex(m =>
-                  m.is_bot_message && m.content.includes(event.tool_use_id || '')
-                );
+                const streamIndex = findActiveStreamIndex(prev);
+                const toolResultTargetIndex = streamIndex !== -1
+                  ? streamIndex
+                  : findLastMatchingBotMessageIndex(prev, (message) =>
+                      message.content.includes(event.tool_use_id || ''),
+                    );
+
+                const msgIndex = toolResultTargetIndex;
                 if (msgIndex !== -1) {
-                  const actualIndex = prev.length - 1 - msgIndex;
-                  const msg = prev[actualIndex];
+                  const msg = prev[msgIndex];
                   const blocks = parseMessageContent(msg.content);
                   const updatedBlocks = applyEventToBlocks(blocks, event);
                   const newPrev = [...prev];
-                  newPrev[actualIndex] = { ...msg, content: JSON.stringify(updatedBlocks) };
+                  newPrev[msgIndex] = { ...msg, content: JSON.stringify(updatedBlocks) };
                   return newPrev;
                 }
               }
 
-              const last = prev[prev.length - 1];
-              if (!last || !last.is_bot_message) {
+              const activeStreamIndex = findActiveStreamIndex(prev);
+              if (activeStreamIndex === -1) {
                 const initialBlocks: ContentBlock[] = [];
                 const newMsg: Message = {
                   id: 'stream-' + Date.now(),
@@ -139,24 +180,38 @@ export function useChatWebSocket({
                 return [...prev, newMsg];
               }
 
-              const blocks = parseMessageContent(last.content);
+              const streamMessage = prev[activeStreamIndex];
+              const blocks = parseMessageContent(streamMessage.content);
               const updatedBlocks = applyEventToBlocks(blocks, event);
-              return [
-                ...prev.slice(0, -1),
-                { ...last, content: JSON.stringify(updatedBlocks) }
-              ];
+              const nextMessages = [...prev];
+              nextMessages[activeStreamIndex] = {
+                ...streamMessage,
+                content: JSON.stringify(updatedBlocks),
+              };
+              return nextMessages;
             });
           } else if (payload.type === "stream" && payload.chunk && payload.chat_jid === jid) {
             setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (last && last.is_bot_message) {
-                const blocks = parseMessageContent(last.content);
+              const activeStreamIndex = findActiveStreamIndex(prev);
+              if (activeStreamIndex !== -1) {
+                const streamMessage = prev[activeStreamIndex];
+                const blocks = parseMessageContent(streamMessage.content);
+                const nextMessages = [...prev];
+
                 if (blocks.length === 1 && blocks[0].type === 'text') {
                   blocks[0].text = (blocks[0].text || "") + payload.chunk;
-                  return [...prev.slice(0, -1), { ...last, content: JSON.stringify(blocks) }];
+                  nextMessages[activeStreamIndex] = {
+                    ...streamMessage,
+                    content: JSON.stringify(blocks),
+                  };
+                  return nextMessages;
                 } else if (blocks.length > 0 && blocks[blocks.length - 1].type === 'text') {
                   blocks[blocks.length - 1].text = (blocks[blocks.length - 1].text || "") + (payload.chunk || "");
-                  return [...prev.slice(0, -1), { ...last, content: JSON.stringify(blocks) }];
+                  nextMessages[activeStreamIndex] = {
+                    ...streamMessage,
+                    content: JSON.stringify(blocks),
+                  };
+                  return nextMessages;
                 } else {
                   if (blocks.length === 0 || blocks[blocks.length - 1].type !== 'text') {
                     blocks.push({ type: 'text', text: payload.chunk });
@@ -166,7 +221,11 @@ export function useChatWebSocket({
                       lastBlock.text = (lastBlock.text || "") + (payload.chunk || "");
                     }
                   }
-                  return [...prev.slice(0, -1), { ...last, content: JSON.stringify(blocks) }];
+                  nextMessages[activeStreamIndex] = {
+                    ...streamMessage,
+                    content: JSON.stringify(blocks),
+                  };
+                  return nextMessages;
                 }
               } else {
                 return [...prev, {
@@ -190,10 +249,7 @@ export function useChatWebSocket({
               is_from_me: false,
               is_bot_message: !!payload.is_bot_message
             } as Message;
-
-            if (!msg.is_from_me) {
-              setIsGenerating(false);
-            }
+            const standaloneChartMessage = !msg.is_from_me && isStandaloneChartMessage(msg);
 
             setMessages((prev) => {
               if (messageIdsRef.current.has(msg.id)) return prev;
@@ -211,9 +267,15 @@ export function useChatWebSocket({
                 }
               }
 
-              const last = prev[prev.length - 1];
-              if (last && last.id.startsWith('stream-')) {
-                const streamBlocks = parseMessageContent(last.content);
+              const activeStreamIndex = findActiveStreamIndex(prev);
+              if (activeStreamIndex !== -1) {
+                if (standaloneChartMessage) {
+                  messageIdsRef.current.add(msg.id);
+                  return [...prev, msg];
+                }
+
+                const streamMessage = prev[activeStreamIndex];
+                const streamBlocks = parseMessageContent(streamMessage.content);
                 const hasTools = streamBlocks.some(b => b.type === 'tool_use');
                 if (hasTools) {
                   const finalBlocks = parseMessageContent(msg.content);
@@ -228,9 +290,15 @@ export function useChatWebSocket({
                   }
                 }
                 messageIdsRef.current.add(msg.id);
-                return [...prev.slice(0, -1), msg];
+                if (!msg.is_from_me) {
+                  setIsGenerating(false);
+                }
+                const nextMessages = [...prev];
+                nextMessages[activeStreamIndex] = msg;
+                return nextMessages;
               }
 
+              const last = prev[prev.length - 1];
               if (msg.is_bot_message && last && last.is_bot_message) {
                 if (last.content === msg.content && Math.abs(new Date(last.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 1000) {
                   return prev;
@@ -249,6 +317,9 @@ export function useChatWebSocket({
               }
 
               messageIdsRef.current.add(msg.id);
+              if (!msg.is_from_me && !standaloneChartMessage) {
+                setIsGenerating(false);
+              }
               return [...prev, msg];
             });
           } else if (payload.type === "error") {
@@ -265,7 +336,7 @@ export function useChatWebSocket({
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [jid, token, apiBase, fetchMessages, setMessages, setIsGenerating]);
+  }, [jid, token, apiBase, fetchMessages, findActiveStreamIndex, findLastMatchingBotMessageIndex, isStandaloneChartMessage, setMessages, setIsGenerating]);
 
   const sendMessage = useCallback((content: string) => {
     const ws = wsRef.current;

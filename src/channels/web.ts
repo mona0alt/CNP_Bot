@@ -19,8 +19,7 @@ export class WebChannel implements Channel {
 
   async sendMessage(jid: string, text: string): Promise<void> {
     const timestamp = new Date().toISOString();
-    storeChatMetadata(jid, timestamp, jid === 'web:default' ? 'Web Chat' : jid, 'web', false);
-    storeMessageDirect({
+    const message = {
       id: randomUUID(),
       chat_jid: jid,
       sender: 'nanoclaw',
@@ -29,18 +28,17 @@ export class WebChannel implements Channel {
       timestamp,
       is_from_me: false,
       is_bot_message: true,
-    });
+    };
+
+    storeChatMetadata(jid, timestamp, jid === 'web:default' ? 'Web Chat' : jid, 'web', false);
+    storeMessageDirect(message);
     
     // Also broadcast full message to clients so they can update their view
     // (Though they might have received chunks, this confirms the final message)
     if (this.broadcaster) {
         this.broadcaster.broadcastToJid(jid, {
             type: 'message',
-            chat_jid: jid,
-            content: text,
-            sender: 'nanoclaw',
-            is_bot_message: true,
-            timestamp
+            data: message,
         });
     }
   }
@@ -77,4 +75,3 @@ export class WebChannel implements Channel {
     return;
   }
 }
-

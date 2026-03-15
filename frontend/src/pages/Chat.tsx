@@ -14,7 +14,6 @@ export function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [groupIsActive, setGroupIsActive] = useState(false);
   const [newMessage, setNewMessage] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
@@ -189,7 +188,6 @@ export function Chat() {
   useEffect(() => {
     if (!selectedJid) {
       setMessages([]);
-      setGroupIsActive(false);
       return;
     }
 
@@ -213,56 +211,6 @@ export function Chat() {
     });
   }, [selectedJid, fetchMessages, getStreamingMessages]);
 
-  useEffect(() => {
-    if (!selectedJid || !token) {
-      setGroupIsActive(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    const fetchGroupStatus = async () => {
-      try {
-        const res = await fetch(
-          `${apiBase}/api/groups/${encodeURIComponent(selectedJid)}/status`,
-          {
-            headers: authHeaders,
-          },
-        );
-
-        if (res.status === 401 || res.status === 403) {
-          await handleUnauthorized();
-          return;
-        }
-
-        if (!res.ok) {
-          return;
-        }
-
-        const data = await res.json();
-        if (!cancelled) {
-          setGroupIsActive(Boolean(data?.isActive));
-        }
-      } catch (error) {
-        console.error('Failed to fetch group status', error);
-      }
-    };
-
-    fetchGroupStatus();
-    const interval = setInterval(fetchGroupStatus, 1000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [selectedJid, token, apiBase, authHeaders, handleUnauthorized]);
-
-  useEffect(() => {
-    if (groupIsActive && isGenerating) {
-      setIsGenerating(false);
-    }
-  }, [groupIsActive, isGenerating]);
-
   // 保存流式消息到 Context
   useEffect(() => {
     if (!selectedJid || messages.length === 0) return;
@@ -279,7 +227,7 @@ export function Chat() {
     }
   }, [selectedJid, messages, saveStreamingMessages, clearStreamingMessages]);
 
-  const inputIsGenerating = isGenerating || groupIsActive;
+  const inputIsGenerating = isGenerating;
 
   useEffect(() => {
     if (!selectedJid || inputIsGenerating) return;

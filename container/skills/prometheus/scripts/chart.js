@@ -287,7 +287,7 @@ async function main() {
       };
 
       writeFileSync(join(ipcMessagesDir, filename), JSON.stringify(ipcPayload));
-      console.log(`Chart written: ${filename} (${seriesResults.length} pods)`);
+      console.log(`Prometheus chart card sent (${seriesResults.length} pods).`);
     } catch (err) {
       console.error(`Error querying pod metric: ${err.message}`);
       process.exit(1);
@@ -360,7 +360,7 @@ async function main() {
   };
 
   writeFileSync(join(ipcMessagesDir, filename), JSON.stringify(ipcPayload));
-  console.log(`Chart written: ${filename} (${seriesResults.length} series)`);
+  console.log(`Prometheus chart card sent (${seriesResults.length} series).`);
 }
 
 main().catch((err) => {
