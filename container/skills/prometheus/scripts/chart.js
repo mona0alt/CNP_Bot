@@ -14,7 +14,9 @@ import { rangeQuery } from './query.js';
 
 // ── 指标定义 ──────────────────────────────────────────────────────────────────
 
-const METRICS = {
+// ── 节点级别指标（基于 node-exporter） ──────────────────────────────────────────
+
+const NODE_METRICS = {
   cpu: {
     title: 'CPU 使用率',
     unit: '%',
@@ -51,6 +53,79 @@ const METRICS = {
       `rate(node_network_transmit_bytes_total{instance="${instance}:9100",device!="lo"}[5m])`,
   },
 };
+
+// ── Pod 级别指标（基于 kube-state-metrics / cAdvisor） ────────────────────────────
+
+const POD_METRICS = {
+  pod_cpu: {
+    title: 'Pod CPU 使用率',
+    unit: '%',
+    promql: (params) => {
+      const { region, env, pod, namespace } = params;
+      const filters = [];
+      if (namespace) filters.push(`namespace=~"${namespace}"`);
+      if (pod) filters.push(`pod=~"${pod}"`);
+      filters.push(`region="${region}"`, `env_zh="${env}"`, 'image!=""');
+      const filterStr = filters.join(',');
+      return `sum(irate(container_cpu_usage_seconds_total{${filterStr}}[5m])) by (region, env_zh, pod, namespace) / (sum(container_spec_cpu_quota{${filterStr}}/100000) by (region, env_zh, pod, namespace)) * 100`;
+    },
+  },
+  pod_memory: {
+    title: 'Pod 内存使用率',
+    unit: '%',
+    promql: (params) => {
+      const { region, env, pod, namespace } = params;
+      const filters = [];
+      if (namespace) filters.push(`namespace=~"${namespace}"`);
+      if (pod) filters.push(`pod=~"${pod}"`);
+      filters.push(`region="${region}"`, `env_zh="${env}"`, 'image!=""');
+      const filterStr = filters.join(',');
+      return `(sum(container_memory_rss{${filterStr}}) by(region, env_zh, namespace, pod) / sum(container_spec_memory_limit_bytes{${filterStr}}) by(region, env_zh, namespace, pod)) * 100`;
+    },
+  },
+  pod_memory_limit: {
+    title: 'Pod 内存限制',
+    unit: 'B',
+    promql: (params) => {
+      const { region, env, pod, namespace } = params;
+      const filters = [];
+      if (namespace) filters.push(`namespace=~"${namespace}"`);
+      if (pod) filters.push(`pod=~"${pod}"`);
+      filters.push(`region="${region}"`, `env_zh="${env}"`, 'image!=""');
+      const filterStr = filters.join(',');
+      return `sum(container_spec_memory_limit_bytes{${filterStr}}) by(region, pod, namespace, env_zh)`;
+    },
+  },
+  pod_network_rx: {
+    title: 'Pod 网络接收',
+    unit: 'B/s',
+    promql: (params) => {
+      const { region, env, pod, namespace } = params;
+      const filters = [];
+      if (namespace) filters.push(`namespace=~"${namespace}"`);
+      if (pod) filters.push(`pod=~"${pod}"`);
+      filters.push(`region="${region}"`, `env_zh="${env}"`);
+      const filterStr = filters.join(',');
+      return `sum(rate(container_network_receive_bytes_total{${filterStr}}[5m])) by (pod, namespace, region, env_zh)`;
+    },
+  },
+  pod_network_tx: {
+    title: 'Pod 网络发送',
+    unit: 'B/s',
+    promql: (params) => {
+      const { region, env, pod, namespace } = params;
+      const filters = [];
+      if (namespace) filters.push(`namespace=~"${namespace}"`);
+      if (pod) filters.push(`pod=~"${pod}"`);
+      filters.push(`region="${region}"`, `env_zh="${env}"`);
+      const filterStr = filters.join(',');
+      return `sum(rate(container_network_transmit_bytes_total{${filterStr}}[5m])) by (pod, namespace, region, env_zh)`;
+    },
+  },
+};
+
+// 合并所有指标
+const METRICS = { ...NODE_METRICS, ...POD_METRICS };
 
 // ── 网段 → datasource 自动检测 ────────────────────────────────────────────────
 
@@ -104,6 +179,12 @@ function parseRange(range) {
   return parseInt(n, 10) * multipliers[unit];
 }
 
+// ── 判断指标类型 ────────────────────────────────────────────────────────────────
+
+function isPodMetric(metric) {
+  return metric.startsWith('pod_');
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -111,13 +192,16 @@ async function main() {
 
   const metric = args['metric'];
   const instancesRaw = args['instances'];
+  const podsRaw = args['pods'];
+  const namespaceRaw = args['namespace'];
+  const region = args['region'];
+  const env = args['env'];
   const range = args['range'] || '1h';
   const chatJid = args['chat-jid'] || process.env.NANOCLAW_CHAT_JID;
   const forceDatasource = args['datasource'] || null;
 
   // Validate required args
   if (!metric) { console.error('Error: --metric is required'); process.exit(1); }
-  if (!instancesRaw) { console.error('Error: --instances is required'); process.exit(1); }
   if (!chatJid) { console.error('Error: --chat-jid or $NANOCLAW_CHAT_JID is required'); process.exit(1); }
 
   const metricDef = METRICS[metric];
@@ -125,6 +209,94 @@ async function main() {
     console.error(`Error: Unknown metric "${metric}". Available: ${Object.keys(METRICS).join(', ')}`);
     process.exit(1);
   }
+
+  // 判断是节点查询还是 Pod 查询
+  const isPod = isPodMetric(metric);
+
+  if (isPod) {
+    // ── Pod 级别查询 ────────────────────────────────────────────────────────
+    if (!region || !env) {
+      console.error('Error: Pod metrics require --region and --env');
+      process.exit(1);
+    }
+
+    const pods = podsRaw ? podsRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    const rangeSeconds = parseRange(range);
+    const now = Math.floor(Date.now() / 1000);
+    const start = String(now - rangeSeconds);
+    const end = String(now);
+
+    const datasource = forceDatasource || (env === '测试环境' ? 'paas' : 'portal');
+    const promql = metricDef.promql({ region, env, pod: pods.join('|'), namespace: namespaceRaw });
+
+    console.log(`Querying pod metric: ${metric}`);
+    console.log(`  region: ${region}, env: ${env}, namespace: ${namespaceRaw || 'all'}, pods: ${pods.join(', ') || 'all'}`);
+    console.log(`  datasource: ${datasource}`);
+
+    try {
+      const result = await rangeQuery(promql, start, end, { instance: datasource, step: 60 });
+      const vectors = result.result ?? [];
+
+      // 按 pod 名称分组
+      const byPod = new Map();
+      for (const vec of vectors) {
+        const podName = vec.metric?.pod || 'unknown';
+        const namespace = vec.metric?.namespace || 'default';
+        const key = `${namespace}/${podName}`;
+
+        if (!byPod.has(key)) {
+          byPod.set(key, []);
+        }
+        byPod.get(key).push(vec.values);
+      }
+
+      const seriesResults = [];
+      for (const [key, valueArrays] of byPod) {
+        // 合并同一 pod 的多个容器数据
+        const merged = new Map();
+        for (const values of valueArrays) {
+          for (const [ts, val] of values) {
+            const v = parseFloat(val);
+            if (!isNaN(v)) {
+              merged.set(ts, (merged.get(ts) ?? 0) + v);
+            }
+          }
+        }
+        const data = [...merged.entries()].map(([ts, sum]) => [ts, sum]);
+        data.sort((a, b) => a[0] - b[0]);
+        seriesResults.push({ instance: key, data });
+      }
+
+      const chartBlock = {
+        type: 'prometheus_chart',
+        title: metricDef.title,
+        unit: metricDef.unit,
+        timeRange: range,
+        datasource,
+        series: seriesResults,
+      };
+
+      const ipcMessagesDir = join(process.env.IPC_DIR || '/workspace/ipc', 'messages');
+      mkdirSync(ipcMessagesDir, { recursive: true });
+
+      const filename = `chart-${Date.now()}.json`;
+      const ipcPayload = {
+        type: 'chart_message',
+        chatJid,
+        chart: chartBlock,
+      };
+
+      writeFileSync(join(ipcMessagesDir, filename), JSON.stringify(ipcPayload));
+      console.log(`Chart written: ${filename} (${seriesResults.length} pods)`);
+    } catch (err) {
+      console.error(`Error querying pod metric: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  // ── 节点级别查询 ──────────────────────────────────────────────────────────
+  if (!instancesRaw) { console.error('Error: --instances is required for node metrics'); process.exit(1); }
 
   const instances = instancesRaw.split(',').map((s) => s.trim()).filter(Boolean);
   const rangeSeconds = parseRange(range);

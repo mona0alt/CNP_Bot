@@ -30,7 +30,37 @@ node scripts/chart.js --metric cpu --instances "10.245.16.28,10.245.16.29" --ran
 
 # 查询磁盘使用率
 node scripts/chart.js --metric disk --instances "10.255.23.41" --range 1h --datasource paas --chat-jid "$NANOCLAW_CHAT_JID"
+
+# ── Pod 级别指标查询 ─────────────────────────────────────────────────────
+# 查询指定 Pod 的 CPU 使用率
+node scripts/chart.js --metric pod_cpu --region baoding --env "管理环境" --pods "nginx-.*" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+
+# 查询指定 Pod 的内存使用量
+node scripts/chart.js --metric pod_memory --region baoding --env "AI生产环境" --pods "redis-0" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+
+# 查询某区域某环境所有 Pod 的内存限制
+node scripts/chart.js --metric pod_memory_limit --region baoding --env "生产环境" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
 ```
+
+### 支持的指标类型
+
+| 指标类型 | --metric 值 | 说明 |
+|----------|-------------|------|
+| 节点指标 | `cpu`, `memory`, `disk`, `load`, `network_rx`, `network_tx` | 基于 node-exporter，需要 `--instances` |
+| Pod 指标 | `pod_cpu`, `pod_memory`, `pod_memory_limit`, `pod_network_rx`, `pod_network_tx` | 基于 cAdvisor，需要 `--region`、`--env`，可选 `--namespace`、`--pods` |
+
+### Pod 指标参数
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `--metric` | ✓ | 指标名称（pod_cpu, pod_memory 等） |
+| `--region` | ✓ | 区域：baoding, daye, jingmen, longyan, rizhao, taizhou, tianjin, xushui |
+| `--env` | ✓ | 环境：AI生产环境, 测试环境, 生产环境, 管理环境, 预发布环境 |
+| `--namespace` | — | K8s Namespace 名称（可选，不填则查询所有 Namespace） |
+| `--pods` | — | Pod 名称正则（可选，不填则查询所有 Pod） |
+| `--range` | — | 时间范围，默认 1h |
+| `--datasource` | — | 强制指定 portal 或 paas（默认根据 env 自动判断） |
+| `--chat-jid` | ✓ | 目标会话 JID |
 
 ## 当前配置
 
