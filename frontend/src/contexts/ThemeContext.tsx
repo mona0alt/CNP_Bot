@@ -10,24 +10,19 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+function getInitialTheme(): Theme {
+  const stored = localStorage.getItem("theme") as Theme | null;
+  if (stored) return stored;
+
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("dark");
+  const [theme, setThemeState] = useState<Theme>(getInitialTheme);
 
   useEffect(() => {
-    // Check localStorage first
-    const stored = localStorage.getItem("theme") as Theme | null;
-    if (stored) {
-      setThemeState(stored);
-      document.documentElement.classList.toggle("light", stored === "light");
-      return;
-    }
-
-    // Fall back to system preference
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const systemTheme = prefersDark ? "dark" : "light";
-    setThemeState(systemTheme);
-    document.documentElement.classList.toggle("light", systemTheme === "light");
-  }, []);
+    document.documentElement.classList.toggle("light", theme === "light");
+  }, [theme]);
 
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);
@@ -46,6 +41,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (context === undefined) {

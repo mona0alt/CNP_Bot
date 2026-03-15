@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Send, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SlashCommandPopup } from '@/components/SlashCommandPopup';
@@ -24,11 +24,31 @@ export function MessageInput({
   onSlash,
 }: MessageInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [showPopup, setShowPopup] = useState(false);
   const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0 });
-  const [filter, setFilter] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isPopupDismissed, setIsPopupDismissed] = useState(false);
   const prevShowPopupRef = useRef(false);
+
+  const { shouldShowPopup, filter } = useMemo(() => {
+    if (value.startsWith('/') && value.includes(' ')) {
+      return { shouldShowPopup: false, filter: '' };
+    }
+
+    if (value === '/') {
+      return { shouldShowPopup: true, filter: '' };
+    }
+
+    if (value.startsWith('/')) {
+      const cmdPart = value.slice(1);
+      const spaceIdx = cmdPart.indexOf(' ');
+      const searchTerm = spaceIdx === -1 ? cmdPart : cmdPart.slice(0, spaceIdx);
+      return { shouldShowPopup: true, filter: searchTerm };
+    }
+
+    return { shouldShowPopup: false, filter: '' };
+  }, [value]);
+
+  const isPopupVisible = shouldShowPopup && !isPopupDismissed;
 
   // 计算过滤后的命令列表
   const filteredCommands = slashCommands.filter((cmd) => {
@@ -59,44 +79,36 @@ export function MessageInput({
     };
   }, [updatePopupPosition]);
 
-  // 当 filter 改变时，重置选中的索引
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [filter]);
+    if (isPopupVisible && !prevShowPopupRef.current) {
+      onSlash?.();
+    }
 
-  useEffect(() => {
-    // 如果是命令后跟空格+参数的情况，不显示弹窗
-    if (value.startsWith('/') && value.includes(' ')) {
-      setShowPopup(false);
-      setFilter('');
+    if (!shouldShowPopup) {
       prevShowPopupRef.current = false;
       return;
     }
 
-    if (value === '/') {
-      if (!prevShowPopupRef.current) {
-        onSlash?.();
-      }
-      setShowPopup(true);
-      setFilter('');
-    } else if (value.startsWith('/')) {
-      const cmdPart = value.slice(1);
-      const spaceIdx = cmdPart.indexOf(' ');
-      const searchTerm = spaceIdx === -1 ? cmdPart : cmdPart.slice(0, spaceIdx);
-      setFilter(searchTerm);
-      if (!prevShowPopupRef.current) {
-        onSlash?.();
-      }
-      setShowPopup(true);
-    } else {
-      setShowPopup(false);
-      setFilter('');
+    prevShowPopupRef.current = isPopupVisible;
+  }, [isPopupVisible, onSlash, shouldShowPopup]);
+
+  const handleInputChange = (nextValue: string) => {
+    const currentSlashTerm = value.startsWith('/') ? value.slice(1) : '';
+    const nextSlashTerm = nextValue.startsWith('/') ? nextValue.slice(1) : '';
+
+    if (currentSlashTerm !== nextSlashTerm) {
+      setSelectedIndex(0);
     }
-    prevShowPopupRef.current = showPopup;
-  }, [value, onSlash]);
+
+    if (isPopupDismissed) {
+      setIsPopupDismissed(false);
+    }
+
+    onChange(nextValue);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (showPopup && filteredCommands.length > 0) {
+    if (isPopupVisible && filteredCommands.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSelectedIndex((prev) =>
@@ -120,7 +132,7 @@ export function MessageInput({
       }
       if (e.key === 'Escape') {
         e.preventDefault();
-        setShowPopup(false);
+        setIsPopupDismissed(true);
         onChange('');
         return;
       }
@@ -134,17 +146,18 @@ export function MessageInput({
   const handleSelectCommand = (command: string) => {
     const safeCommand = command.startsWith('/') ? command : `/${command}`;
     onChange(safeCommand + ' ');
-    setShowPopup(false);
+    setIsPopupDismissed(false);
+    setSelectedIndex(0);
     inputRef.current?.focus();
   };
 
   const handleClosePopup = () => {
-    setShowPopup(false);
+    setIsPopupDismissed(true);
   };
 
   return (
     <div className="p-4 border-t bg-card/50 relative">
-      {showPopup && slashCommands.length > 0 && (
+      {isPopupVisible && slashCommands.length > 0 && (
         <SlashCommandPopup
           commands={slashCommands}
           onSelect={handleSelectCommand}
@@ -160,7 +173,7 @@ export function MessageInput({
           ref={inputRef}
           type="text"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isGenerating}
           placeholder={

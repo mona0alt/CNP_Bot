@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   LineChart,
   Line,
@@ -38,6 +39,12 @@ function CustomTooltip({
   isDark: boolean;
 }) {
   if (!active || !payload?.length) return null;
+  const sortedPayload = payload
+    .map((entry, index) => ({ ...entry, index }))
+    .sort((a, b) => {
+      const valueDiff = (Number(b.value) || 0) - (Number(a.value) || 0);
+      return valueDiff !== 0 ? valueDiff : a.index - b.index;
+    });
   const bg = isDark ? '#1f2937' : '#ffffff';
   const border = isDark ? '#374151' : '#e5e7eb';
   const text = isDark ? '#e2e8f0' : '#111827';
@@ -52,10 +59,12 @@ function CustomTooltip({
         padding: '8px 12px',
         fontSize: 11,
         color: text,
+        maxHeight: 'min(320px, calc(100vh - 24px))',
+        overflowY: 'auto',
       }}
     >
       <div style={{ color: sub, marginBottom: 4 }}>{formatTime(label ?? 0)}</div>
-      {payload.map((p) => (
+      {sortedPayload.map((p) => (
         <div key={p.name} style={{ color: p.color }}>
           {p.name}: <strong>{p.value.toFixed(1)}{unit}</strong>
         </div>
@@ -73,8 +82,12 @@ interface PrometheusChartCardProps {
 export function PrometheusChartCard({ block }: PrometheusChartCardProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
+  const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
 
   const colors = isDark ? DARK_COLORS : LIGHT_COLORS;
+  const seriesColors = Object.fromEntries(
+    block.series.map((series, index) => [series.instance, colors[index % colors.length]]),
+  );
   const cardBg = isDark ? '#111827' : '#f9fafb';
   const headerBg = isDark ? '#1f2937' : '#f3f4f6';
   const border = isDark ? '#374151' : '#e5e7eb';
@@ -107,6 +120,16 @@ export function PrometheusChartCard({ block }: PrometheusChartCardProps) {
   }
 
   const hasData = chartData.length > 0;
+  const isFilterable = block.series.length > 1;
+  const visibleSeries =
+    selectedInstance === null
+      ? block.series
+      : block.series.filter((series) => series.instance === selectedInstance);
+
+  function handleLegendClick(instance: string) {
+    if (!isFilterable) return;
+    setSelectedInstance((current) => (current === instance ? null : instance));
+  }
 
   return (
     <div
@@ -114,7 +137,7 @@ export function PrometheusChartCard({ block }: PrometheusChartCardProps) {
         background: cardBg,
         border: `1px solid ${border}`,
         borderRadius: 8,
-        overflow: 'hidden',
+        overflow: 'visible',
         marginTop: 8,
         marginBottom: 4,
       }}
@@ -124,6 +147,8 @@ export function PrometheusChartCard({ block }: PrometheusChartCardProps) {
         style={{
           background: headerBg,
           borderBottom: `1px solid ${border}`,
+          borderTopLeftRadius: 8,
+          borderTopRightRadius: 8,
           padding: '8px 12px',
           display: 'flex',
           justifyContent: 'space-between',
@@ -165,18 +190,46 @@ export function PrometheusChartCard({ block }: PrometheusChartCardProps) {
             borderBottom: `1px solid ${isDark ? '#1f2937' : '#f3f4f6'}`,
           }}
         >
-          {block.series.map((s, i) => (
-            <span key={s.instance} style={{ color: colors[i % colors.length], fontSize: 11 }}>
-              ● {s.instance}
-              {latestValues[s.instance] !== undefined && (
-                <strong>
-                  {'  '}
-                  {latestValues[s.instance]}
-                  {block.unit}
-                </strong>
-              )}
-            </span>
-          ))}
+          {block.series.map((s) => {
+            const isSelected = selectedInstance === s.instance;
+            const isDimmed = selectedInstance !== null && !isSelected;
+
+            return (
+              <button
+                key={s.instance}
+                type="button"
+                onClick={() => handleLegendClick(s.instance)}
+                style={{
+                  color: seriesColors[s.instance],
+                  fontSize: 11,
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  margin: 0,
+                  cursor: isFilterable ? 'pointer' : 'default',
+                  opacity: isDimmed ? 0.45 : 1,
+                  fontWeight: isSelected ? 700 : 400,
+                }}
+                aria-pressed={isSelected}
+                title={
+                  isFilterable
+                    ? isSelected
+                      ? '点击恢复显示全部节点'
+                      : `点击仅显示 ${s.instance}`
+                    : undefined
+                }
+              >
+                ● {s.instance}
+                {latestValues[s.instance] !== undefined && (
+                  <strong>
+                    {'  '}
+                    {latestValues[s.instance]}
+                    {block.unit}
+                  </strong>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -215,13 +268,15 @@ export function PrometheusChartCard({ block }: PrometheusChartCardProps) {
               <Tooltip
                 content={<CustomTooltip unit={block.unit} isDark={isDark} />}
                 isAnimationActive={false}
+                allowEscapeViewBox={{ x: true, y: true }}
+                wrapperStyle={{ zIndex: 20 }}
               />
-              {block.series.map((s, i) => (
+              {visibleSeries.map((s) => (
                 <Line
                   key={s.instance}
                   type="monotone"
                   dataKey={s.instance}
-                  stroke={colors[i % colors.length]}
+                  stroke={seriesColors[s.instance]}
                   strokeWidth={1.5}
                   dot={false}
                   isAnimationActive={false}

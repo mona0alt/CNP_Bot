@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Brain, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -11,19 +11,11 @@ interface ThoughtProcessProps {
 export function ThoughtProcess({ content, isComplete, autoCollapse }: ThoughtProcessProps) {
   const { theme } = useTheme();
   const isLight = theme === "light";
-  const [isExpanded, setIsExpanded] = useState(!isComplete || !autoCollapse);
-  const [hasUserInteracted, setHasUserInteracted] = useState(false);
-
-  useEffect(() => {
-    // Only auto-collapse if the user hasn't manually interacted with the toggle
-    if (isComplete && autoCollapse && !hasUserInteracted) {
-      setIsExpanded(false);
-    }
-  }, [isComplete, autoCollapse, hasUserInteracted]);
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
+  const isExpanded = manualExpanded ?? (!isComplete || !autoCollapse);
 
   const toggleExpansion = () => {
-    setIsExpanded(!isExpanded);
-    setHasUserInteracted(true);
+    setManualExpanded(!isExpanded);
   };
 
   if (!content && isComplete) return null;
