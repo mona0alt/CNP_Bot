@@ -123,9 +123,14 @@ export function useChatWebSocket({
       const wsHost = import.meta.env.DEV
         ? `${location.hostname}:3000`
         : location.host;
-      const url = `${proto}://${wsHost}/ws?jid=${encodeURIComponent(jid)}&since=${encodeURIComponent(lastTs)}&token=${encodeURIComponent(token)}`;
+      // Token is NOT included in URL — sent as first frame after connection
+      const url = `${proto}://${wsHost}/ws?jid=${encodeURIComponent(jid)}&since=${encodeURIComponent(lastTs)}`;
       const ws = new WebSocket(url);
       wsRef.current = ws;
+
+      ws.addEventListener("open", () => {
+        ws.send(JSON.stringify({ type: "auth", token }));
+      });
 
       ws.addEventListener("message", (evt) => {
         try {

@@ -192,13 +192,13 @@ export function _setRegisteredGroups(
  * Called by the GroupQueue when it's this group's turn.
  */
 async function processGroupMessages(chatJid: string): Promise<boolean> {
-  console.log('DEBUG: processGroupMessages called for', chatJid);
+  logger.debug({ chatJid }, 'processGroupMessages called');
   const group = registeredGroups[chatJid];
   if (!group) return true;
 
   const channel = findChannel(channels, chatJid);
   if (!channel) {
-    console.log(`Warning: no channel owns JID ${chatJid}, skipping messages`);
+    logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
     return true;
   }
 
@@ -642,9 +642,7 @@ async function startMessageLoop(): Promise<void> {
 
           const channel = findChannel(channels, chatJid);
           if (!channel) {
-            console.log(
-              `Warning: no channel owns JID ${chatJid}, skipping messages`,
-            );
+            logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
             continue;
           }
 
@@ -902,7 +900,7 @@ async function main(): Promise<void> {
     sendMessage: async (jid, rawText) => {
       const channel = findChannel(channels, jid);
       if (!channel) {
-        console.log(`Warning: no channel owns JID ${jid}, cannot send message`);
+        logger.warn({ jid }, 'No channel owns JID, cannot send message');
         return;
       }
       const text = formatOutbound(rawText);

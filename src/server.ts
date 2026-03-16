@@ -40,6 +40,36 @@ import { getSlashCommands } from './slash-commands.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// --- Login rate limiter (in-memory, per IP) ---
+// Max 10 failed attempts per 15 minutes per IP
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function checkLoginRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    loginAttempts.set(ip, { count: 0, resetAt: now + LOGIN_WINDOW_MS });
+    return true;
+  }
+  return entry.count < LOGIN_MAX_ATTEMPTS;
+}
+
+function recordLoginFailure(ip: string): void {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+  } else {
+    entry.count += 1;
+  }
+}
+
+function clearLoginAttempts(ip: string): void {
+  loginAttempts.delete(ip);
+}
+
 // --- Auth types ---
 
 interface AuthUser {
@@ -450,6 +480,18 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
   // --- Auth endpoints ---
 
   app.post('/api/auth/login', async (req, res) => {
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.socket.remoteAddress ||
+      'unknown';
+
+    if (!checkLoginRateLimit(ip)) {
+      logger.warn({ ip }, 'Login rate limit exceeded');
+      return res
+        .status(429)
+        .json({ error: 'Too many login attempts, please try again later' });
+    }
+
     const schema = z.object({
       username: z.string().min(1),
       password: z.string().min(1),
@@ -464,13 +506,17 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     const user = getUserByUsername(username);
 
     if (!user) {
+      recordLoginFailure(ip);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) {
+      recordLoginFailure(ip);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
+
+    clearLoginAttempts(ip);
 
     const token = jwt.sign(
       { userId: user.id, username: user.username, role: user.role },
@@ -673,36 +719,38 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
 
   const wss = new WebSocketServer({ server, path: '/ws' });
   wss.on('connection', (socket: WebSocket, req: IncomingMessage) => {
+    // Parse non-sensitive URL params (jid, since) — token is NOT read from URL
+    const u = new URL(req.url || '', 'http://localhost');
+    const jid = u.searchParams.get('jid') || 'web:default';
+    const since = u.searchParams.get('since') || '';
+
     let clientEntry: { ws: WebSocket; jid: string } | null = null;
-    try {
-      const u = new URL(req.url || '', 'http://localhost');
-      const jid = u.searchParams.get('jid') || 'web:default';
-      const token = u.searchParams.get('token');
-      if (!token) {
-        socket.close(1008, 'Authentication required');
-        return;
+    let interval: ReturnType<typeof setInterval> | null = null;
+    let authenticated = false;
+
+    const sendJson = (obj: unknown) => {
+      try {
+        socket.send(JSON.stringify(obj));
+      } catch {}
+    };
+
+    // Auth timeout: close unauthenticated connections after 10 seconds
+    const authTimeout = setTimeout(() => {
+      if (!authenticated) {
+        socket.close(1008, 'Authentication timeout');
       }
-      const authUser = verifyToken(token);
-      if (!authUser) {
-        socket.close(1008, 'Invalid token');
-        return;
-      }
-      if (!canAccessChat(jid, authUser.userId, authUser.role)) {
-        socket.close(1008, 'Chat not found');
-        return;
-      }
+    }, 10000);
+
+    const startSession = (authUser: AuthUser) => {
+      authenticated = true;
+      clearTimeout(authTimeout);
 
       clientEntry = { ws: socket, jid };
       connectedSockets.add(clientEntry);
 
-      const since = u.searchParams.get('since') || '';
       let cursor = since;
       let lastHeartbeat = Date.now();
-      const sendJson = (obj: unknown) => {
-        try {
-          socket.send(JSON.stringify(obj));
-        } catch {}
-      };
+
       const tick = () => {
         try {
           const batch = getMessagesSinceAll(jid, cursor, 200);
@@ -722,8 +770,10 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
           sendJson({ type: 'error', error: 'stream_error' });
         }
       };
-      const interval = setInterval(tick, 1000);
+
+      interval = setInterval(tick, 1000);
       sendJson({ type: 'ready', jid });
+
       socket.on('message', async (data: RawData) => {
         try {
           const parsed = JSON.parse(String(data) || '{}') as any;
@@ -782,14 +832,47 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
           }
         } catch {}
       });
-      socket.on('close', () => {
-        clearInterval(interval);
-        if (clientEntry) connectedSockets.delete(clientEntry);
-      });
-    } catch (err) {
-      logger.error({ err }, 'WS connection error');
+    };
+
+    // First message must be {type:'auth', token:'...'}
+    const handleFirstMessage = (data: RawData) => {
+      try {
+        const parsed = JSON.parse(String(data) || '{}') as any;
+        if (parsed?.type !== 'auth' || typeof parsed.token !== 'string') {
+          socket.close(1008, 'Authentication required');
+          return;
+        }
+        const authUser = verifyToken(parsed.token);
+        if (!authUser) {
+          socket.close(1008, 'Invalid token');
+          return;
+        }
+        if (!canAccessChat(jid, authUser.userId, authUser.role)) {
+          socket.close(1008, 'Chat not found');
+          return;
+        }
+        // Replace first-message handler with normal session handler
+        socket.off('message', handleFirstMessage);
+        startSession(authUser);
+      } catch {
+        socket.close(1008, 'Authentication error');
+      }
+    };
+
+    socket.on('message', handleFirstMessage);
+
+    socket.on('close', () => {
+      clearTimeout(authTimeout);
+      if (interval) clearInterval(interval);
       if (clientEntry) connectedSockets.delete(clientEntry);
-    }
+    });
+
+    socket.on('error', (err) => {
+      logger.error({ err }, 'WS connection error');
+      clearTimeout(authTimeout);
+      if (interval) clearInterval(interval);
+      if (clientEntry) connectedSockets.delete(clientEntry);
+    });
   });
 
   return { broadcastToJid };
