@@ -748,30 +748,13 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       clientEntry = { ws: socket, jid };
       connectedSockets.add(clientEntry);
 
-      let cursor = since;
-      let lastHeartbeat = Date.now();
-
-      const tick = () => {
+      interval = setInterval(() => {
         try {
-          const batch = getMessagesSinceAll(jid, cursor, 200);
-          if (batch.length > 0) {
-            for (const m of batch) {
-              sendJson({ type: 'message', data: m });
-            }
-            cursor = batch[batch.length - 1]!.timestamp;
-          }
-          const now = Date.now();
-          if (now - lastHeartbeat >= 15000) {
-            sendJson({ type: 'heartbeat', ts: now });
-            lastHeartbeat = now;
-          }
+          sendJson({ type: 'heartbeat', ts: Date.now() });
         } catch (err) {
-          logger.error({ err, jid }, 'WS stream error');
-          sendJson({ type: 'error', error: 'stream_error' });
+          logger.error({ err, jid }, 'WS heartbeat error');
         }
-      };
-
-      interval = setInterval(tick, 1000);
+      }, 15000);
       sendJson({ type: 'ready', jid });
 
       socket.on('message', async (data: RawData) => {

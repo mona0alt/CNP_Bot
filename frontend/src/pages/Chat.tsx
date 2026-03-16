@@ -13,8 +13,24 @@ export function Chat() {
   const [selectedJid, setSelectedJid] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingJids, setGeneratingJids] = useState<Set<string>>(new Set());
   const [newMessage, setNewMessage] = useState('');
+
+  // Derived: is the currently selected session generating?
+  const isGenerating = selectedJid ? generatingJids.has(selectedJid) : false;
+
+  // Per-jid setter passed to the WebSocket hook — captured by the hook's closure
+  // so it always targets the jid that was active when the WS connection was made.
+  const setIsGenerating = useCallback((v: boolean) => {
+    if (!selectedJid) return;
+    const jid = selectedJid;
+    setGeneratingJids((prev) => {
+      const next = new Set(prev);
+      if (v) next.add(jid);
+      else next.delete(jid);
+      return next;
+    });
+  }, [selectedJid]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -138,6 +154,12 @@ export function Chat() {
       }
       if (!res.ok) throw new Error('Failed to delete chat');
       setChats((prev) => prev.filter((c) => c.jid !== jid));
+      setGeneratingJids((prev) => {
+        if (!prev.has(jid)) return prev;
+        const next = new Set(prev);
+        next.delete(jid);
+        return next;
+      });
       if (selectedJid === jid) {
         setSelectedJid(null);
       }
@@ -192,7 +214,6 @@ export function Chat() {
     }
 
     setLoading(true);
-    setIsGenerating(false);
     fetchMessages(selectedJid).then((data) => {
       // 尝试从 Context 恢复流式消息
       const savedStreaming = getStreamingMessages(selectedJid);
@@ -227,10 +248,8 @@ export function Chat() {
     }
   }, [selectedJid, messages, saveStreamingMessages, clearStreamingMessages]);
 
-  const inputIsGenerating = isGenerating;
-
   useEffect(() => {
-    if (!selectedJid || inputIsGenerating) return;
+    if (!selectedJid || isGenerating) return;
     const hasStreamingMessage = messages.some(
       (m) => m.chat_jid === selectedJid && m.id.startsWith('stream-'),
     );
@@ -240,7 +259,7 @@ export function Chat() {
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [selectedJid, inputIsGenerating, messages, clearStreamingMessages]);
+  }, [selectedJid, isGenerating, messages, clearStreamingMessages]);
 
   // Auto-scroll
   useEffect(() => {
@@ -252,7 +271,7 @@ export function Chat() {
 
   // Handle send message
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !selectedJid || inputIsGenerating) return;
+    if (!newMessage.trim() || !selectedJid || isGenerating) return;
 
     const content = newMessage.trim();
     const timestamp = new Date().toISOString();
@@ -275,7 +294,14 @@ export function Chat() {
 
   const handleStop = () => {
     stopGenerating();
-    setIsGenerating(false);
+    if (selectedJid) {
+      const jid = selectedJid;
+      setGeneratingJids((prev) => {
+        const next = new Set(prev);
+        next.delete(jid);
+        return next;
+      });
+    }
   };
 
   // Render items with date separators
@@ -365,7 +391,7 @@ export function Chat() {
               onChange={setNewMessage}
               onSend={handleSendMessage}
               onStop={handleStop}
-              isGenerating={inputIsGenerating}
+              isGenerating={isGenerating}
               slashCommands={slashCommands}
               onSlash={fetchSlashCommands}
             />

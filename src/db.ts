@@ -575,6 +575,22 @@ export function deleteTask(id: string): void {
   db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id);
 }
 
+export function deleteRegisteredGroup(jid: string): void {
+  db.prepare('DELETE FROM registered_groups WHERE jid = ?').run(jid);
+}
+
+export function deleteTasksForChatJid(chatJid: string): void {
+  const tasks = db
+    .prepare('SELECT id FROM scheduled_tasks WHERE chat_jid = ?')
+    .all(chatJid) as Array<{ id: string }>;
+  db.transaction(() => {
+    for (const task of tasks) {
+      db.prepare('DELETE FROM task_run_logs WHERE task_id = ?').run(task.id);
+    }
+    db.prepare('DELETE FROM scheduled_tasks WHERE chat_jid = ?').run(chatJid);
+  })();
+}
+
 export function getDueTasks(): ScheduledTask[] {
   const now = new Date().toISOString();
   return db

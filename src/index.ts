@@ -40,6 +40,8 @@ import {
   storeChatMetadata,
   storeMessage,
   createUser,
+  deleteRegisteredGroup,
+  deleteTasksForChatJid,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -274,14 +276,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
   let outputSentToUser = false;
-  let pendingToolBlocks: Array<{
-    type: string;
-    id?: string;
-    name?: string;
-    input?: any;
-    status?: string;
-    result?: any;
-  }> = [];
 
   const agentResult = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
@@ -311,139 +305,26 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       groupStats[chatJid] = { ...groupStats[chatJid], usage: result.usage };
     }
 
-    // Collect tool_use blocks from stream events to include in final message
-    if (result.streamEvent) {
-      const event = result.streamEvent.event;
-      if (event) {
-        if (
-          event.type === 'content_block_start' &&
-          event.content_block?.type === 'tool_use'
-        ) {
-          pendingToolBlocks.push({
-            type: 'tool_use',
-            id: event.content_block.id,
-            name: event.content_block.name,
-            input: event.content_block.input,
-            status: 'calling',
-            blockIndex: event.index,
-            blockId: event.content_block.id,
-          } as any);
-        } else if (event.type === 'content_block_delta' && event.delta) {
-          const block = event.content_block?.id
-            ? pendingToolBlocks.find(
-                (b) => (b as any).blockId === event.content_block.id,
-              )
-            : pendingToolBlocks.find(
-                (b) => (b as any).blockIndex === event.index,
-              );
-          if (block && event.delta.type === 'input_json_delta') {
-            const existingPartial = (block as any).partial_json || '';
-            (block as any).partial_json =
-              existingPartial + (event.delta.partial_json || '');
-          }
-        } else if (event.type === 'content_block_stop') {
-          const block = event.content_block?.id
-            ? pendingToolBlocks.find(
-                (b) => (b as any).blockId === event.content_block.id,
-              )
-            : pendingToolBlocks.find(
-                (b) => (b as any).blockIndex === event.index,
-              );
-          if (block) {
-            const partialJson = (block as any).partial_json;
-            if (partialJson) {
-              try {
-                block.input = JSON.parse(partialJson);
-              } catch {
-                block.input = partialJson;
-              }
-              delete (block as any).partial_json;
-            }
-          }
-        } else if (event.type === 'tool_result') {
-          // Update existing tool block with result
-          const toolIndex = pendingToolBlocks.findIndex(
-            (b) => b.id === event.tool_use_id,
-          );
-          if (toolIndex !== -1) {
-            pendingToolBlocks[toolIndex] = {
-              ...pendingToolBlocks[toolIndex],
-              status: event.is_error ? 'error' : 'executed',
-              result: Array.isArray(event.content)
-                ? event.content
-                    .map((c: any) => c.text || JSON.stringify(c))
-                    .join('\n')
-                : event.content,
-            };
-          }
-        }
-      }
-    }
-
     if (result.result) {
       const raw =
         typeof result.result === 'string'
           ? result.result
           : JSON.stringify(result.result);
 
-      // Build final content: combine pending tool blocks with the result text
-      let finalContent = raw;
-
-      // If we have pending tool blocks, merge them with the result
-      if (pendingToolBlocks.length > 0) {
-        let textContent = raw;
-        if (!raw.trim().startsWith('[')) {
-          // Legacy text processing
-          textContent = raw
-            .replace(/<internal>[\s\S]*?<\/internal>/g, '')
-            .trim();
-        }
-
-        // If result is a JSON array, merge tool blocks into it
-        if (raw.trim().startsWith('[') && raw.trim().endsWith(']')) {
-          try {
-            const existingBlocks = JSON.parse(raw);
-            if (Array.isArray(existingBlocks)) {
-              // Prepend tool_use blocks at the beginning
-              finalContent = JSON.stringify([
-                ...pendingToolBlocks,
-                ...existingBlocks,
-              ]);
-            }
-          } catch {
-            // If parsing fails, create a new array with tool blocks + text
-            finalContent = JSON.stringify([
-              ...pendingToolBlocks,
-              { type: 'text', text: textContent },
-            ]);
-          }
-        } else {
-          // Create array with tool blocks + text
-          finalContent = JSON.stringify([
-            ...pendingToolBlocks,
-            { type: 'text', text: textContent },
-          ]);
-        }
-      } else if (raw.trim().startsWith('[') && raw.trim().endsWith(']')) {
-        // Already a JSON array, keep as-is
+      let finalContent: string;
+      if (raw.trim().startsWith('[') && raw.trim().endsWith(']')) {
         finalContent = raw;
       } else {
-        // Legacy text processing for plain text results
         finalContent = raw
           .replace(/<internal>[\s\S]*?<\/internal>/g, '')
           .trim();
       }
 
-      logger.info(
-        { group: group.name },
-        `Agent output: ${finalContent.slice(0, 200)}, toolBlocks: ${pendingToolBlocks.length}`,
-      );
+      logger.info({ group: group.name }, `Agent output: ${finalContent.slice(0, 200)}`);
       if (finalContent) {
         await channel.sendMessage(chatJid, finalContent);
         outputSentToUser = true;
       }
-      // Clear pending tool blocks after sending
-      pendingToolBlocks = [];
       // Only reset idle timer on actual results, not session-update markers (result: null)
       resetIdleTimer();
     }
@@ -882,6 +763,33 @@ async function main(): Promise<void> {
         deleteSession(folder);
       }
       delete lastAgentTimestamp[jid];
+
+      // Clean up web:UUID chat group folder and orphaned data
+      // (web:default uses MAIN_GROUP_FOLDER and must never be deleted)
+      if (
+        jid.startsWith('web:') &&
+        jid !== 'web:default' &&
+        folder &&
+        folder !== MAIN_GROUP_FOLDER
+      ) {
+        const groupDir = resolveGroupFolderPath(folder);
+        try {
+          fs.rmSync(groupDir, { recursive: true, force: true });
+          logger.info({ jid, folder, groupDir }, 'Deleted web chat group folder');
+        } catch (err) {
+          logger.warn({ jid, folder, groupDir, err }, 'Failed to delete web chat group folder');
+        }
+
+        // Clean up orphaned scheduled tasks and their run logs
+        deleteTasksForChatJid(jid);
+
+        // Remove from registered_groups table and in-memory map
+        delete registeredGroups[jid];
+        deleteRegisteredGroup(jid);
+
+        logger.info({ jid, folder }, 'Web chat fully cleaned up');
+      }
+
       saveState();
     },
   });

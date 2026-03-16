@@ -303,24 +303,6 @@ export function useChatWebSocket({
                 return nextMessages;
               }
 
-              const last = prev[prev.length - 1];
-              if (msg.is_bot_message && last && last.is_bot_message) {
-                if (last.content === msg.content && Math.abs(new Date(last.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 1000) {
-                  return prev;
-                }
-                try {
-                  const lastBlocks = parseMessageContent(last.content);
-                  if (lastBlocks.some(b => b.type === 'tool_use')) {
-                    const msgBlocks = parseMessageContent(msg.content);
-                    const lastText = lastBlocks.filter(b => b.type === 'text').map(b => b.text || '').join('');
-                    const msgText = msgBlocks.filter(b => b.type === 'text').map(b => b.text || '').join('');
-                    if (lastText === msgText && Math.abs(new Date(last.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 2000) {
-                      return prev;
-                    }
-                  }
-                } catch { /* ignore */ }
-              }
-
               messageIdsRef.current.add(msg.id);
               if (!msg.is_from_me && !standaloneChartMessage) {
                 setIsGenerating(false);
