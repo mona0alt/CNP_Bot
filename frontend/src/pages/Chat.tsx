@@ -259,7 +259,6 @@ export function Chat() {
     setNewMessage('');
     setIsGenerating(true);
 
-    // Try WebSocket first (sendMessage is always defined, but checks WebSocket state internally)
     sendMessage(content);
     const optimisticMsg: Message = {
       id: 'temp-' + Date.now(),
@@ -272,21 +271,6 @@ export function Chat() {
     };
     setMessages((prev) => [...prev, optimisticMsg]);
     updateChatPreviewFromUserMessage(selectedJid, content, timestamp);
-    return;
-
-    // Fallback to HTTP
-    try {
-      const res = await fetch(`${apiBase}/api/groups/${selectedJid}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      });
-      const created = (await res.json()) as Message;
-      setMessages((prev) => [...prev, created]);
-    } catch (error) {
-      console.error('Failed to send message', error);
-      setIsGenerating(false);
-    }
   };
 
   const handleStop = () => {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Activity, Clock, CheckCircle } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Status {
   status: string;
@@ -19,6 +20,7 @@ interface Task {
 export function Dashboard() {
   const [status, setStatus] = useState<Status | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const { token } = useAuth();
 
   useEffect(() => {
     const apiBase = import.meta.env.DEV
@@ -30,11 +32,14 @@ export function Dashboard() {
       .then(setStatus)
       .catch(console.error);
 
-    fetch(`${apiBase}/api/tasks`)
-      .then((res) => res.json())
-      .then(setTasks)
+    if (!token) return;
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
+    fetch(`${apiBase}/api/tasks`, { headers: authHeaders })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setTasks(Array.isArray(data) ? data : []))
       .catch(console.error);
-  }, []);
+  }, [token]);
 
   if (!status) return <div className="p-8">Loading...</div>;
 

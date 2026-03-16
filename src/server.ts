@@ -169,7 +169,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     });
   });
 
-  app.get('/api/slash-commands', async (req, res) => {
+  app.get('/api/slash-commands', authenticateToken, async (req, res) => {
     try {
       const commands = await getSlashCommands();
       res.json(commands);
@@ -179,7 +179,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     }
   });
 
-  app.get('/api/groups', (req, res) => {
+  app.get('/api/groups', authenticateToken, (req, res) => {
     try {
       const groups = getAllRegisteredGroups();
       res.json(groups);
@@ -437,7 +437,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     });
   });
 
-  app.get('/api/tasks', (req, res) => {
+  app.get('/api/tasks', authenticateToken, (req, res) => {
     try {
       const tasks = getAllTasks();
       res.json(tasks);
