@@ -541,6 +541,21 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     res.json({ success: true });
   });
 
+  // Silently re-sign a new token for an authenticated user (session extension)
+  app.post('/api/auth/refresh', authenticateToken, (req, res) => {
+    const authReq = req as AuthRequest;
+    const user = getUserById(authReq.user!.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN } as SignOptions,
+    );
+    res.json({ token });
+  });
+
   app.get('/api/auth/me', authenticateToken, (req, res) => {
     const authReq = req as AuthRequest;
     const user = getUserById(authReq.user!.userId);

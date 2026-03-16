@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessageSquare, Trash2 } from 'lucide-react';
 import type { Chat, Message, SlashCommand } from '@/lib/types';
 import { StatusSidebar } from '@/components/StatusSidebar';
-import { ChatSidebar, MessageList, MessageInput } from '@/components/Chat';
+import { ChatSidebar, MessageInput } from '@/components/Chat';
+import { MessageItem } from '@/components/Chat/MessageItem';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useChatWebSocket } from '@/hooks/useChatWebSocket';
 import { useStreamingMessages } from '@/contexts/StreamingMessagesContext';
@@ -358,7 +359,7 @@ export function Chat() {
 
             <div
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4 scrollbar-thin"
+              className="flex-1 overflow-y-auto p-4 scrollbar-thin space-y-6"
               onScroll={() => {
                 const el = scrollRef.current;
                 if (!el) return;
@@ -381,7 +382,7 @@ export function Chat() {
                       </div>
                     );
                   }
-                  return <MessageList key={it.key} messages={[it.msg]} />;
+                  return <MessageItem key={it.key} message={it.msg} />;
                 })
               )}
             </div>

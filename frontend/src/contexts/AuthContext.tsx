@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { AuthContext } from './AuthContext';
 
 interface User {
@@ -10,6 +10,9 @@ interface User {
 
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'auth_user';
+
+// Refresh 1 hour before expiry
+const REFRESH_BEFORE_EXPIRY_MS = 60 * 60 * 1000;
 
 function getStoredAuth() {
   if (typeof window === 'undefined') return { token: null, user: null };
@@ -27,11 +30,66 @@ function getStoredAuth() {
   return { token: null, user: null };
 }
 
+/** Decode JWT payload without a library. Returns null on any error. */
+function decodeJwtExp(token: string): number | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    const parsed = JSON.parse(json) as { exp?: number };
+    return typeof parsed.exp === 'number' ? parsed.exp : null;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const storedAuth = getStoredAuth();
   const [user, setUser] = useState<User | null>(storedAuth.user);
   const [token, setToken] = useState<string | null>(storedAuth.token);
   const [isLoading] = useState(false);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearRefreshTimer = useCallback(() => {
+    if (refreshTimerRef.current !== null) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleRefresh = useCallback((currentToken: string) => {
+    clearRefreshTimer();
+    const exp = decodeJwtExp(currentToken);
+    if (!exp) return;
+
+    const msUntilExpiry = exp * 1000 - Date.now();
+    const delay = msUntilExpiry - REFRESH_BEFORE_EXPIRY_MS;
+    if (delay <= 0) return; // already too close or expired — let normal 401 handle it
+
+    refreshTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/auth/refresh', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${currentToken}` },
+        });
+        if (!res.ok) return; // token invalid — next API call will 401 → logout
+        const data = (await res.json()) as { token: string };
+        setToken(data.token);
+        localStorage.setItem(TOKEN_KEY, data.token);
+        scheduleRefresh(data.token); // schedule next refresh
+      } catch {
+        // Network error — next API call will handle it
+      }
+    }, delay);
+  }, [clearRefreshTimer]);
+
+  // Schedule refresh on mount if already logged in, and whenever token changes
+  useEffect(() => {
+    if (token) {
+      scheduleRefresh(token);
+    }
+    return clearRefreshTimer;
+  }, [token, scheduleRefresh, clearRefreshTimer]);
 
   const login = useCallback(async (username: string, password: string) => {
     const res = await fetch('/api/auth/login', {
@@ -53,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    clearRefreshTimer();
     if (token) {
       try {
         await fetch('/api/auth/logout', {
@@ -67,7 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
-  }, [token]);
+  }, [token, clearRefreshTimer]);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     if (!token) {
