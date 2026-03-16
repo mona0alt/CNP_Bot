@@ -185,6 +185,12 @@ function isPodMetric(metric) {
   return metric.startsWith('pod_');
 }
 
+function filterNonEmptySeries(seriesResults) {
+  return seriesResults.filter(
+    (series) => Array.isArray(series.data) && series.data.length > 0,
+  );
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -267,13 +273,19 @@ async function main() {
         seriesResults.push({ instance: key, data });
       }
 
+      const nonEmptySeries = filterNonEmptySeries(seriesResults);
+      if (nonEmptySeries.length === 0) {
+        console.log('Prometheus chart skipped: no pod metric data found.');
+        return;
+      }
+
       const chartBlock = {
         type: 'prometheus_chart',
         title: metricDef.title,
         unit: metricDef.unit,
         timeRange: range,
         datasource,
-        series: seriesResults,
+        series: nonEmptySeries,
       };
 
       const ipcMessagesDir = join(process.env.IPC_DIR || '/workspace/ipc', 'messages');
@@ -287,7 +299,7 @@ async function main() {
       };
 
       writeFileSync(join(ipcMessagesDir, filename), JSON.stringify(ipcPayload));
-      console.log(`Prometheus chart card sent (${seriesResults.length} pods).`);
+      console.log(`Prometheus chart card sent (${nonEmptySeries.length} pods).`);
     } catch (err) {
       console.error(`Error querying pod metric: ${err.message}`);
       process.exit(1);
@@ -340,13 +352,19 @@ async function main() {
   const uniqueSources = [...new Set(detectedSources)];
   const displayDatasource = uniqueSources.length === 1 ? uniqueSources[0] : 'mixed';
 
+  const nonEmptySeries = filterNonEmptySeries(seriesResults);
+  if (nonEmptySeries.length === 0) {
+    console.log('Prometheus chart skipped: no node metric data found.');
+    return;
+  }
+
   const chartBlock = {
     type: 'prometheus_chart',
     title: metricDef.title,
     unit: metricDef.unit,
     timeRange: range,
     datasource: displayDatasource,
-    series: seriesResults,
+    series: nonEmptySeries,
   };
 
   const ipcMessagesDir = join(process.env.IPC_DIR || '/workspace/ipc', 'messages');
@@ -360,7 +378,7 @@ async function main() {
   };
 
   writeFileSync(join(ipcMessagesDir, filename), JSON.stringify(ipcPayload));
-  console.log(`Prometheus chart card sent (${seriesResults.length} series).`);
+  console.log(`Prometheus chart card sent (${nonEmptySeries.length} series).`);
 }
 
 main().catch((err) => {

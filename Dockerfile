@@ -1,11 +1,7 @@
 FROM m.daocloud.io/docker.io/debian:latest
 
 # Set proxy for build
-ENV http_proxy=http://192.168.0.108:7890
-ENV https_proxy=http://192.168.0.108:7890
-ENV HTTP_PROXY=http://192.168.0.108:7890
-ENV HTTPS_PROXY=http://192.168.0.108:7890
-ENV no_proxy=localhost,127.0.0.1
+
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
