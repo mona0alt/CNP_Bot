@@ -162,15 +162,17 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
   app.use(cors());
   app.use(express.json());
 
-  // Store connected sockets
-  const connectedSockets = new Set<{ ws: WebSocket; jid: string }>();
+  // Store connected sockets indexed by jid for O(1) broadcast lookup
+  const jidSockets = new Map<string, Set<WebSocket>>();
 
   const broadcastToJid = (jid: string, payload: unknown) => {
+    const sockets = jidSockets.get(jid);
+    if (!sockets) return;
     const data = JSON.stringify(payload);
-    for (const client of connectedSockets) {
-      if (client.jid === jid && client.ws.readyState === WebSocket.OPEN) {
+    for (const ws of sockets) {
+      if (ws.readyState === WebSocket.OPEN) {
         try {
-          client.ws.send(data);
+          ws.send(data);
         } catch {
           // Ignore send errors
         }
@@ -739,7 +741,6 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     const jid = u.searchParams.get('jid') || 'web:default';
     const since = u.searchParams.get('since') || '';
 
-    let clientEntry: { ws: WebSocket; jid: string } | null = null;
     let interval: ReturnType<typeof setInterval> | null = null;
     let authenticated = false;
 
@@ -760,8 +761,12 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       authenticated = true;
       clearTimeout(authTimeout);
 
-      clientEntry = { ws: socket, jid };
-      connectedSockets.add(clientEntry);
+      let jidSet = jidSockets.get(jid);
+      if (!jidSet) {
+        jidSet = new Set();
+        jidSockets.set(jid, jidSet);
+      }
+      jidSet.add(socket);
 
       interval = setInterval(() => {
         try {
@@ -859,17 +864,25 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
 
     socket.on('message', handleFirstMessage);
 
+    const removeSocket = () => {
+      const jidSet = jidSockets.get(jid);
+      if (jidSet) {
+        jidSet.delete(socket);
+        if (jidSet.size === 0) jidSockets.delete(jid);
+      }
+    };
+
     socket.on('close', () => {
       clearTimeout(authTimeout);
       if (interval) clearInterval(interval);
-      if (clientEntry) connectedSockets.delete(clientEntry);
+      removeSocket();
     });
 
     socket.on('error', (err) => {
       logger.error({ err }, 'WS connection error');
       clearTimeout(authTimeout);
       if (interval) clearInterval(interval);
-      if (clientEntry) connectedSockets.delete(clientEntry);
+      removeSocket();
     });
   });
 
