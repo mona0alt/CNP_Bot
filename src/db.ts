@@ -37,6 +37,7 @@ function createSchema(database: Database.Database): void {
       FOREIGN KEY (chat_jid) REFERENCES chats(jid)
     );
     CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_messages_compound ON messages(chat_jid, timestamp);
 
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
       id TEXT PRIMARY KEY,
@@ -399,55 +400,100 @@ export function storeMessageDirect(msg: {
   );
 }
 
+/** Compound cursor for time-ordered message polling. rowid=0 means "no rowid yet". */
+export interface MessageCursor {
+  timestamp: string;
+  rowid: number;
+}
+
 export function getNewMessages(
   jids: string[],
-  lastTimestamp: string,
+  cursor: string | MessageCursor,
   botPrefix: string,
-): { messages: NewMessage[]; newTimestamp: string } {
-  if (jids.length === 0) return { messages: [], newTimestamp: lastTimestamp };
+): { messages: NewMessage[]; newTimestamp: string; newRowid: number } {
+  const ts = typeof cursor === 'string' ? cursor : cursor.timestamp;
+  const rid = typeof cursor === 'string' ? 0 : cursor.rowid;
+
+  if (jids.length === 0) return { messages: [], newTimestamp: ts, newRowid: rid };
 
   const placeholders = jids.map(() => '?').join(',');
   // Filter bot messages using both the is_bot_message flag AND the content
   // prefix as a backstop for messages written before the migration ran.
-  const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp
-    FROM messages
-    WHERE timestamp > ? AND chat_jid IN (${placeholders})
-      AND is_bot_message = 0 AND content NOT LIKE ?
-      AND content != '' AND content IS NOT NULL
-    ORDER BY timestamp
-  `;
+  // Use (timestamp, rowid) compound cursor to avoid missing messages that share
+  // the same millisecond timestamp as the last-seen message.
+  const rows = (
+    rid > 0
+      ? db
+          .prepare(
+            `SELECT rowid, id, chat_jid, sender, sender_name, content, timestamp
+             FROM messages
+             WHERE (timestamp > ? OR (timestamp = ? AND rowid > ?))
+               AND chat_jid IN (${placeholders})
+               AND is_bot_message = 0 AND content NOT LIKE ?
+               AND content != '' AND content IS NOT NULL
+             ORDER BY timestamp ASC, rowid ASC`,
+          )
+          .all(ts, ts, rid, ...jids, `${botPrefix}:%`)
+      : db
+          .prepare(
+            `SELECT rowid, id, chat_jid, sender, sender_name, content, timestamp
+             FROM messages
+             WHERE timestamp > ? AND chat_jid IN (${placeholders})
+               AND is_bot_message = 0 AND content NOT LIKE ?
+               AND content != '' AND content IS NOT NULL
+             ORDER BY timestamp ASC, rowid ASC`,
+          )
+          .all(ts, ...jids, `${botPrefix}:%`)
+  ) as (NewMessage & { rowid: number })[];
 
-  const rows = db
-    .prepare(sql)
-    .all(lastTimestamp, ...jids, `${botPrefix}:%`) as NewMessage[];
-
-  let newTimestamp = lastTimestamp;
+  let newTimestamp = ts;
+  let newRowid = rid;
   for (const row of rows) {
-    if (row.timestamp > newTimestamp) newTimestamp = row.timestamp;
+    if (
+      row.timestamp > newTimestamp ||
+      (row.timestamp === newTimestamp && row.rowid > newRowid)
+    ) {
+      newTimestamp = row.timestamp;
+      newRowid = row.rowid;
+    }
   }
 
-  return { messages: rows, newTimestamp };
+  return { messages: rows, newTimestamp, newRowid };
 }
 
 export function getMessagesSince(
   chatJid: string,
-  sinceTimestamp: string,
+  cursor: string | MessageCursor,
   botPrefix: string,
 ): NewMessage[] {
+  const ts = typeof cursor === 'string' ? cursor : cursor.timestamp;
+  const rid = typeof cursor === 'string' ? 0 : cursor.rowid;
+
   // Filter bot messages using both the is_bot_message flag AND the content
   // prefix as a backstop for messages written before the migration ran.
-  const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp
-    FROM messages
-    WHERE chat_jid = ? AND timestamp > ?
-      AND is_bot_message = 0 AND content NOT LIKE ?
-      AND content != '' AND content IS NOT NULL
-    ORDER BY timestamp
-  `;
-  return db
-    .prepare(sql)
-    .all(chatJid, sinceTimestamp, `${botPrefix}:%`) as NewMessage[];
+  return (
+    rid > 0
+      ? db
+          .prepare(
+            `SELECT rowid, id, chat_jid, sender, sender_name, content, timestamp
+             FROM messages
+             WHERE chat_jid = ? AND (timestamp > ? OR (timestamp = ? AND rowid > ?))
+               AND is_bot_message = 0 AND content NOT LIKE ?
+               AND content != '' AND content IS NOT NULL
+             ORDER BY timestamp ASC, rowid ASC`,
+          )
+          .all(chatJid, ts, ts, rid, `${botPrefix}:%`)
+      : db
+          .prepare(
+            `SELECT rowid, id, chat_jid, sender, sender_name, content, timestamp
+             FROM messages
+             WHERE chat_jid = ? AND timestamp > ?
+               AND is_bot_message = 0 AND content NOT LIKE ?
+               AND content != '' AND content IS NOT NULL
+             ORDER BY timestamp ASC, rowid ASC`,
+          )
+          .all(chatJid, ts, `${botPrefix}:%`)
+  ) as NewMessage[];
 }
 
 export function getMessagesSinceAll(

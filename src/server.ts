@@ -420,55 +420,6 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     }
   });
 
-  app.get('/api/groups/:jid/stream', authenticateToken, (req, res) => {
-    const authReq = req as AuthRequest;
-    const { jid } = req.params as { jid: string };
-    const allowed = canAccessChat(
-      jid,
-      authReq.user!.userId,
-      authReq.user!.role,
-    );
-    if (!allowed) {
-      return res.status(404).json({ error: 'Chat not found' });
-    }
-    const since = typeof req.query.since === 'string' ? req.query.since : '';
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : 200;
-    res.status(200);
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders?.();
-    let cursor = since;
-    let lastHeartbeat = Date.now();
-    const tick = () => {
-      try {
-        const batch = getMessagesSinceAll(jid, cursor, limit);
-        if (batch.length > 0) {
-          for (const m of batch) {
-            res.write(`event: message\ndata: ${JSON.stringify(m)}\n\n`);
-          }
-          cursor = batch[batch.length - 1]!.timestamp;
-        }
-        const now = Date.now();
-        if (now - lastHeartbeat >= 15000) {
-          res.write(`event: heartbeat\ndata: ${now}\n\n`);
-          lastHeartbeat = now;
-        }
-      } catch (err) {
-        logger.error({ err, jid }, 'SSE stream error');
-        res.write(
-          `event: error\ndata: ${JSON.stringify({ error: 'stream_error' })}\n\n`,
-        );
-      }
-    };
-    const interval = setInterval(tick, 1000);
-    res.write(`event: ready\ndata: ${JSON.stringify({ jid })}\n\n`);
-    req.on('close', () => {
-      clearInterval(interval);
-    });
-  });
-
   app.get('/api/tasks', authenticateToken, (req, res) => {
     try {
       const tasks = getAllTasks();

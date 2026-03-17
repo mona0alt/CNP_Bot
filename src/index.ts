@@ -42,6 +42,7 @@ import {
   createUser,
   deleteRegisteredGroup,
   deleteTasksForChatJid,
+  type MessageCursor,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -82,7 +83,7 @@ async function ensureDefaultAdmin(): Promise<void> {
   );
 }
 
-let lastTimestamp = '';
+let lastCursor: MessageCursor = { timestamp: '', rowid: 0 };
 let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
@@ -105,7 +106,24 @@ const channels: Channel[] = [];
 const queue = new GroupQueue();
 
 function loadState(): void {
-  lastTimestamp = getRouterState('last_timestamp') || '';
+  const rawTs = getRouterState('last_timestamp') || '';
+  try {
+    const parsed = JSON.parse(rawTs) as unknown;
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      'timestamp' in parsed &&
+      'rowid' in parsed &&
+      typeof (parsed as MessageCursor).timestamp === 'string' &&
+      typeof (parsed as MessageCursor).rowid === 'number'
+    ) {
+      lastCursor = parsed as MessageCursor;
+    } else {
+      lastCursor = { timestamp: rawTs, rowid: 0 };
+    }
+  } catch {
+    lastCursor = { timestamp: rawTs, rowid: 0 };
+  }
   const agentTs = getRouterState('last_agent_timestamp');
   try {
     lastAgentTimestamp = agentTs ? JSON.parse(agentTs) : {};
@@ -136,7 +154,7 @@ function loadState(): void {
 }
 
 function saveState(): void {
-  setRouterState('last_timestamp', lastTimestamp);
+  setRouterState('last_timestamp', JSON.stringify(lastCursor));
   setRouterState('last_agent_timestamp', JSON.stringify(lastAgentTimestamp));
 }
 
@@ -493,9 +511,9 @@ async function startMessageLoop(): Promise<void> {
   while (true) {
     try {
       const jids = Object.keys(registeredGroups);
-      const { messages, newTimestamp } = getNewMessages(
+      const { messages, newTimestamp, newRowid } = getNewMessages(
         jids,
-        lastTimestamp,
+        lastCursor,
         ASSISTANT_NAME,
       );
 
@@ -503,7 +521,7 @@ async function startMessageLoop(): Promise<void> {
         logger.info({ count: messages.length }, 'New messages');
 
         // Advance the "seen" cursor for all messages immediately
-        lastTimestamp = newTimestamp;
+        lastCursor = { timestamp: newTimestamp, rowid: newRowid };
         saveState();
 
         // Deduplicate by group

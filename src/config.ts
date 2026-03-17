@@ -1,6 +1,5 @@
 import os from 'os';
 import path from 'path';
-import crypto from 'crypto';
 
 import { readEnvFile } from './env.js';
 
@@ -73,9 +72,16 @@ export const TRIGGER_PATTERN = new RegExp(
 export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-// JWT configuration
-export const JWT_SECRET =
-  process.env.JWT_SECRET ||
-  envConfig.JWT_SECRET ||
-  crypto.randomBytes(32).toString('hex');
+// JWT configuration — must be set explicitly; a random secret on every restart
+// would invalidate all active sessions after each deployment.
+const _jwtSecret = process.env.JWT_SECRET || envConfig.JWT_SECRET;
+if (!_jwtSecret) {
+  console.error(
+    '[FATAL] JWT_SECRET is not configured. ' +
+      'Set it in the environment or .env file. ' +
+      'Generate one with: node -e "require(\'crypto\').randomBytes(32).toString(\'hex\')" | xargs echo',
+  );
+  process.exit(1);
+}
+export const JWT_SECRET: string = _jwtSecret;
 export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';

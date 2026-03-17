@@ -136,6 +136,16 @@ export function useChatWebSocket({
         ws.send(JSON.stringify({ type: "auth", token }));
       });
 
+      ws.addEventListener("close", (event) => {
+        if (event.code === 1008) {
+          onUnauthorized?.();
+        }
+      });
+
+      ws.addEventListener("error", () => {
+        // Network errors are handled silently; the close event will follow
+      });
+
       ws.addEventListener("message", (evt) => {
         try {
           const payload = JSON.parse(String((evt as MessageEvent).data) || "{}") as {
