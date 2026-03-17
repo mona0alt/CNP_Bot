@@ -1,466 +1,241 @@
 ---
 name: prometheus
-description: Query Prometheus monitoring data to check server metrics, resource usage, and system health. Use when the user asks about server status, disk space, CPU/memory usage, network stats, or any metrics collected by Prometheus. Supports multiple Prometheus instances with aggregated queries, config file or environment variables, and HTTP Basic Auth.
+description: 查询 Prometheus 和 Thanos 监控数据，检查服务器、K8s Pod、Namespace 的指标是否正常。当用户提到：CPU/内存/磁盘/负载/网络是否正常、有没有异常、Pod 状态、某个 namespace 的资源用量、节点状态、监控指标、Grafana 图表、保定/大冶/荆门等区域的生产/测试/管理环境监控——都应使用此 skill。即使用户没有说"Prometheus"，只要涉及基础设施监控指标查询，就应该触发此 skill。
 ---
 
 # Prometheus Skill
 
-Query Prometheus monitoring data from one or multiple instances. Supports federation across multiple Prometheus servers with a single command.
+查询 Prometheus 监控数据，支持节点级别（node-exporter）和 Pod 级别（cAdvisor）指标，自动渲染折线图卡片。
 
-## ⚠️ 核心规则：必须使用 chart.js 生成图表卡片
+## 核心规则
 
-**当用户查询 CPU、内存、磁盘、负载、网络等监控指标时，你必须使用 `chart.js` 生成折线图卡片。**
+**查询 CPU、内存、磁盘、负载、网络等趋势指标时，必须用 `chart.js` 生成折线图卡片，不要只用文字回复数字。**
+仅当用户查询状态类指标（如节点在线/离线）或明确只需要数字时，才用 `cli.js`。
 
 ```bash
 cd ~/.claude/skills/prometheus
-node scripts/chart.js --metric <cpu|memory|disk|load|network_rx|network_tx> \
-  --instances "<IP>" \
-  --range 1h \
-  --chat-jid "$NANOCLAW_CHAT_JID"
+node scripts/chart.js --metric <指标> [参数...] --chat-jid "$NANOCLAW_CHAT_JID"
 ```
 
-### 正确用法示例
+---
+
+## 零、"是否正常"类查询的标准流程
+
+当用户问"是否正常"、"有没有异常"、"帮我看看"时，执行以下步骤：
+
+1. **生成图表**：调用 `chart.js` 发送折线图卡片（直观展示趋势）
+2. **查当前值**：调用 `cli.js query` 获取最新瞬时值
+3. **给出判断**：根据数值回答"正常/偏高/异常"，说明理由
+
+**参考阈值**���一般性标准，具体场景可能不同）：
+- CPU 使用率：`< 70%` 正常，`70–90%` 偏高，`> 90%` 异常
+- 内存使用率：`< 80%` 正常，`80–90%` 偏高，`> 90%` 异常
+- 磁盘使用率：`< 80%` 正常，`> 85%` 需关注，`> 90%` 危险
+- Pod CPU（相对 limit）：`< 80%` 正常，`> 100%` 已触发限流（throttling）
+
+**示例**（用户：检查保定生产环境 gwm-workbench-prod namespace 下 gwm-workbench-prod-gateway 相关 Pod 的 CPU 是否正常）：
 
 ```bash
-# 查询单节点内存（保定管理环境 → portal）
-node scripts/chart.js --metric memory --instances "10.245.16.28" --range 1h --datasource portal --chat-jid "$NANOCLAW_CHAT_JID"
+cd ~/.claude/skills/prometheus
 
-# 查询多节点 CPU（多条折线）
-node scripts/chart.js --metric cpu --instances "10.245.16.28,10.245.16.29" --range 1h --datasource portal --chat-jid "$NANOCLAW_CHAT_JID"
+# 步骤 1：生成图表
+node scripts/chart.js --metric pod_cpu \
+  --region baoding --env "生产环境" \
+  --namespace "gwm-workbench-prod" \
+  --pods "gwm-workbench-prod-gateway.*" \
+  --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
 
-# 查询磁盘使用率
+# 步骤 2：查当前值（PromQL 直接查，用 portal 因为是保定生产环境）
+node scripts/cli.js query \
+  'sum(irate(container_cpu_usage_seconds_total{namespace="gwm-workbench-prod",pod=~"gwm-workbench-prod-gateway.*",image!=""}[5m])) by (pod) / sum(container_spec_cpu_quota{namespace="gwm-workbench-prod",pod=~"gwm-workbench-prod-gateway.*",image!=""}/100000) by (pod) * 100' \
+  -i portal
+```
+
+步骤 3：根据返回值告诉用户是否正常，例如："当前 CPU 使用率约 35%，处于正常范围。"
+
+---
+
+## 一、节点级别指标（需要 --instances）
+
+### 支持的指标
+
+| --metric 值 | 图表标题 | 单位 | 说明 |
+|-------------|----------|------|------|
+| `cpu` | CPU 使用率 | % | node-exporter |
+| `memory` | 内存使用率 | % | node-exporter |
+| `disk` | 磁盘使用率 | % | 根分区 |
+| `load` | 系统负载 (1m) | — | node-exporter |
+| `network_rx` | 网络接收 | B/s | 排除 lo |
+| `network_tx` | 网络发送 | B/s | 排除 lo |
+
+### 用法示例
+
+```bash
+# 单节点内存
+node scripts/chart.js --metric memory --instances "10.245.16.28" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+
+# 多节点 CPU（多条折线）
+node scripts/chart.js --metric cpu --instances "10.245.16.28,10.245.16.29" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+
+# 磁盘使用率（paas 环境）
 node scripts/chart.js --metric disk --instances "10.255.23.41" --range 1h --datasource paas --chat-jid "$NANOCLAW_CHAT_JID"
-
-# ── Pod 级别指标查询 ─────────────────────────────────────────────────────
-# 查询指定 Pod 的 CPU 使用率
-node scripts/chart.js --metric pod_cpu --region baoding --env "管理环境" --pods "nginx-.*" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
-
-# 查询指定 Pod 的内存使用量
-node scripts/chart.js --metric pod_memory --region baoding --env "AI生产环境" --pods "redis-0" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
-
-# 查询某区域某环境所有 Pod 的内存限制
-node scripts/chart.js --metric pod_memory_limit --region baoding --env "生产环境" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
 ```
-
-### 支持的指标类型
-
-| 指标类型 | --metric 值 | 说明 |
-|----------|-------------|------|
-| 节点指标 | `cpu`, `memory`, `disk`, `load`, `network_rx`, `network_tx` | 基于 node-exporter，需要 `--instances` |
-| Pod 指标 | `pod_cpu`, `pod_memory`, `pod_memory_limit`, `pod_network_rx`, `pod_network_tx` | 基于 cAdvisor，需要 `--region`、`--env`，可选 `--namespace`、`--pods` |
-
-### Pod 指标参数
-
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--metric` | ✓ | 指标名称（pod_cpu, pod_memory 等） |
-| `--region` | ✓ | 区域：baoding, daye, jingmen, longyan, rizhao, taizhou, tianjin, xushui |
-| `--env` | ✓ | 环境：AI生产环境, 测试环境, 生产环境, 管理环境, 预发布环境 |
-| `--namespace` | — | K8s Namespace 名称（可选，不填则查询所有 Namespace） |
-| `--pods` | — | Pod 名称正则（可选，不填则查询所有 Pod） |
-| `--range` | — | 时间范围，默认 1h |
-| `--datasource` | — | 强制指定 portal 或 paas（默认根据 env 自动判断） |
-| `--chat-jid` | ✓ | 目标会话 JID |
-
-- 调用 `chart.js` 后，前端会自动渲染出 Grafana 风格的折线图卡片。
-- 如需查询多个指标，依次调用多次 `chart.js`（每个指标单独一次）。
-- 如用户只是查询状态（如 `up`）或非图表指标，可以只用文字回复，无需生成图表。
-
-## 数据源快速判断
-
-### 查询前必读
-
-| 数据源 | 地址 | 鉴权方式 | 适用场景 |
-|--------|------|----------|----------|
-| **portal** | http://10.255.20.242:8000 | 无需鉴权 | 保定管理环境、生产环境、AI生产环境 |
-| **paas** | http://thanos.paas.gwm.cn | HTTP Basic Auth: admin/paas@123.com | 保定测试/预发布环境、其他区域生产环境 |
-
-### 网段 → 数据源 快速对照表
-
-**使用 portal (无需鉴权)**:
-- 10.245.16.x (保定管理环境)
-- 10.246.7.x (保定管理环境)
-- 10.246.10.x (保定生产环境)
-- 10.246.128.x (保定管理环境)
-- 10.255.20.x (107-109 保定管理环境)
-- 10.255.20.x (110-112 保定生产环境)
-- 10.255.66.x (保定AI生产环境)
-- 10.255.132.x (保定AI生产环境)
-- 10.246.4.x (保定AI生产环境)
-
-**使用 paas (需要鉴权)**:
-- 10.255.23.x (保定测试/预发布/生产环境)
-- 10.255.30.x (保定测试环境)
-- 10.255.67.x (保定测试环境)
-- 10.255.128.x (保定测试环境)
-- 10.255.131.x (保定预发布环境)
-- 10.70.118.x (大冶生产环境)
-- 10.57.118.x (荆门生产环境)
-- 10.68.123.x (龙岩生产环境)
-- 10.37.131.x (日照生产环境)
-- 10.39.128.x (台州生产环境)
-- 10.253.23.x (天津生产环境)
-- 10.4.122.x (徐水生产环境)
-
-### 快速记忆
-
-> **portal**: 保定"管理"+"生产"+"AI生产" (即非测试环境)
-> **paas**: 保定"测试"+"预发布" + 所有"其他区域"(大冶/荆门/龙岩/日照/台州/天津/徐水)
-
-### 查询示例
-
-```bash
-# 保定测试环境 (10.255.23.x) - 使用 paas，需要鉴权
-node scripts/cli.js query 'up{instance="10.255.23.41:9100"}' -i paas
-
-# 保定管理环境 (10.245.16.x) - 使用 portal，无需鉴权
-node scripts/cli.js query 'up{instance="10.245.16.64:9100"}' -i portal
-
-# 查询所有数据源 (自动尝试)
-node scripts/cli.js query 'up{instance="10.255.23.41:9100"}' --all
-```
-
-### 区域 (region)
-- baoding (保定) - 管理中心
-- daye (大冶)
-- jingmen (荆门)
-- longyan (龙岩)
-- rizhao (日照)
-- taizhou (台州)
-- tianjin (天津)
-- xushui (徐水)
-
-### 环境 (env_zh)
-- AI生产环境
-- 测试环境
-- 生产环境
-- 生产环境02
-- 管理环境 (仅保定)
-- 预发布环境
-
-### 集群分布
-| 区域 | 环境 | 集群 |
-|------|------|------|
-| 保定 | 管理环境、生产环境、AI生产环境 | portal-cluster |
-| 其他区域 | 生产环境 | es |
-
-### 网段分布 (10.x.x.x 集群节点)
-
-**portal 数据源** (无需鉴权) - 管理环境、生产环境、AI生产环境：
-| 区域 | 环境 | 网段 |
-|------|------|------|
-| 保定 | 管理环境 | 10.245.16.1-3, 10.245.16.64, 10.246.7.83-84, 10.246.128.50-51, 10.255.20.107-109 |
-| 保定 | 生产环境 | 10.245.16.4-25, 10.245.16.33-69, 10.245.16.98-100, 10.246.10.85,10.246.10.87, 10.255.20.110-112 |
-| 保定 | AI生产环境 | 10.246.4.246, 10.255.66.15,10.255.66.19,10.255.66.119, 10.255.132.5-6,10.255.132.10,10.255.132.12,10.255.132.26,10.255.132.39,10.255.132.47,10.255.132.55-56,10.255.132.65,10.255.132.69,10.255.132.85,10.255.132.90,10.255.132.92,10.255.132.94-95 |
-
-**paas 数据源** (需要鉴权 admin/paas@123.com) - 测试/预发布环境、其他区域生产环境：
-| 区域 | 环境 | 网段 |
-|------|------|------|
-| 保定 | 测试环境 | 10.255.23.x, 10.255.30.x, 10.255.67.x, 10.255.128.x |
-| 保定 | 预发布环境 | 10.255.131.x |
-| 保定 | 生产环境 | 10.255.23.x (部分) |
-| 大冶 | 生产环境 | 10.70.118.41,46,71-85 |
-| 荆门 | 生产环境 | 10.57.118.46-64 |
-| 龙岩 | 生产环境 | 10.68.123.11-14,32-44 |
-| 日照 | 生产环境 | 10.37.131.76-94 |
-| 台州 | 生产环境 | 10.39.128.114-132 |
-| 天津 | 生产环境 | 10.253.23.131-150 |
-| 徐水 | 生产环境 | 10.4.122.1-51 (不连续) |
-
-> 注：40.x.x.x 为 Pod IP，无需关注
-
-#### 按区域查询示例
-
-```bash
-# 查询保定测试环境节点 (使用 paas)
-node scripts/cli.js query 'up{region="baoding",env_zh="测试环境"}' -i paas
-
-# 查询保定生产环境节点 (使用 portal)
-node scripts/cli.js query 'up{region="baoding",env_zh="生产环境"}' -i portal
-
-# 查询大冶生产环境节点 (使用 paas)
-node scripts/cli.js query 'up{region="daye",env_zh="生产环境"}' -i paas
-```
-
-## Quick Start
-
-### 1. Initial Setup
-
-Run the interactive configuration wizard:
-
-```bash
-cd ~/.claude/skills/prometheus
-node scripts/cli.js init
-```
-
-This will create a `prometheus.json` config file in your skill workspace (`~/.claude/skills/prometheus/prometheus.json`).
-
-### 2. Start Querying
-
-```bash
-# Query default instance
-node scripts/cli.js query 'up'
-
-# Query all instances at once
-node scripts/cli.js query 'up' --all
-
-# List configured instances
-node scripts/cli.js instances
-```
-
-## Configuration
-
-### Config File Location
-
-By default, the skill looks for config in your OpenClaw workspace:
-
-```
-~/.claude/skills/prometheus/prometheus.json
-```
-
-**Priority order:**
-1. Path from `PROMETHEUS_CONFIG` environment variable
-2. `~/.claude/skills/prometheus/prometheus.json` (当前 skill 目录)
-3. `./prometheus.json` (current directory)
-5. `~/.config/prometheus/config.json`
-
-### Config Format
-
-Create `prometheus.json` in your workspace (or use `node cli.js init`):
-
-```json
-{
-  "instances": [
-    {
-      "name": "production",
-      "url": "https://prometheus.example.com",
-      "user": "admin",
-      "password": "secret"
-    },
-    {
-      "name": "staging",
-      "url": "http://prometheus-staging:9090"
-    }
-  ],
-  "default": "production"
-}
-```
-
-**Fields:**
-- `name` — unique identifier for the instance
-- `url` — Prometheus server URL
-- `user` / `password` — optional HTTP Basic Auth credentials
-- `default` — which instance to use when none specified
-
-### Environment Variables (Legacy)
-
-For single-instance setups, you can use environment variables:
-
-```bash
-export PROMETHEUS_URL=https://prometheus.example.com
-export PROMETHEUS_USER=admin        # optional
-export PROMETHEUS_PASSWORD=secret   # optional
-```
-
-## Usage
-
-### Global Flags
-
-| Flag | Description |
-|------|-------------|
-| `-c, --config <path>` | Path to config file |
-| `-i, --instance <name>` | Target specific instance |
-| `-a, --all` | Query all configured instances |
-
-### Commands
-
-#### Setup
-
-```bash
-# Interactive configuration wizard
-node scripts/cli.js init
-```
-
-#### Query Metrics
-
-```bash
-cd ~/.claude/skills/prometheus
-
-# Query default instance
-node scripts/cli.js query 'up'
-
-# Query specific instance
-node scripts/cli.js query 'up' -i staging
-
-# Query ALL instances at once
-node scripts/cli.js query 'up' --all
-
-# Custom config file
-node scripts/cli.js query 'up' -c /path/to/config.json
-```
-
-#### 按区域环境查询
-
-```bash
-# 查询保定管理环境所有节点状态
-node scripts/cli.js query 'up{region="baoding",env_zh="管理环境"}'
-
-# 查询保定管理环境 CPU 使用率
-node scripts/cli.js query '100 - (avg by (instance) (irate(node_cpu_seconds_total{region="baoding",env_zh="管理环境",mode="idle"}[5m])) * 100)'
-
-# 查询保定管理环境节点负载
-node scripts/cli.js query 'node_load1{region="baoding",env_zh="管理环境"}'
-
-# 查询指定节点 CPU/负载/内存
-node scripts/cli.js query '100 - (avg by (instance) (irate(node_cpu_seconds_total{instance="10.245.16.64:9100",mode="idle"}[5m])) * 100)'
-node scripts/cli.js query 'node_load1{instance="10.245.16.64:9100"}'
-node scripts/cli.js query '(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100{instance="10.245.16.64:9100"}'
-```
-
-#### Common Queries
-
-**Disk space usage:**
-```bash
-node scripts/cli.js query '100 - (node_filesystem_avail_bytes / node_filesystem_size_bytes * 100)' --all
-```
-
-**CPU usage:**
-```bash
-node scripts/cli.js query '100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)' --all
-```
-
-**Memory usage:**
-```bash
-node scripts/cli.js query '(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100' --all
-```
-
-**Load average:**
-```bash
-node scripts/cli.js query 'node_load1' --all
-```
-
-### List Configured Instances
-
-```bash
-node scripts/cli.js instances
-```
-
-Output:
-```json
-{
-  "default": "production",
-  "instances": [
-    { "name": "production", "url": "https://prometheus.example.com", "hasAuth": true },
-    { "name": "staging", "url": "http://prometheus-staging:9090", "hasAuth": false }
-  ]
-}
-```
-
-### Other Commands
-
-```bash
-# List all metrics matching pattern
-node scripts/cli.js metrics 'node_memory_*'
-
-# Get label names
-node scripts/cli.js labels --all
-
-# Get values for a label
-node scripts/cli.js label-values instance --all
-
-# Find time series
-node scripts/cli.js series '{__name__=~"node_cpu_.*", instance=~".*:9100"}' --all
-
-# Get active alerts
-node scripts/cli.js alerts --all
-
-# Get scrape targets
-node scripts/cli.js targets --all
-```
-
-## Multi-Instance Output Format
-
-When using `--all`, results include data from all instances:
-
-```json
-{
-  "resultType": "vector",
-  "results": [
-    {
-      "instance": "production",
-      "status": "success",
-      "resultType": "vector",
-      "result": [...]
-    },
-    {
-      "instance": "staging",
-      "status": "success",
-      "resultType": "vector",
-      "result": [...]
-    }
-  ]
-}
-```
-
-Errors on individual instances don't fail the entire query — they appear with `"status": "error"` in the results array.
-
-## Common Queries Reference
-
-| Metric | PromQL Query |
-|--------|--------------|
-| Disk free % | `node_filesystem_avail_bytes / node_filesystem_size_bytes * 100` |
-| Disk used % | `100 - (node_filesystem_avail_bytes / node_filesystem_size_bytes * 100)` |
-| CPU idle % | `avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100` |
-| Memory used % | `(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100` |
-| Network RX | `rate(node_network_receive_bytes_total[5m])` |
-| Network TX | `rate(node_network_transmit_bytes_total[5m])` |
-| Uptime | `node_time_seconds - node_boot_time_seconds` |
-| Service up | `up` |
-
-## Notes
-
-- Time range defaults to last 1 hour for instant queries
-- Use range queries `[5m]` for rate calculations
-- All queries return JSON with `data.result` containing the results
-- Instance labels typically show `host:port` format
-- When using `--all`, queries run in parallel for faster results
-- Config is stored outside the skill directory so it persists across skill updates
-
-## 监控图表（折线图卡片）
-
-使用 `chart.js` 将 Prometheus 时序数据渲染为前端 Grafana 风格折线图卡片。
-
-### 用法
-
-```bash
-cd ~/.claude/skills/prometheus
-node scripts/chart.js \
-  --metric cpu \
-  --instances "10.246.10.85,10.246.10.86" \
-  [--range 1h] \
-  [--datasource portal] \
-  --chat-jid "$NANOCLAW_CHAT_JID"
-```
-
-> `$NANOCLAW_CHAT_JID` 由运行时自动注入，可直接引用。
-
-### 支持的 --metric 值
-
-| 值 | 图表标题 | 单位 |
-|----|----------|------|
-| `cpu` | CPU 使用率 | % |
-| `memory` | 内存使用率 | % |
-| `disk` | 磁盘使用率 | % |
-| `load` | 系统负载 (1m) | — |
-| `network_rx` | 网络接收 | B/s |
-| `network_tx` | 网络发送 | B/s |
 
 ### 参数
 
 | 参数 | 必填 | 默认 | 说明 |
 |------|------|------|------|
 | `--metric` | ✓ | — | 指标名称 |
-| `--instances` | ✓ | — | 逗号分隔节点 IP，多节点显示多条折线 |
+| `--instances` | ✓ | — | 逗号分隔的节点 IP（不带端口） |
 | `--range` | — | `1h` | 时间范围：`15m` / `1h` / `6h` / `24h` |
-| `--datasource` | — | 自动检测 | 强制指定 `portal` 或 `paas` |
+| `--datasource` | — | 按 IP 自动检测 | 强制指定 `portal` 或 `paas` |
 | `--chat-jid` | ✓ | `$NANOCLAW_CHAT_JID` | 目标会话 JID |
+
+---
+
+## 二、Pod 级别指标（需要 --region 和 --env）
+
+### 支持的指标
+
+| --metric 值 | 说明 |
+|-------------|------|
+| `pod_cpu` | Pod CPU 使用率（相对 limit，%） |
+| `pod_memory` | Pod 内存使用率（相对 limit，%） |
+| `pod_memory_limit` | Pod 内存限制（字节） |
+| `pod_network_rx` | Pod 网络接收（B/s） |
+| `pod_network_tx` | Pod 网络发送（B/s） |
+
+### 参数映射：从用户描述提取参数
+
+| 用户说的 | 对应参数 | 写法 |
+|---------|---------|------|
+| "保定生产环境" | `--region baoding --env "生产环境"` | — |
+| "gwm-workbench-prod 这个 namespace" | `--namespace "gwm-workbench-prod"` | 完整 namespace 名 |
+| "gateway 相关 pod" / "gateway 开头的 pod" | `--pods "gwm-workbench-prod-gateway.*"` | 前缀 + `.*` |
+| "redis-0 这个 pod" | `--pods "redis-0"` | 精确名直接写 |
+| 不限定 pod | 省略 `--pods` | 查该环境所有 pod |
+
+> `--pods` 是正则表达式。用户说"xxx 相关 pod"或"xxx 开头"时，写成 `"xxx.*"`。
+
+### 用法示例
+
+```bash
+# 指定 namespace + pod 前缀（最常见场景）
+node scripts/chart.js --metric pod_cpu \
+  --region baoding --env "生产环境" \
+  --namespace "gwm-workbench-prod" \
+  --pods "gwm-workbench-prod-gateway.*" \
+  --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+
+# 查某 namespace 下所有 pod 的内存
+node scripts/chart.js --metric pod_memory \
+  --region baoding --env "AI生产环境" \
+  --namespace "ai-prod" \
+  --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+
+# 精确 pod 名
+node scripts/chart.js --metric pod_memory \
+  --region baoding --env "AI生产环境" \
+  --pods "redis-0" \
+  --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+
+# 某环境所有 pod（不限定）
+node scripts/chart.js --metric pod_memory_limit \
+  --region baoding --env "生产环境" \
+  --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+```
+
+### 参数
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `--metric` | ✓ | 指标名称（pod_cpu, pod_memory 等） |
+| `--region` | ✓ | 区域，见下方区域列表 |
+| `--env` | ✓ | 环境，见下方环境列表 |
+| `--namespace` | — | K8s Namespace 名称（不填查全部） |
+| `--pods` | — | Pod 名称正则，前缀匹配用 `"prefix.*"`（不填查全部） |
+| `--range` | — | 时间范围，默认 `1h` |
+| `--datasource` | — | 强制指定 `portal` 或 `paas`（默认自动判断） |
+| `--chat-jid` | ✓ | 目标会话 JID |
+
+> Pod 指标**不需要** `--instances`，按 region + env 查询集群数据。
+
+---
+
+## 三、数据源选择规则
+
+### 快速记忆
+
+- **portal**（无需鉴权）：保定 管理环境 / 生产环境 / AI生产环境
+- **paas**（admin/paas@123.com）：保定 测试环境 / 预发布环境 + 所有其他区域生产环境
+
+### 节点 IP → 数据源对照
+
+**portal 数据源** (http://10.255.20.242:8000)：
+| 环境 | 典型网段 |
+|------|---------|
+| 保定 管理环境 | 10.245.16.1-3, 10.245.16.64, 10.246.7.83-84, 10.246.128.50-51, 10.255.20.107-109 |
+| 保定 生产环境 | 10.245.16.4-25, 10.245.16.33-69, 10.246.10.85/87, 10.255.20.110-112 |
+| 保定 AI生产环境 | 10.246.4.246, 10.255.66.x, 10.255.132.x |
+
+**paas 数据源** (http://thanos.paas.gwm.cn，需鉴权)：
+| 区域/环境 | 典型网段 |
+|-----------|---------|
+| 保定 测试环境 | 10.255.23.x, 10.255.30.x, 10.255.67.x, 10.255.128.x |
+| 保定 预发布环境 | 10.255.131.x |
+| 大冶 生产环境 | 10.70.118.41-85 |
+| 荆门 生产环境 | 10.57.118.46-64 |
+| 龙岩 生产环境 | 10.68.123.11-44 |
+| 日照 生产环境 | 10.37.131.76-94 |
+| 台州 生产环境 | 10.39.128.114-132 |
+| 天津 生产环境 | 10.253.23.131-150 |
+| 徐水 生产环境 | 10.4.122.x |
+
+> `chart.js` 节点指标会根据 IP 自动检测数据源，无需手动指定。
+> Pod 指标自动判断规则：测试环境 → paas；管理/生产/AI生产/预发布环境 → portal（如需覆盖用 `--datasource`）。
+
+### 区域 (--region)
+`baoding` / `daye` / `jingmen` / `longyan` / `rizhao` / `taizhou` / `tianjin` / `xushui`
+
+### 环境 (--env)
+`管理环境`（仅保定）/ `生产环境` / `生产环境02` / `AI生产环境` / `测试环境` / `预发布环境`
+
+---
+
+## 四、ad-hoc 查询（状态检查）
+
+不需要图表时，用 `cli.js` 直接查询原始数据：
+
+```bash
+cd ~/.claude/skills/prometheus
+
+# 查节点是否在线
+node scripts/cli.js query 'up{instance="10.255.23.41:9100"}' -i paas
+
+# 查保定管理环境所有节点状态
+node scripts/cli.js query 'up{region="baoding",env_zh="管理环境"}' -i portal
+
+# 查活跃告警
+node scripts/cli.js alerts -i portal
+
+# 查询所有数据源
+node scripts/cli.js query 'up' --all
+```
+
+| 命令 | 说明 |
+|------|------|
+| `query '<promql>' [-i portal\|paas]` | 即时查询 |
+| `alerts [-i portal\|paas]` | 活跃告警 |
+| `targets [-i portal\|paas]` | Scrape 目标状态 |
+| `series '{...}'` | 查找时间序列 |
+
+---
+
+## 五、多指标查询
+
+如需在一条消息里展示多个指标，依次调用 `chart.js` 多次（每个指标一次）：
+
+```bash
+node scripts/chart.js --metric cpu --instances "10.245.16.28" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+node scripts/chart.js --metric memory --instances "10.245.16.28" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+```
