@@ -712,6 +712,35 @@ async function main(): Promise<void> {
         is_bot_message: false,
       };
       storeMessage(msg);
+
+      // If a container is already active for this jid, pipe the message in
+      // immediately instead of waiting up to POLL_INTERVAL for the message loop.
+      if (queue.isGroupActive(jid)) {
+        const sinceTs = lastAgentTimestamp[jid] || '';
+        const pending = getMessagesSince(jid, sinceTs, ASSISTANT_NAME);
+        if (pending.length > 0) {
+          const formatted = formatMessages(pending);
+          if (queue.sendMessage(jid, formatted)) {
+            lastAgentTimestamp[jid] = pending[pending.length - 1].timestamp;
+            saveState();
+            const ch = findChannel(channels, jid);
+            ch?.setTyping?.(jid, true)?.catch((e) =>
+              logger.warn({ jid, e }, 'Failed to set typing indicator'),
+            );
+            return {
+              id: msg.id,
+              chat_jid: msg.chat_jid,
+              sender: msg.sender,
+              sender_name: msg.sender_name,
+              content: msg.content,
+              timestamp: msg.timestamp,
+              is_from_me: true,
+              is_bot_message: false,
+            };
+          }
+        }
+      }
+
       queue.enqueueMessageCheck(jid);
       return {
         id: msg.id,
