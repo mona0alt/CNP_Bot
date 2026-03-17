@@ -36,4 +36,40 @@ describe('group folder validation', () => {
     expect(() => resolveGroupFolderPath('../../etc')).toThrow();
     expect(() => resolveGroupIpcPath('/tmp')).toThrow();
   });
+
+  it('accepts a 64-character alphanumeric name (max length)', () => {
+    const name = 'a'.repeat(64);
+    expect(isValidGroupFolder(name)).toBe(true);
+  });
+
+  it('rejects a 65-character name (exceeds max length)', () => {
+    const name = 'a'.repeat(65);
+    expect(isValidGroupFolder(name)).toBe(false);
+  });
+
+  it('rejects names starting with a dash', () => {
+    expect(isValidGroupFolder('-abc')).toBe(false);
+  });
+
+  it('rejects names starting with an underscore', () => {
+    expect(isValidGroupFolder('_abc')).toBe(false);
+  });
+
+  it('rejects GLOBAL (case-insensitive reserved word)', () => {
+    expect(isValidGroupFolder('GLOBAL')).toBe(false);
+  });
+
+  it('rejects Global (case-insensitive reserved word)', () => {
+    expect(isValidGroupFolder('Global')).toBe(false);
+  });
+
+  it('accepts a single-character name', () => {
+    expect(isValidGroupFolder('a')).toBe(true);
+  });
+
+  it('rejects names with leading or trailing whitespace', () => {
+    expect(isValidGroupFolder(' main ')).toBe(false);
+    expect(isValidGroupFolder(' main')).toBe(false);
+    expect(isValidGroupFolder('main ')).toBe(false);
+  });
 });

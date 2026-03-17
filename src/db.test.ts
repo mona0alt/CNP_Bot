@@ -4,16 +4,31 @@ import {
   _initTestDatabase,
   createTask,
   canAccessChat,
+  clearMessages,
   deleteChatByRole,
+  deleteRegisteredGroup,
+  deleteSession,
   deleteTask,
   getAllChats,
+  getAllRegisteredGroups,
+  getAllSessions,
   getChatsByRole,
+  getDueTasks,
   getMessagesSince,
   getNewMessages,
+  getRegisteredGroup,
+  getRouterState,
+  getSession,
   getTaskById,
+  logTaskRun,
+  setRegisteredGroup,
+  setRouterState,
+  setSession,
   storeChatMetadata,
   storeMessage,
+  storeMessageDirect,
   updateTask,
+  updateTaskAfterRun,
 } from './db.js';
 
 beforeEach(() => {
@@ -357,5 +372,269 @@ describe('task CRUD', () => {
 
     deleteTask('task-3');
     expect(getTaskById('task-3')).toBeUndefined();
+  });
+});
+
+// --- sessions ---
+
+describe('sessions', () => {
+  it('returns undefined for missing session', () => {
+    expect(getSession('nonexistent')).toBeUndefined();
+  });
+
+  it('stores and retrieves a session', () => {
+    setSession('main', 'sess-abc-123');
+    expect(getSession('main')).toBe('sess-abc-123');
+  });
+
+  it('overwrites on re-set', () => {
+    setSession('main', 'old-id');
+    setSession('main', 'new-id');
+    expect(getSession('main')).toBe('new-id');
+  });
+
+  it('returns all sessions as a map', () => {
+    setSession('main', 'sess-1');
+    setSession('other', 'sess-2');
+    const all = getAllSessions();
+    expect(all).toEqual({ main: 'sess-1', other: 'sess-2' });
+  });
+
+  it('deletes a session', () => {
+    setSession('main', 'sess-del');
+    deleteSession('main');
+    expect(getSession('main')).toBeUndefined();
+  });
+});
+
+// --- router state ---
+
+describe('router state', () => {
+  it('returns undefined for missing key', () => {
+    expect(getRouterState('no_such_key')).toBeUndefined();
+  });
+
+  it('stores and retrieves a value', () => {
+    setRouterState('last_timestamp', '2024-01-01T00:00:00.000Z');
+    expect(getRouterState('last_timestamp')).toBe('2024-01-01T00:00:00.000Z');
+  });
+
+  it('overwrites on re-set', () => {
+    setRouterState('mykey', 'first');
+    setRouterState('mykey', 'second');
+    expect(getRouterState('mykey')).toBe('second');
+  });
+
+  it('stores JSON string values', () => {
+    const payload = JSON.stringify({ a: 1, b: '2' });
+    setRouterState('json_key', payload);
+    const retrieved = getRouterState('json_key');
+    expect(retrieved).toBe(payload);
+    expect(JSON.parse(retrieved!)).toEqual({ a: 1, b: '2' });
+  });
+});
+
+// --- registered groups ---
+
+describe('registered groups', () => {
+  const base = {
+    name: 'Test Group',
+    folder: 'testgroup',
+    trigger: '@Bot',
+    added_at: '2024-01-01T00:00:00.000Z',
+  };
+
+  it('returns undefined for missing group', () => {
+    expect(getRegisteredGroup('unknown@g.us')).toBeUndefined();
+  });
+
+  it('stores and retrieves a group', () => {
+    setRegisteredGroup('group@g.us', base);
+    const g = getRegisteredGroup('group@g.us');
+    expect(g).toBeDefined();
+    expect(g!.name).toBe('Test Group');
+    expect(g!.folder).toBe('testgroup');
+    expect(g!.trigger).toBe('@Bot');
+  });
+
+  it('stores and retrieves requires_trigger flag', () => {
+    setRegisteredGroup('group@g.us', { ...base, requiresTrigger: false });
+    const g = getRegisteredGroup('group@g.us');
+    expect(g!.requiresTrigger).toBe(false);
+  });
+
+  it('round-trips container_config JSON', () => {
+    const config = { additionalMounts: [{ hostPath: '/data', readonly: true }], timeout: 60000 };
+    setRegisteredGroup('group@g.us', { ...base, containerConfig: config });
+    const g = getRegisteredGroup('group@g.us');
+    expect(g!.containerConfig).toEqual(config);
+  });
+
+  it('returns all registered groups', () => {
+    setRegisteredGroup('g1@g.us', { ...base, folder: 'g1group', name: 'G1' });
+    setRegisteredGroup('g2@g.us', { ...base, folder: 'g2group', name: 'G2' });
+    const all = getAllRegisteredGroups();
+    expect(Object.keys(all)).toHaveLength(2);
+    expect(all['g1@g.us'].name).toBe('G1');
+    expect(all['g2@g.us'].name).toBe('G2');
+  });
+
+  it('deletes a registered group', () => {
+    setRegisteredGroup('group@g.us', base);
+    deleteRegisteredGroup('group@g.us');
+    expect(getRegisteredGroup('group@g.us')).toBeUndefined();
+  });
+
+  it('rejects invalid folder name', () => {
+    expect(() =>
+      setRegisteredGroup('group@g.us', { ...base, folder: '../../bad' }),
+    ).toThrow();
+  });
+});
+
+// --- getDueTasks ---
+
+describe('getDueTasks', () => {
+  function makeTask(id: string, nextRun: string | null, status: string) {
+    createTask({
+      id,
+      group_folder: 'main',
+      chat_jid: 'group@g.us',
+      prompt: 'test',
+      schedule_type: 'once',
+      schedule_value: '2024-06-01T00:00:00.000Z',
+      context_mode: 'isolated',
+      next_run: nextRun,
+      status: status as 'active' | 'paused' | 'completed',
+      created_at: '2024-01-01T00:00:00.000Z',
+    });
+  }
+
+  it('returns active tasks whose next_run is in the past', () => {
+    makeTask('t-due', '2020-01-01T00:00:00.000Z', 'active');
+    const due = getDueTasks();
+    expect(due.map((t) => t.id)).toContain('t-due');
+  });
+
+  it('excludes paused tasks', () => {
+    makeTask('t-paused', '2020-01-01T00:00:00.000Z', 'paused');
+    const due = getDueTasks();
+    expect(due.map((t) => t.id)).not.toContain('t-paused');
+  });
+
+  it('excludes completed tasks', () => {
+    makeTask('t-done', '2020-01-01T00:00:00.000Z', 'completed');
+    const due = getDueTasks();
+    expect(due.map((t) => t.id)).not.toContain('t-done');
+  });
+
+  it('excludes tasks with future next_run', () => {
+    makeTask('t-future', '2099-12-31T23:59:59.000Z', 'active');
+    const due = getDueTasks();
+    expect(due.map((t) => t.id)).not.toContain('t-future');
+  });
+
+  it('excludes tasks with null next_run', () => {
+    makeTask('t-null', null, 'active');
+    const due = getDueTasks();
+    expect(due.map((t) => t.id)).not.toContain('t-null');
+  });
+});
+
+// --- clearMessages ---
+
+describe('clearMessages', () => {
+  beforeEach(() => {
+    storeChatMetadata('chat-a@g.us', '2024-01-01T00:00:00.000Z');
+    storeChatMetadata('chat-b@g.us', '2024-01-01T00:00:00.000Z');
+
+    storeMessage({
+      id: 'ma1', chat_jid: 'chat-a@g.us', sender: 'u@s.whatsapp.net',
+      sender_name: 'U', content: 'msg in A', timestamp: '2024-01-01T00:00:01.000Z',
+    });
+    storeMessage({
+      id: 'mb1', chat_jid: 'chat-b@g.us', sender: 'u@s.whatsapp.net',
+      sender_name: 'U', content: 'msg in B', timestamp: '2024-01-01T00:00:01.000Z',
+    });
+  });
+
+  it('removes messages for the target chat', () => {
+    clearMessages('chat-a@g.us');
+    const msgs = getMessagesSince('chat-a@g.us', '', 'Bot');
+    expect(msgs).toHaveLength(0);
+  });
+
+  it('leaves messages for other chats untouched', () => {
+    clearMessages('chat-a@g.us');
+    const msgs = getMessagesSince('chat-b@g.us', '', 'Bot');
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toBe('msg in B');
+  });
+});
+
+// --- logTaskRun / updateTaskAfterRun ---
+
+describe('logTaskRun and updateTaskAfterRun', () => {
+  beforeEach(() => {
+    createTask({
+      id: 'run-task',
+      group_folder: 'main',
+      chat_jid: 'group@g.us',
+      prompt: 'do work',
+      schedule_type: 'interval',
+      schedule_value: '60',
+      context_mode: 'isolated',
+      next_run: '2024-01-01T00:01:00.000Z',
+      status: 'active',
+      created_at: '2024-01-01T00:00:00.000Z',
+    });
+  });
+
+  it('logTaskRun stores a run log entry', () => {
+    logTaskRun({
+      task_id: 'run-task',
+      run_at: '2024-01-01T00:01:00.000Z',
+      duration_ms: 1234,
+      status: 'success',
+      result: 'all done',
+      error: null,
+    });
+    // Verify the task still exists after logging
+    expect(getTaskById('run-task')).toBeDefined();
+  });
+
+  it('updateTaskAfterRun updates last_run, last_result, and next_run', () => {
+    updateTaskAfterRun('run-task', '2024-01-01T00:02:00.000Z', 'run ok');
+    const task = getTaskById('run-task')!;
+    expect(task.last_result).toBe('run ok');
+    expect(task.next_run).toBe('2024-01-01T00:02:00.000Z');
+    expect(task.last_run).toBeTruthy();
+  });
+
+  it('updateTaskAfterRun with null nextRun marks task completed', () => {
+    updateTaskAfterRun('run-task', null, 'final run');
+    const task = getTaskById('run-task')!;
+    expect(task.status).toBe('completed');
+    expect(task.next_run).toBeNull();
+  });
+});
+
+// --- storeMessageDirect ---
+
+describe('storeMessageDirect', () => {
+  it('stores a direct message and it is retrievable', () => {
+    storeChatMetadata('webchat@g.us', '2024-01-01T00:00:00.000Z');
+    storeMessageDirect({
+      id: 'direct-1',
+      chat_jid: 'webchat@g.us',
+      sender: 'user-xyz',
+      sender_name: 'XYZ',
+      content: 'direct message',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+    });
+    const msgs = getMessagesSince('webchat@g.us', '', 'Bot');
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toBe('direct message');
   });
 });
