@@ -158,15 +158,6 @@ export class GroupQueue {
 
   registerProcess(groupJid: string, proc: ChildProcess, containerName: string, groupFolder?: string): void {
     const state = this.getGroup(groupJid);
-    // Kill previous orphan process (e.g. a warmup container that was replaced by a real container)
-    // so it cannot steal IPC messages meant for the new container.
-    if (state.process && state.process !== proc && !state.process.killed) {
-      logger.debug(
-        { groupJid, prevContainerName: state.containerName },
-        'Killing orphan process before registering new container',
-      );
-      state.process.kill('SIGTERM');
-    }
     state.process = proc;
     state.containerName = containerName;
     if (groupFolder) state.groupFolder = groupFolder;

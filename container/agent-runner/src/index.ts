@@ -810,20 +810,6 @@ async function main(): Promise<void> {
     prompt += '\n' + pending.join('\n');
   }
 
-  // Warmup mode: if no prompt provided, skip initial query and wait for first IPC message
-  if (!prompt) {
-    log('Warmup mode: no prompt, signaling ready and waiting for first IPC message...');
-    writeOutput({ status: 'success', result: null });
-    const firstMessage = await waitForIpcMessage();
-    if (firstMessage === null) {
-      log('Close sentinel received during warmup, exiting');
-      return;
-    }
-    log(`Warmup: received first message (${firstMessage.length} chars)`);
-    prompt = firstMessage;
-    // Falls through to the query loop below
-  }
-
   // Query loop: run query → wait for IPC message → run new query → repeat
   let resumeAt: string | undefined;
   try {

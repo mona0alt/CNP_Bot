@@ -730,21 +730,16 @@ async function main(): Promise<void> {
     },
     onCreateChat: (jid, _userId) => {
       if (!jid.startsWith('web:') || registeredGroups[jid]) return;
-      logger.info({ jid }, 'Pre-registering and warming up new web chat session');
+      logger.info({ jid }, 'Pre-registering new web chat session');
       const folder =
         jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
-      const group: RegisteredGroup = {
+      registerGroup(jid, {
         name: 'New Chat',
         folder,
         trigger: `@${ASSISTANT_NAME}`,
         added_at: new Date().toISOString(),
         requiresTrigger: false,
-      };
-      registerGroup(jid, group);
-      // Start warmup container (empty prompt = skip initial query, wait for IPC)
-      runAgent(group, '', jid).catch((err) =>
-        logger.warn({ jid, err }, 'Warmup container failed'),
-      );
+      });
     },
     isGroupActive: (jid) => queue.isGroupActive(jid),
     onDeleteChat: (jid) => {
