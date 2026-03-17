@@ -42,21 +42,24 @@ export function useChatWebSocket({
 }: UseChatWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const messageIdsRef = useRef<Set<string>>(new Set());
+  // Tracks the id of the current streaming message for O(1) lookup.
+  // Cleared when jid changes or when the stream message is replaced by a final one.
+  const activeStreamIdRef = useRef<string | null>(null);
 
-  const findActiveStreamIndex = useCallback((messages: Message[]) => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (
-        message.chat_jid === jid &&
-        message.is_bot_message &&
-        message.id.startsWith('stream-')
-      ) {
-        return index;
-      }
+  const findActiveStreamIndex = useCallback((messages: Message[]): number => {
+    const id = activeStreamIdRef.current;
+    if (!id) return -1;
+    // Fast path: stream messages are always appended last
+    const last = messages.length - 1;
+    if (last >= 0 && messages[last].id === id) return last;
+    // Fallback: scan by ID only (no jid/startsWith checks needed)
+    for (let i = last - 1; i >= 0; i--) {
+      if (messages[i].id === id) return i;
     }
-
+    // Stale ref — stream message no longer in state
+    activeStreamIdRef.current = null;
     return -1;
-  }, [jid]);
+  }, []); // stable: only reads ref, no state/prop deps
 
   const findLastMatchingBotMessageIndex = useCallback((
     messages: Message[],
@@ -110,6 +113,7 @@ export function useChatWebSocket({
     wsRef.current?.close();
     wsRef.current = null;
     messageIdsRef.current = new Set();
+    activeStreamIdRef.current = null;
 
     if (!jid || !token) return;
 
@@ -171,8 +175,10 @@ export function useChatWebSocket({
               const activeStreamIndex = findActiveStreamIndex(prev);
               if (activeStreamIndex === -1) {
                 const initialBlocks: ContentBlock[] = [];
+                const newId = 'stream-' + Date.now();
+                activeStreamIdRef.current = newId;
                 const newMsg: Message = {
-                  id: 'stream-' + Date.now(),
+                  id: newId,
                   chat_jid: payload.chat_jid!,
                   sender_name: 'CNP-Bot',
                   content: JSON.stringify(initialBlocks),
@@ -233,8 +239,10 @@ export function useChatWebSocket({
                   return nextMessages;
                 }
               } else {
+                const newId = 'stream-' + Date.now();
+                activeStreamIdRef.current = newId;
                 return [...prev, {
-                  id: 'stream-' + Date.now(),
+                  id: newId,
                   chat_jid: payload.chat_jid!,
                   sender_name: 'CNP-Bot',
                   content: payload.chunk!,
@@ -295,6 +303,7 @@ export function useChatWebSocket({
                   }
                 }
                 messageIdsRef.current.add(msg.id);
+                activeStreamIdRef.current = null;
                 if (!msg.is_from_me) {
                   setIsGenerating(false);
                 }
@@ -323,7 +332,7 @@ export function useChatWebSocket({
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [jid, token, apiBase, fetchMessages, findActiveStreamIndex, findLastMatchingBotMessageIndex, isStandaloneChartMessage, setMessages, setIsGenerating]);
+  }, [jid, token, apiBase, fetchMessages, findActiveStreamIndex, findLastMatchingBotMessageIndex, isStandaloneChartMessage, setMessages, setIsGenerating]); // findActiveStreamIndex is stable ([] deps)
 
   const sendMessage = useCallback((content: string) => {
     const ws = wsRef.current;
