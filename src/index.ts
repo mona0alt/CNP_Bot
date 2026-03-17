@@ -533,58 +533,59 @@ async function startMessageLoop(): Promise<void> {
           const needsTrigger =
             chatJid !== 'web:default' && group.requiresTrigger !== false;
 
+          // Check active state once and reuse below to avoid duplicate isGroupActive calls.
+          const isActive = queue.isGroupActive(chatJid);
+
           // For non-main groups, only act on trigger messages.
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
-          if (needsTrigger) {
-            // Check if there is an active container for this group
-            // If active, we pipe all messages (even without trigger)
-            const isActive = queue.isGroupActive(chatJid);
-
-            if (!isActive) {
-              const hasTrigger = groupMessages.some((m) =>
-                TRIGGER_PATTERN.test(m.content.trim()),
-              );
-              if (!hasTrigger) continue;
-            }
-          }
-
-          // Pull all messages since lastAgentTimestamp so non-trigger
-          // context that accumulated between triggers is included.
-          const sinceTs = lastAgentTimestamp[chatJid] || '';
-          const allPending = getMessagesSince(chatJid, sinceTs, ASSISTANT_NAME);
-
-          // If allPending is empty, it means we've already processed everything up to lastAgentTimestamp.
-          // However, groupMessages contains the new messages that triggered this loop iteration.
-          // We must ensure we don't re-process messages that are already covered by lastAgentTimestamp.
-          // This happens if processGroupMessages updated lastAgentTimestamp concurrently.
-          const messagesToSend =
-            allPending.length > 0
-              ? allPending
-              : groupMessages.filter((m) => m.timestamp > sinceTs);
-
-          if (messagesToSend.length === 0) continue;
-
-          const formatted = formatMessages(messagesToSend);
-
-          if (queue.sendMessage(chatJid, formatted)) {
-            logger.debug(
-              { chatJid, count: messagesToSend.length },
-              'Piped messages to active container',
+          if (needsTrigger && !isActive) {
+            const hasTrigger = groupMessages.some((m) =>
+              TRIGGER_PATTERN.test(m.content.trim()),
             );
-            lastAgentTimestamp[chatJid] =
-              messagesToSend[messagesToSend.length - 1].timestamp;
-            saveState();
-            // Show typing indicator while the container processes the piped message
-            channel
-              .setTyping?.(chatJid, true)
-              ?.catch((err) =>
-                logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
-              );
-          } else {
-            // No active container — enqueue for a new one
-            queue.enqueueMessageCheck(chatJid);
+            if (!hasTrigger) continue;
           }
+
+          if (isActive) {
+            // Active container: fetch messages and pipe them in immediately.
+            // This is the only path that needs getMessagesSince — processGroupMessages
+            // is NOT called here, so there is no duplicate query.
+            const sinceTs = lastAgentTimestamp[chatJid] || '';
+            const allPending = getMessagesSince(chatJid, sinceTs, ASSISTANT_NAME);
+
+            // If allPending is empty, fall back to the new messages that triggered
+            // this loop iteration (guards against cursor being advanced concurrently).
+            const messagesToSend =
+              allPending.length > 0
+                ? allPending
+                : groupMessages.filter((m) => m.timestamp > sinceTs);
+
+            if (messagesToSend.length === 0) continue;
+
+            if (queue.sendMessage(chatJid, formatMessages(messagesToSend))) {
+              logger.debug(
+                { chatJid, count: messagesToSend.length },
+                'Piped messages to active container',
+              );
+              lastAgentTimestamp[chatJid] =
+                messagesToSend[messagesToSend.length - 1].timestamp;
+              saveState();
+              // Show typing indicator while the container processes the piped message
+              channel
+                .setTyping?.(chatJid, true)
+                ?.catch((err) =>
+                  logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
+                );
+              continue;
+            }
+            // sendMessage returned false: container became inactive between the
+            // isActive check and the write — fall through to enqueue.
+          }
+
+          // No active container — enqueue for a new one.
+          // processGroupMessages will run getMessagesSince itself, so we skip
+          // the query here to avoid doing it twice.
+          queue.enqueueMessageCheck(chatJid);
         }
       }
     } catch (err) {
