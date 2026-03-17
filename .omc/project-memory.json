@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "lastScanned": 1772175806067,
-  "projectRoot": "/root/project/nanoclaw",
+  "projectRoot": "/root/project/cnp-bot",
   "techStack": {
     "languages": [
       {
@@ -82,11 +82,11 @@
       "fileCount": 7,
       "lastAccessed": 1772175806043,
       "keyFiles": [
-        "nanoclaw-favicon.png",
-        "nanoclaw-icon.png",
-        "nanoclaw-logo-dark.png",
-        "nanoclaw-logo.png",
-        "nanoclaw-profile.jpeg"
+        "cnp-bot-favicon.png",
+        "cnp-bot-icon.png",
+        "cnp-bot-logo-dark.png",
+        "cnp-bot-logo.png",
+        "cnp-bot-profile.jpeg"
       ]
     },
     "config-examples": {
@@ -174,7 +174,7 @@
       "fileCount": 1,
       "lastAccessed": 1772175806059,
       "keyFiles": [
-        "com.nanoclaw.plist"
+        "com.cnp-bot.plist"
       ]
     },
     "repo-tokens": {

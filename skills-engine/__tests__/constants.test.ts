@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  NANOCLAW_DIR,
+  CNP_BOT_DIR,
   STATE_FILE,
   BASE_DIR,
   BACKUP_DIR,
@@ -11,7 +11,7 @@ import {
 
 describe('constants', () => {
   const allConstants = {
-    NANOCLAW_DIR,
+    CNP_BOT_DIR,
     STATE_FILE,
     BASE_DIR,
     BACKUP_DIR,
@@ -27,15 +27,15 @@ describe('constants', () => {
     }
   });
 
-  it('path constants use forward slashes and .nanoclaw prefix', () => {
+  it('path constants use forward slashes and .cnp-bot prefix', () => {
     const pathConstants = [BASE_DIR, BACKUP_DIR, LOCK_FILE, CUSTOM_DIR];
     for (const p of pathConstants) {
       expect(p).not.toContain('\\');
-      expect(p).toMatch(/^\.nanoclaw\//);
+      expect(p).toMatch(/^\.cnp-bot\//);
     }
   });
 
-  it('NANOCLAW_DIR is .nanoclaw', () => {
-    expect(NANOCLAW_DIR).toBe('.nanoclaw');
+  it('CNP_BOT_DIR is .cnp-bot', () => {
+    expect(CNP_BOT_DIR).toBe('.cnp-bot');
   });
 });

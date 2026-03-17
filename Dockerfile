@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     python3 \
     sqlite3 \
+    tmux \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20

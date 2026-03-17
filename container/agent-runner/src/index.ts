@@ -1,5 +1,5 @@
 /**
- * NanoClaw Agent Runner
+ * CNP-Bot Agent Runner
  * Runs inside a container, receives config via stdin, outputs result to stdout
  *
  * Input protocol:
@@ -135,8 +135,8 @@ async function readStdin(): Promise<string> {
   });
 }
 
-const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
+const OUTPUT_START_MARKER = '---CNP_BOT_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---CNP_BOT_OUTPUT_END---';
 
 function writeOutput(output: ContainerOutput): void {
   console.log(OUTPUT_START_MARKER);
@@ -529,7 +529,7 @@ async function runQuery(
         'ToolSearch',
         'Skill',
         'NotebookEdit',
-        // 'mcp__nanoclaw__*'
+        // 'mcp__cnp-bot__*'
       ],
       includePartialMessages: true,
       env: sdkEnv,
@@ -540,13 +540,13 @@ async function runQuery(
       settingSources: ['user'],
       /*
       mcpServers: {
-        nanoclaw: {
+        cnp-bot: {
           command: process.execPath,
           args: [mcpServerPath],
           env: {
-            NANOCLAW_CHAT_JID: containerInput.chatJid,
-            NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
-            NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+            CNP_BOT_CHAT_JID: containerInput.chatJid,
+            CNP_BOT_GROUP_FOLDER: containerInput.groupFolder,
+            CNP_BOT_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
       },
@@ -765,9 +765,9 @@ async function main(): Promise<void> {
 
   // Inject runtime context into process.env so Bash subprocesses (e.g. chart.js) can read them.
   // These are not secrets, so it is safe to expose them to child processes.
-  process.env.NANOCLAW_CHAT_JID = containerInput.chatJid;
-  process.env.NANOCLAW_GROUP_FOLDER = containerInput.groupFolder;
-  process.env.NANOCLAW_IS_MAIN = containerInput.isMain ? '1' : '0';
+  process.env.CNP_BOT_CHAT_JID = containerInput.chatJid;
+  process.env.CNP_BOT_GROUP_FOLDER = containerInput.groupFolder;
+  process.env.CNP_BOT_IS_MAIN = containerInput.isMain ? '1' : '0';
 
   // Build SDK env: merge secrets into process.env for the SDK only.
   // Secrets never touch process.env itself, so Bash subprocesses can't see them.

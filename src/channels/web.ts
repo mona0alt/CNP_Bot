@@ -22,7 +22,7 @@ export class WebChannel implements Channel {
     const message = {
       id: randomUUID(),
       chat_jid: jid,
-      sender: 'nanoclaw',
+      sender: 'cnp-bot',
       sender_name: ASSISTANT_NAME,
       content: text,
       timestamp,

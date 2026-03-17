@@ -2,7 +2,7 @@
 
 ## User Request
 1.  Add session management features to the chat page, specifically "Delete Session".
-2.  Change the logo text on the page from "NanoClaw" to "CNP-Bot".
+2.  Change the logo text on the page from "CNP-Bot" to "CNP-Bot".
 
 ## Implementation Steps
 
@@ -25,7 +25,7 @@
 ### 2. Frontend Changes
 
 #### 2.1 Branding Update (`frontend/src/components/Sidebar.tsx`)
--   Locate the header text "NanoClaw".
+-   Locate the header text "CNP-Bot".
 -   Update it to "CNP-Bot".
 
 #### 2.2 Chat Interface (`frontend/src/pages/Chat.tsx`)

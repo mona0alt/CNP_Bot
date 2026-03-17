@@ -224,7 +224,7 @@ git commit -m "feat(ipc): add chart_message type for prometheus chart cards"
  * chart.js — Prometheus 监控图表 IPC 写入脚本
  *
  * 用法：
- *   node chart.js --metric cpu --instances "10.0.0.1,10.0.0.2" [--range 1h] [--datasource portal] --chat-jid "$NANOCLAW_CHAT_JID"
+ *   node chart.js --metric cpu --instances "10.0.0.1,10.0.0.2" [--range 1h] [--datasource portal] --chat-jid "$CNP_BOT_CHAT_JID"
  *
  * 写入 /workspace/ipc/messages/chart-{ts}.json，主进程 IPC watcher 读取后渲染为前端折线图卡片。
  */
@@ -333,13 +333,13 @@ async function main() {
   const metric = args['metric'];
   const instancesRaw = args['instances'];
   const range = args['range'] || '1h';
-  const chatJid = args['chat-jid'] || process.env.NANOCLAW_CHAT_JID;
+  const chatJid = args['chat-jid'] || process.env.CNP_BOT_CHAT_JID;
   const forceDatasource = args['datasource'] || null;
 
   // Validate required args
   if (!metric) { console.error('Error: --metric is required'); process.exit(1); }
   if (!instancesRaw) { console.error('Error: --instances is required'); process.exit(1); }
-  if (!chatJid) { console.error('Error: --chat-jid or $NANOCLAW_CHAT_JID is required'); process.exit(1); }
+  if (!chatJid) { console.error('Error: --chat-jid or $CNP_BOT_CHAT_JID is required'); process.exit(1); }
 
   const metricDef = METRICS[metric];
   if (!metricDef) {
@@ -454,10 +454,10 @@ node scripts/chart.js \
   --instances "10.246.10.85,10.246.10.86" \
   [--range 1h] \
   [--datasource portal] \
-  --chat-jid "$NANOCLAW_CHAT_JID"
+  --chat-jid "$CNP_BOT_CHAT_JID"
 ~~~
 
-> `$NANOCLAW_CHAT_JID` 由运行时自动注入，可直接引用。
+> `$CNP_BOT_CHAT_JID` 由运行时自动注入，可直接引用。
 
 ### 支持的 --metric 值
 
@@ -478,7 +478,7 @@ node scripts/chart.js \
 | `--instances` | ✓ | — | 逗号分隔节点 IP，多节点显示多条折线 |
 | `--range` | — | `1h` | 时间范围：`15m` / `1h` / `6h` / `24h` |
 | `--datasource` | — | 自动检测 | 强制指定 `portal` 或 `paas` |
-| `--chat-jid` | ✓ | `$NANOCLAW_CHAT_JID` | 目标会话 JID |
+| `--chat-jid` | ✓ | `$CNP_BOT_CHAT_JID` | 目标会话 JID |
 ~~~
 
 - [ ] **Step 2: Commit**

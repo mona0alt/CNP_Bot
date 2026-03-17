@@ -1,6 +1,6 @@
-# NanoClaw Frontend
+# CNP-Bot Frontend
 
-This is the web interface for NanoClaw.
+This is the web interface for CNP-Bot.
 
 ## Development
 

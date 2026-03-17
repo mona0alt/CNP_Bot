@@ -3,7 +3,7 @@
  * chart.js — Prometheus 监控图表 IPC 写入脚本
  *
  * 用法：
- *   node chart.js --metric cpu --instances "10.0.0.1,10.0.0.2" [--range 1h] [--datasource portal] --chat-jid "$NANOCLAW_CHAT_JID"
+ *   node chart.js --metric cpu --instances "10.0.0.1,10.0.0.2" [--range 1h] [--datasource portal] --chat-jid "$CNP_BOT_CHAT_JID"
  *
  * 写入 /workspace/ipc/messages/chart-{ts}.json，主进程 IPC watcher 读取后渲染为前端折线图卡片。
  */
@@ -203,12 +203,12 @@ async function main() {
   const region = args['region'];
   const env = args['env'];
   const range = args['range'] || '1h';
-  const chatJid = args['chat-jid'] || process.env.NANOCLAW_CHAT_JID;
+  const chatJid = args['chat-jid'] || process.env.CNP_BOT_CHAT_JID;
   const forceDatasource = args['datasource'] || null;
 
   // Validate required args
   if (!metric) { console.error('Error: --metric is required'); process.exit(1); }
-  if (!chatJid) { console.error('Error: --chat-jid or $NANOCLAW_CHAT_JID is required'); process.exit(1); }
+  if (!chatJid) { console.error('Error: --chat-jid or $CNP_BOT_CHAT_JID is required'); process.exit(1); }
 
   const metricDef = METRICS[metric];
   if (!metricDef) {

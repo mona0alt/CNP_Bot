@@ -14,7 +14,7 @@ description: 查询 Prometheus 和 Thanos 监控数据，检查服务器、K8s P
 
 ```bash
 cd ~/.claude/skills/prometheus
-node scripts/chart.js --metric <指标> [参数...] --chat-jid "$NANOCLAW_CHAT_JID"
+node scripts/chart.js --metric <指标> [参数...] --chat-jid "$CNP_BOT_CHAT_JID"
 ```
 
 ---
@@ -43,7 +43,7 @@ node scripts/chart.js --metric pod_cpu \
   --region baoding --env "生产环境" \
   --namespace "gwm-workbench-prod" \
   --pods "gwm-workbench-prod-gateway.*" \
-  --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+  --range 1h --chat-jid "$CNP_BOT_CHAT_JID"
 
 # 步骤 2：查当前值（PromQL 直接查，用 portal 因为是保定生产环境）
 node scripts/cli.js query \
@@ -72,13 +72,13 @@ node scripts/cli.js query \
 
 ```bash
 # 单节点内存
-node scripts/chart.js --metric memory --instances "10.245.16.28" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+node scripts/chart.js --metric memory --instances "10.245.16.28" --range 1h --chat-jid "$CNP_BOT_CHAT_JID"
 
 # 多节点 CPU（多条折线）
-node scripts/chart.js --metric cpu --instances "10.245.16.28,10.245.16.29" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+node scripts/chart.js --metric cpu --instances "10.245.16.28,10.245.16.29" --range 1h --chat-jid "$CNP_BOT_CHAT_JID"
 
 # 磁盘使用率（paas 环境）
-node scripts/chart.js --metric disk --instances "10.255.23.41" --range 1h --datasource paas --chat-jid "$NANOCLAW_CHAT_JID"
+node scripts/chart.js --metric disk --instances "10.255.23.41" --range 1h --datasource paas --chat-jid "$CNP_BOT_CHAT_JID"
 ```
 
 ### 参数
@@ -89,7 +89,7 @@ node scripts/chart.js --metric disk --instances "10.255.23.41" --range 1h --data
 | `--instances` | ✓ | — | 逗号分隔的节点 IP（不带端口） |
 | `--range` | — | `1h` | 时间范围：`15m` / `1h` / `6h` / `24h` |
 | `--datasource` | — | 按 IP 自动检测 | 强制指定 `portal` 或 `paas` |
-| `--chat-jid` | ✓ | `$NANOCLAW_CHAT_JID` | 目标会话 JID |
+| `--chat-jid` | ✓ | `$CNP_BOT_CHAT_JID` | 目标会话 JID |
 
 ---
 
@@ -125,24 +125,24 @@ node scripts/chart.js --metric pod_cpu \
   --region baoding --env "生产环境" \
   --namespace "gwm-workbench-prod" \
   --pods "gwm-workbench-prod-gateway.*" \
-  --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+  --range 1h --chat-jid "$CNP_BOT_CHAT_JID"
 
 # 查某 namespace 下所有 pod 的内存
 node scripts/chart.js --metric pod_memory \
   --region baoding --env "AI生产环境" \
   --namespace "ai-prod" \
-  --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+  --range 1h --chat-jid "$CNP_BOT_CHAT_JID"
 
 # 精确 pod 名
 node scripts/chart.js --metric pod_memory \
   --region baoding --env "AI生产环境" \
   --pods "redis-0" \
-  --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+  --range 1h --chat-jid "$CNP_BOT_CHAT_JID"
 
 # 某环境所有 pod（不限定）
 node scripts/chart.js --metric pod_memory_limit \
   --region baoding --env "生产环境" \
-  --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+  --range 1h --chat-jid "$CNP_BOT_CHAT_JID"
 ```
 
 ### 参数
@@ -236,6 +236,6 @@ node scripts/cli.js query 'up' --all
 如需在一条消息里展示多个指标，依次调用 `chart.js` 多次（每个指标一次）：
 
 ```bash
-node scripts/chart.js --metric cpu --instances "10.245.16.28" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
-node scripts/chart.js --metric memory --instances "10.245.16.28" --range 1h --chat-jid "$NANOCLAW_CHAT_JID"
+node scripts/chart.js --metric cpu --instances "10.245.16.28" --range 1h --chat-jid "$CNP_BOT_CHAT_JID"
+node scripts/chart.js --metric memory --instances "10.245.16.28" --range 1h --chat-jid "$CNP_BOT_CHAT_JID"
 ```

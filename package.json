@@ -1,7 +1,7 @@
 {
-  "name": "nanoclaw",
+  "name": "cnp-bot",
   "version": "1.1.2",
-  "description": "Personal Claude assistant. Lightweight, secure, customizable.",
+  "description": "CNP-Bot - Intelligent DevOps Agent. Lightweight, secure, customizable.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

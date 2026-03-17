@@ -7,7 +7,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
 echo "==========================================="
-echo "   NanoClaw Local IP Access Startup Script"
+echo "   CNP-Bot Local IP Access Startup Script"
 echo "==========================================="
 
 # Function to check if a command exists

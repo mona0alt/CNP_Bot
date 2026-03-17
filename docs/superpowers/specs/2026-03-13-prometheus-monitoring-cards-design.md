@@ -102,10 +102,10 @@ node ~/.openclaw/workspace/skills/prometheus/scripts/chart.js \
   --instances "10.246.10.85,10.246.10.86" \
   --range 1h \
   [--datasource portal] \
-  --chat-jid "$NANOCLAW_CHAT_JID"
+  --chat-jid "$CNP_BOT_CHAT_JID"
 ```
 
-> `$NANOCLAW_CHAT_JID` 由容器运行时自动注入，无需手动传入。
+> `$CNP_BOT_CHAT_JID` 由容器运行时自动注入，无需手动传入。
 
 ### 支持的 `--metric` 快捷名
 
