@@ -770,6 +770,12 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         }
       }
 
+      sendJson({
+        type: 'typing',
+        chat_jid: jid,
+        isTyping: opts.isGroupActive?.(jid) ?? false,
+      });
+
       socket.on('message', async (data: RawData) => {
         try {
           const parsed = JSON.parse(String(data) || '{}') as any;

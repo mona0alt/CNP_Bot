@@ -318,6 +318,32 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
+  it('isGroupBusy becomes false after notifyIdle while container remains active', async () => {
+    let resolveProcess: () => void;
+
+    const processMessages = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        resolveProcess = resolve;
+      });
+      return true;
+    });
+
+    queue.setProcessMessagesFn(processMessages);
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(queue.isGroupActive('group1@g.us')).toBe(true);
+    expect(queue.isGroupBusy('group1@g.us')).toBe(true);
+
+    queue.notifyIdle('group1@g.us');
+
+    expect(queue.isGroupActive('group1@g.us')).toBe(true);
+    expect(queue.isGroupBusy('group1@g.us')).toBe(false);
+
+    resolveProcess!();
+    await vi.advanceTimersByTimeAsync(10);
+  });
+
   it('sendMessage resets idleWaiting so a subsequent task enqueue does not preempt', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;

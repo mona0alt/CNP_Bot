@@ -90,6 +90,11 @@ export class GroupQueue {
     return !!state && state.active && !state.isTaskContainer;
   }
 
+  isGroupBusy(groupJid: string): boolean {
+    const state = this.groups.get(groupJid);
+    return !!state && state.active && !state.idleWaiting && !state.isTaskContainer;
+  }
+
   enqueueMessageCheck(groupJid: string): void {
     if (this.shuttingDown) return;
 

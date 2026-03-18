@@ -63,6 +63,16 @@ export class WebChannel implements Channel {
     }
   }
 
+  async setTyping(jid: string, isTyping: boolean): Promise<void> {
+    if (this.broadcaster) {
+      this.broadcaster.broadcastToJid(jid, {
+        type: 'typing',
+        chat_jid: jid,
+        isTyping,
+      });
+    }
+  }
+
   isConnected(): boolean {
     return true;
   }

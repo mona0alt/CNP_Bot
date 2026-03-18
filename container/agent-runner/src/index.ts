@@ -307,21 +307,25 @@ function createDangerousCommandHook(): HookCallback {
       const code = error.status ?? error.code;
 
       if (code === 2) {
+        const retryHint =
+          `用户本次拒绝执行危险命令（${reason}）。这不是永久性限制；如果用户随后再次明确要求执行，可重新调用 Bash，并再次向用户确认。`;
         return {
           hookSpecificOutput: {
             hookEventName: 'PreToolUse',
             permissionDecision: 'deny',
-            permissionDecisionReason: `用户拒绝执行危险命令（${reason}）`,
+            permissionDecisionReason: retryHint,
           },
         };
       }
 
       log(`cnp-confirm error (code=${String(code)}): ${error.message ?? ''}`);
+      const failureHint =
+        `危险命令确认失败（${reason}），本次已拒绝执行。若用户仍要继续，请稍后重试；系统应再次发起确认。`;
       return {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
-          permissionDecisionReason: `危险命令确认失败（${reason}），已拒绝执行`,
+          permissionDecisionReason: failureHint,
         },
       };
     }

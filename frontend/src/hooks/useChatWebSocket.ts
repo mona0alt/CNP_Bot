@@ -170,6 +170,7 @@ export function useChatWebSocket({
             chunk?: string;
             event?: StreamEvent;
             chat_jid?: string;
+            isTyping?: boolean;
             content?: string;
             sender?: string;
             is_bot_message?: boolean;
@@ -209,6 +210,15 @@ export function useChatWebSocket({
             typeof payload.ok === "boolean"
           ) {
             onConfirmBashAck?.(payload.requestId, payload.ok);
+            return;
+          }
+
+          if (
+            payload.type === "typing" &&
+            payload.chat_jid === jid &&
+            typeof payload.isTyping === "boolean"
+          ) {
+            setIsGenerating(payload.isTyping);
             return;
           }
 

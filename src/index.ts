@@ -892,7 +892,7 @@ async function main(): Promise<void> {
         requiresTrigger: false,
       });
     },
-    isGroupActive: (jid) => queue.isGroupActive(jid),
+    isGroupActive: (jid) => queue.isGroupBusy(jid),
     getGroupFolder: (jid) => registeredGroups[jid]?.folder,
     getPendingInteractive: (jid) => ({
       asks: Array.from(pendingAskByJid.get(jid)?.values() || []).map((req) => ({
