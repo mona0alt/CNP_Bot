@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -83,7 +85,14 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-family: "Source Sans 3", system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .font-brand {
+    font-family: "Lexend", system-ui, sans-serif;
   }
 }
 
