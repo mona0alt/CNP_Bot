@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight, Terminal, CheckCircle2, AlertCircle, Loader2
 export interface ToolCallCardProps {
   toolName: string;
   input: string | object;
-  status: "calling" | "executed" | "error";
+  status: "calling" | "executed" | "error" | "cancelled";
   result?: string | object | null;
   className?: string;
   defaultExpanded?: boolean;
@@ -41,6 +41,7 @@ export function ToolCallCard({
     calling: Loader2,
     executed: CheckCircle2,
     error: AlertCircle,
+    cancelled: AlertCircle,
   }[status];
 
   const isLight = theme === "light";
@@ -50,12 +51,14 @@ export function ToolCallCard({
     calling: isLight ? "text-blue-600" : "text-blue-400",
     executed: isLight ? "text-zinc-600" : "text-emerald-400",
     error: isLight ? "text-red-600" : "text-red-400",
+    cancelled: isLight ? "text-amber-600" : "text-amber-400",
   }[status];
 
   const borderColor = {
     calling: isLight ? "border-blue-200" : "border-blue-800/60",
     executed: isLight ? "border-zinc-200" : "border-emerald-800/60",
     error: isLight ? "border-red-200" : "border-red-800/60",
+    cancelled: isLight ? "border-amber-200" : "border-amber-800/60",
   }[status];
 
   // Add a helper to truncate long tool names
@@ -66,6 +69,7 @@ export function ToolCallCard({
     calling: "bg-blue-900/20",
     executed: "bg-emerald-900/20",
     error: "bg-red-900/20",
+    cancelled: "bg-amber-900/20",
   }[status];
 
   return (
@@ -92,6 +96,11 @@ export function ToolCallCard({
           {status === "calling" && (
             <span className="text-[10px] text-muted-foreground animate-pulse">
               Calling...
+            </span>
+          )}
+          {status === "cancelled" && (
+            <span className="text-[10px] text-muted-foreground">
+              Stopped
             </span>
           )}
           <StatusIcon
@@ -130,13 +139,28 @@ export function ToolCallCard({
                   {status === "error" && (
                     <span className="text-red-500 text-[10px]">Failed</span>
                   )}
+                  {status === "cancelled" && (
+                    <span className="text-amber-500 text-[10px]">Stopped</span>
+                  )}
                 </div>
                 <div className="relative group">
                   <pre className={cn(
                     "text-xs p-2 rounded-md overflow-x-auto font-mono whitespace-pre-wrap break-all",
                     isLight
-                      ? (status === "error" ? "bg-red-100 text-red-800 border border-red-200" : "bg-blue-50 text-blue-800 border border-blue-100")
-                      : (status === "error" ? "bg-red-900/30 text-red-300" : "bg-emerald-900/30 text-emerald-300")
+                      ? (
+                          status === "error"
+                            ? "bg-red-100 text-red-800 border border-red-200"
+                            : status === "cancelled"
+                            ? "bg-amber-50 text-amber-800 border border-amber-200"
+                            : "bg-blue-50 text-blue-800 border border-blue-100"
+                        )
+                      : (
+                          status === "error"
+                            ? "bg-red-900/30 text-red-300"
+                            : status === "cancelled"
+                            ? "bg-amber-900/30 text-amber-300"
+                            : "bg-emerald-900/30 text-emerald-300"
+                        )
                   )}>
                     {resultString}
                   </pre>

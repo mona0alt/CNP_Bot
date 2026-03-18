@@ -9,7 +9,10 @@ import {
   extractConfirmBashRequest,
 } from "@/lib/interactive-events";
 import { parseMessageContent } from "@/lib/message-parser";
-import { applyEventToBlocks } from "@/lib/message-utils";
+import {
+  applyEventToBlocks,
+  finalizePendingToolCalls,
+} from "@/lib/message-utils";
 
 interface StreamEvent {
   type: string;
@@ -98,6 +101,30 @@ export function useChatWebSocket({
       blocks.every((block) => block.type === 'prometheus_chart')
     );
   }, []);
+
+  const finalizeLatestPendingToolCalls = useCallback((
+    messages: Message[],
+    status: 'error' | 'cancelled' = 'cancelled',
+    result?: string,
+  ) => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.chat_jid !== jid || !message.is_bot_message) continue;
+
+      const blocks = parseMessageContent(message.content);
+      const nextBlocks = finalizePendingToolCalls(blocks, status, result);
+      if (nextBlocks !== blocks) {
+        const nextMessages = [...messages];
+        nextMessages[index] = {
+          ...message,
+          content: JSON.stringify(nextBlocks),
+        };
+        return nextMessages;
+      }
+    }
+
+    return messages;
+  }, [jid]);
 
   const fetchMessages = useCallback(async (chatJid: string): Promise<Message[]> => {
     if (!token) {
@@ -219,6 +246,9 @@ export function useChatWebSocket({
             typeof payload.isTyping === "boolean"
           ) {
             setIsGenerating(payload.isTyping);
+            if (!payload.isTyping) {
+              setMessages((prev) => finalizeLatestPendingToolCalls(prev, 'cancelled', '已终止'));
+            }
             return;
           }
 
@@ -389,6 +419,7 @@ export function useChatWebSocket({
             });
           } else if (payload.type === "error") {
             setIsGenerating(false);
+            setMessages((prev) => finalizeLatestPendingToolCalls(prev, 'error', '执行失败'));
           }
         } catch {
           // ignore
@@ -409,6 +440,7 @@ export function useChatWebSocket({
     findActiveStreamIndex,
     findLastMatchingBotMessageIndex,
     isStandaloneChartMessage,
+    finalizeLatestPendingToolCalls,
     setMessages,
     setIsGenerating,
     onAskUser,

@@ -18,6 +18,8 @@ import {
   appendPendingAsk,
   appendPendingConfirm,
 } from '@/lib/interactive-events';
+import { parseMessageContent } from '@/lib/message-parser';
+import { finalizePendingToolCalls } from '@/lib/message-utils';
 
 export function Chat() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -267,6 +269,32 @@ export function Chat() {
       });
   }, [apiBase, authHeaders, handleUnauthorized, token]);
 
+  const syncGeneratingState = useCallback(async (jid: string) => {
+    if (!token) return;
+
+    try {
+      const res = await fetch(
+        `${apiBase}/api/groups/${encodeURIComponent(jid)}/status`,
+        { headers: authHeaders },
+      );
+      if (res.status === 401 || res.status === 403) {
+        await handleUnauthorized();
+        return;
+      }
+      if (!res.ok) return;
+
+      const data = await res.json();
+      setGeneratingJids((prev) => {
+        const next = new Set(prev);
+        if (data?.isActive) next.add(jid);
+        else next.delete(jid);
+        return next;
+      });
+    } catch (error) {
+      console.error('Failed to sync generating state', error);
+    }
+  }, [apiBase, authHeaders, token, handleUnauthorized]);
+
   // Initial load
   useEffect(() => {
     fetchChats();
@@ -286,23 +314,55 @@ export function Chat() {
     }
 
     setLoading(true);
+    syncGeneratingState(selectedJid);
     fetchMessages(selectedJid).then((data) => {
       // 尝试从 Context 恢复流式消息
       const savedStreaming = getStreamingMessages(selectedJid);
       if (savedStreaming && savedStreaming.length > 0) {
+        // 若数据库里已经有比流式临时消息更新的 bot 消息，说明流式缓存已过期
+        const latestPersistedBotTs = data
+          .filter((m: Message) => m.is_bot_message)
+          .reduce<number>(
+            (max, m) => Math.max(max, new Date(m.timestamp).getTime()),
+            0,
+          );
+
+        const freshStreaming = savedStreaming.filter((m: Message) => {
+          const streamTs = new Date(m.timestamp).getTime();
+          return !latestPersistedBotTs || streamTs > latestPersistedBotTs;
+        });
+
+        if (freshStreaming.length === 0) {
+          clearStreamingMessages(selectedJid);
+          setMessages(data);
+          setLoading(false);
+          return;
+        }
+
         // 合并：数据库消息 + 流式消息（去除重复）
-        const streamingIds = new Set(savedStreaming.map((m: Message) => m.id));
+        const streamingIds = new Set(freshStreaming.map((m: Message) => m.id));
         const filteredData = data.filter(
           (m: Message) => !streamingIds.has(m.id),
         );
         // 流式消息放在最后
-        setMessages([...filteredData, ...savedStreaming]);
+        setMessages([...filteredData, ...freshStreaming]);
       } else {
         setMessages(data);
       }
       setLoading(false);
     });
-  }, [selectedJid, fetchMessages, getStreamingMessages]);
+  }, [selectedJid, fetchMessages, getStreamingMessages, syncGeneratingState]);
+
+  useEffect(() => {
+    if (!selectedJid) return;
+
+    syncGeneratingState(selectedJid);
+    const timer = setInterval(() => {
+      syncGeneratingState(selectedJid);
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [selectedJid, syncGeneratingState]);
 
   // 保存流式消息到 Context
   useEffect(() => {
@@ -370,6 +430,26 @@ export function Chat() {
   const handleStop = () => {
     stopGenerating();
     if (selectedJid) {
+      setMessages((prev) => {
+        for (let index = prev.length - 1; index >= 0; index -= 1) {
+          const message = prev[index];
+          if (message.chat_jid !== selectedJid || !message.is_bot_message) continue;
+
+          const blocks = parseMessageContent(message.content);
+          const nextBlocks = finalizePendingToolCalls(blocks, 'cancelled', '已终止');
+          if (nextBlocks !== blocks) {
+            const next = [...prev];
+            next[index] = {
+              ...message,
+              content: JSON.stringify(nextBlocks),
+            };
+            return next;
+          }
+        }
+
+        return prev;
+      });
+
       const jid = selectedJid;
       setGeneratingJids((prev) => {
         const next = new Set(prev);

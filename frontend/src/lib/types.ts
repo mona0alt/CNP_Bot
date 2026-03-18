@@ -38,7 +38,7 @@ export type ContentBlock =
       name?: string;
       input?: unknown;
       partial_json?: string;
-      status?: 'calling' | 'executed' | 'error';
+      status?: 'calling' | 'executed' | 'error' | 'cancelled';
       result?: string | object;
       [key: string]: unknown;
     }

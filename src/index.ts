@@ -446,11 +446,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         await channel.sendMessage(chatJid, finalContent);
         outputSentToUser = true;
       }
+      // A non-null result means the current query has completed and the agent
+      // is about to transition into idle-waiting for the next IPC message.
+      // Mark it idle immediately so web status/buttons don't remain stuck on
+      // "generating" if the later session-update marker is missed or delayed.
+      queue.notifyIdle(chatJid);
+      await channel.setTyping?.(chatJid, false);
       // Only reset idle timer on actual results, not session-update markers (result: null)
       resetIdleTimer();
     }
 
-    if (result.status === 'success') {
+    if (
+      result.status === 'success' &&
+      result.result === null &&
+      !!result.newSessionId &&
+      !result.streamEvent &&
+      !result.slashCommands
+    ) {
       queue.notifyIdle(chatJid);
     }
 

@@ -25,6 +25,29 @@ interface ToolContent {
   text?: string;
 }
 
+export function finalizePendingToolCalls(
+  blocks: ContentBlock[],
+  status: 'error' | 'cancelled' = 'cancelled',
+  result = status === 'cancelled' ? '已终止' : '执行失败',
+): ContentBlock[] {
+  let changed = false;
+
+  const nextBlocks = blocks.map((block) => {
+    if (block.type !== 'tool_use' || block.status !== 'calling') {
+      return block;
+    }
+
+    changed = true;
+    return {
+      ...block,
+      status,
+      result: block.result ?? result,
+    };
+  });
+
+  return changed ? nextBlocks : blocks;
+}
+
 export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): ContentBlock[] {
   const newBlocks = [...blocks];
 
