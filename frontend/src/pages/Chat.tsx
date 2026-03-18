@@ -20,6 +20,7 @@ import {
 } from '@/lib/interactive-events';
 import { parseMessageContent } from '@/lib/message-parser';
 import { finalizePendingToolCalls } from '@/lib/message-utils';
+import { mergePersistedAndStreamingMessages } from '@/hooks/streaming-session-recovery';
 
 export function Chat() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -234,6 +235,7 @@ export function Chat() {
     sendAskUserResponse,
     sendConfirmBashResponse,
     fetchMessages,
+    setRestoredActiveStreamId,
   } = useChatWebSocket({
     jid: selectedJid,
     apiBase,
@@ -316,42 +318,25 @@ export function Chat() {
     setLoading(true);
     syncGeneratingState(selectedJid);
     fetchMessages(selectedJid).then((data) => {
-      // 尝试从 Context 恢复流式消息
       const savedStreaming = getStreamingMessages(selectedJid);
-      if (savedStreaming && savedStreaming.length > 0) {
-        // 若数据库里已经有比流式临时消息更新的 bot 消息，说明流式缓存已过期
-        const latestPersistedBotTs = data
-          .filter((m: Message) => m.is_bot_message)
-          .reduce<number>(
-            (max, m) => Math.max(max, new Date(m.timestamp).getTime()),
-            0,
-          );
+      const merged = mergePersistedAndStreamingMessages(data, savedStreaming);
 
-        const freshStreaming = savedStreaming.filter((m: Message) => {
-          const streamTs = new Date(m.timestamp).getTime();
-          return !latestPersistedBotTs || streamTs > latestPersistedBotTs;
-        });
-
-        if (freshStreaming.length === 0) {
-          clearStreamingMessages(selectedJid);
-          setMessages(data);
-          setLoading(false);
-          return;
-        }
-
-        // 合并：数据库消息 + 流式消息（去除重复）
-        const streamingIds = new Set(freshStreaming.map((m: Message) => m.id));
-        const filteredData = data.filter(
-          (m: Message) => !streamingIds.has(m.id),
-        );
-        // 流式消息放在最后
-        setMessages([...filteredData, ...freshStreaming]);
-      } else {
-        setMessages(data);
+      if (savedStreaming && savedStreaming.length > 0 && !merged.activeStreamId) {
+        clearStreamingMessages(selectedJid);
       }
+
+      setRestoredActiveStreamId(merged.activeStreamId);
+      setMessages(merged.messages);
       setLoading(false);
     });
-  }, [selectedJid, fetchMessages, getStreamingMessages, syncGeneratingState]);
+  }, [
+    selectedJid,
+    fetchMessages,
+    getStreamingMessages,
+    syncGeneratingState,
+    clearStreamingMessages,
+    setRestoredActiveStreamId,
+  ]);
 
   useEffect(() => {
     if (!selectedJid) return;

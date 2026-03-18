@@ -13,6 +13,7 @@ import {
   applyEventToBlocks,
   finalizePendingToolCalls,
 } from "@/lib/message-utils";
+import { resolveActiveStreamMessage } from "./streaming-session-recovery";
 
 interface StreamEvent {
   type: string;
@@ -66,19 +67,14 @@ export function useChatWebSocket({
   const activeStreamIdRef = useRef<string | null>(null);
 
   const findActiveStreamIndex = useCallback((messages: Message[]): number => {
-    const id = activeStreamIdRef.current;
-    if (!id) return -1;
-    // Fast path: stream messages are always appended last
-    const last = messages.length - 1;
-    if (last >= 0 && messages[last].id === id) return last;
-    // Fallback: scan by ID only (no jid/startsWith checks needed)
-    for (let i = last - 1; i >= 0; i--) {
-      if (messages[i].id === id) return i;
-    }
-    // Stale ref — stream message no longer in state
-    activeStreamIdRef.current = null;
-    return -1;
-  }, []); // stable: only reads ref, no state/prop deps
+    const resolved = resolveActiveStreamMessage(
+      messages,
+      jid,
+      activeStreamIdRef.current,
+    );
+    activeStreamIdRef.current = resolved.activeStreamId;
+    return resolved.index;
+  }, [jid]);
 
   const findLastMatchingBotMessageIndex = useCallback((
     messages: Message[],
@@ -474,11 +470,16 @@ export function useChatWebSocket({
     return sendWsPayload({ type: "confirm_bash_response", requestId, approved });
   }, [sendWsPayload]);
 
+  const setRestoredActiveStreamId = useCallback((streamId: string | null) => {
+    activeStreamIdRef.current = streamId;
+  }, []);
+
   return {
     sendMessage,
     stopGenerating,
     sendAskUserResponse,
     sendConfirmBashResponse,
     fetchMessages,
+    setRestoredActiveStreamId,
   };
 }
