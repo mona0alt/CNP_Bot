@@ -7,6 +7,104 @@ description: 查询 Prometheus 和 Thanos 监控数据，检查服务器、K8s P
 
 查询 Prometheus 监控数据，支持节点级别（node-exporter）和 Pod 级别（cAdvisor）指标，自动渲染折线图卡片。
 
+## 当前配置
+
+- **容器云**: http://10.246.10.199:8481/select/0/prometheus/ (容器云集群)
+- **paas**: http://thanos.paas.gwm.cn (保定管理集群)
+
+### 区域 (region) - 容器云
+
+| region | 名称 | 备注 |
+|--------|------|------|
+| baoding | 保定 | 容器云集群主站点 |
+| chongqing | 重庆 | |
+| daye | 大冶 | |
+| jingmen | 荆门 | |
+| longyan | 龙岩 | |
+| pinghu | 平湖 | |
+| rizhao | 日照 | |
+| taizhou | 台州 | |
+| thailand | 泰国 | |
+| tianjin | 天津 | |
+| xingtai | 邢台 | |
+| xushui | 徐水 | |
+| yangzhong | 扬中 | |
+
+### 环境 (env_zh)
+
+- AI生产环境
+- 测试环境
+- 生产环境
+- 生产环境02
+- 管理环境
+- 预发布环境
+
+### 集群分布
+
+| 区域 | 环境 | 数据源 | env_cnp |
+|------|------|--------|---------|
+| 保定 | 管理环境 | 容器云 | portal-cluster |
+| 保定 | 生产环境 | 容器云 | 保定生产环境01 |
+| 保定 | 生产环境02 | 容器云 | 保定生产环境02 |
+| 保定 | AI生产环境 | 容器云 | 保定AI生产环境01 |
+| 保定 | 预发布环境 | 容器云 | 保定预发布环境01 |
+| 保定 | 生产环境 | paas | 生产环境 |
+| 保定 | 预发布环境 | paas | 预发布环境 |
+| 其他区域 | 生产环境 | paas | 生产环境 |
+
+### 容器云集群 (容器云) 网段分布
+
+| 区域 | env_cnp | env_zh | 网段 | 节点数 |
+|------|---------|--------|------|--------|
+| 保定 | portal-cluster | 管理环境 | 10.245.16.x, 10.246.128.x, 10.246.7.x, 10.255.20.x | 11 |
+| 保定 | 保定AI生产环境01 | AI生产环境 | 10.246.4.x, 10.255.132.x, 10.255.66.x | 20 |
+| 保定 | 保定生产环境01 | 生产环境 | 10.245.16.x, 10.246.10.x, 10.255.20.x | 65 |
+| 保定 | 保定生产环境02 | 生产环境02 | 10.245.16.x, 10.246.13.x | 37 |
+| 保定 | 保定预发布环境01 | 预发布环境 | 10.245.16.x, 10.246.104.x, 10.255.20.x | 13 |
+| 保定 | (无标签) | 生产环境 | 10.246.9.x | 4 |
+| chongqing | - | 生产环境 | 10.35.131.x | 16 |
+| daye | - | 生产环境 | 10.70.118.x | 8 |
+| pinghu | - | 生产环境 | 10.55.129.x | 13 |
+| thailand | - | 生产环境 | 10.136.130.x | 9 |
+| yangzhong | - | 生产环境 | 10.38.13.x, 10.38.14.x | 10 |
+
+### PAAS 数据源 (http://thanos.paas.gwm.cn) 网段分布
+
+| 网段 | 区域 | env_zh | 节点数 |
+|------|------|--------|--------|
+| 10.245.16.x | baoding (保定) | 生产环境 | 6 |
+| 10.255.23.x | baoding (保定) | 生产环境 | 33 |
+| 10.255.131.x | baoding (保定) | 预发布环境 | 1 |
+| 10.255.23.x | baoding (保定) | 预发布环境 | 7 |
+| 10.136.130.x | thailand (泰国) | 生产环境 | 9 |
+| 10.35.131.x | chongqing (重庆) | 生产环境 | 16 |
+| 10.38.13.x | yangzhong (扬中) | 生产环境 | 8 |
+| 10.38.14.x | yangzhong (扬中) | 生产环境 | 2 |
+| 10.55.129.x | pinghu (平湖) | 生产环境 | 13 |
+| 10.70.118.x | daye (大冶) | 生产环境 | 8 |
+
+> 注：40.x.x.x 为 Pod IP，无需关注
+
+#### 按区域查询示例 (paas)
+
+```bash
+# 查询保定生产环境节点
+node scripts/cli.js query 'up{region="baoding",env_zh="生产环境"}' -i paas
+
+# 查询大冶生产环境节点
+node scripts/cli.js query 'up{region="daye",env_zh="生产环境"}' -i paas
+```
+
+#### 按 env_cnp 查询示例 (容器云)
+
+```bash
+# 查询保定生产环境01所有节点
+node scripts/cli.js query 'up{region="baoding",env_cnp="保定生产环境01"}' -i portal
+
+# 查询保定AI生产环境01节点
+node scripts/cli.js query 'up{region="baoding",env_cnp="保定AI生产环境01"}' -i portal
+```
+
 ## 核心规则
 
 **查询 CPU、内存、磁盘、负载、网络等趋势指标时，必须用 `chart.js` 生成折线图卡片，不要只用文字回复数字。**
@@ -45,7 +143,7 @@ node scripts/chart.js --metric pod_cpu \
   --pods "gwm-workbench-prod-gateway.*" \
   --range 1h --chat-jid "$CNP_BOT_CHAT_JID"
 
-# 步骤 2：查当前值（PromQL 直接查，用 portal 因为是保定生产环境）
+# 步骤 2：查当前值（PromQL 直接查，用 容器云 因为是保定生产环境）
 node scripts/cli.js query \
   'sum(irate(container_cpu_usage_seconds_total{namespace="gwm-workbench-prod",pod=~"gwm-workbench-prod-gateway.*",image!=""}[5m])) by (pod) / sum(container_spec_cpu_quota{namespace="gwm-workbench-prod",pod=~"gwm-workbench-prod-gateway.*",image!=""}/100000) by (pod) * 100' \
   -i portal
@@ -88,7 +186,7 @@ node scripts/chart.js --metric disk --instances "10.255.23.41" --range 1h --data
 | `--metric` | ✓ | — | 指标名称 |
 | `--instances` | ✓ | — | 逗号分隔的节点 IP（不带端口） |
 | `--range` | — | `1h` | 时间范围：`15m` / `1h` / `6h` / `24h` |
-| `--datasource` | — | 按 IP 自动检测 | 强制指定 `portal` 或 `paas` |
+| `--datasource` | — | 按 IP 自动检测 | 强制指定 `容器云` 或 `paas` |
 | `--chat-jid` | ✓ | `$CNP_BOT_CHAT_JID` | 目标会话 JID |
 
 ---
@@ -155,23 +253,23 @@ node scripts/chart.js --metric pod_memory_limit \
 | `--namespace` | — | K8s Namespace 名称（不填查全部） |
 | `--pods` | — | Pod 名称正则，前缀匹配用 `"prefix.*"`（不填查全部） |
 | `--range` | — | 时间范围，默认 `1h` |
-| `--datasource` | — | 强制指定 `portal` 或 `paas`（默认自动判断） |
+| `--datasource` | — | 强制指定 `容器云` 或 `paas`（默认自动判断） |
 | `--chat-jid` | ✓ | 目标会话 JID |
 
 > Pod 指标**不需要** `--instances`，按 region + env 查询集群数据。
 
 ---
 
-## 三、数据源选择规则
+## 三、数据源选择规则（容器云/paas）
 
 ### 快速记忆
 
-- **portal**（无需鉴权）：保定 管理环境 / 生产环境 / AI生产环境
+- **容器云**（无需鉴权）：保定 管理环境 / 生产环境 / AI生产环境
 - **paas**（admin/paas@123.com）：保定 测试环境 / 预发布环境 + 所有其他区域生产环境
 
 ### 节点 IP → 数据源对照
 
-**portal 数据源** (http://10.255.20.242:8000)：
+**容器云数据源** (http://10.255.20.242:8000)：
 | 环境 | 典型网段 |
 |------|---------|
 | 保定 管理环境 | 10.245.16.1-3, 10.245.16.64, 10.246.7.83-84, 10.246.128.50-51, 10.255.20.107-109 |
@@ -192,7 +290,7 @@ node scripts/chart.js --metric pod_memory_limit \
 | 徐水 生产环境 | 10.4.122.x |
 
 > `chart.js` 节点指标会根据 IP 自动检测数据源，无需手动指定。
-> Pod 指标自动判断规则：测试环境 → paas；管理/生产/AI生产/预发布环境 → portal（如需覆盖用 `--datasource`）。
+> Pod 指标自动判断规则：测试环境 → paas；管理/生产/AI生产/预发布环境 → 容器云（如需覆盖用 `--datasource`）。
 
 ### 区域 (--region)
 `baoding` / `daye` / `jingmen` / `longyan` / `rizhao` / `taizhou` / `tianjin` / `xushui`

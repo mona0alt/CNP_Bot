@@ -325,4 +325,149 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
     expect(messageItems[0]?.textContent).toContain('tool-1');
     expect(messageItems[0]?.textContent).toContain('tool-2');
   });
+
+  it('切换多次页面 + tool_result + 最终message后，仍只保留一张卡片并合并最终文本', async () => {
+    await act(async () => {
+      root.render(
+        <AuthContext.Provider value={authValue}>
+          <StreamingMessagesProvider>
+            <Chat />
+          </StreamingMessagesProvider>
+        </AuthContext.Provider>,
+      );
+    });
+
+    await flush();
+
+    const selectA = container.querySelector(
+      '[data-testid="select-web\\:a"]',
+    ) as HTMLButtonElement | null;
+    const selectB = container.querySelector(
+      '[data-testid="select-web\\:b"]',
+    ) as HTMLButtonElement | null;
+
+    expect(selectA).not.toBeNull();
+    expect(selectB).not.toBeNull();
+
+    await act(async () => {
+      selectA!.click();
+    });
+    await flush();
+
+    const socketA1 = getLatestSocketForJid('web:a');
+
+    await act(async () => {
+      socketA1.emitMessage({
+        type: 'stream_event',
+        chat_jid: 'web:a',
+        event: {
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'tool_use',
+            id: 'tool-merge-1',
+            name: 'Bash',
+            input: {},
+          },
+        },
+      });
+    });
+    await flush();
+
+    await act(async () => {
+      selectB!.click();
+    });
+    await flush();
+
+    await act(async () => {
+      selectA!.click();
+    });
+    await flush();
+
+    const socketA2 = getLatestSocketForJid('web:a');
+    expect(socketA2).not.toBe(socketA1);
+
+    await act(async () => {
+      socketA2.emitMessage({
+        type: 'stream_event',
+        chat_jid: 'web:a',
+        event: {
+          type: 'tool_result',
+          tool_use_id: 'tool-merge-1',
+          content: 'partial-output',
+        },
+      });
+    });
+    await flush();
+
+    let messageItems = container.querySelectorAll('[data-testid="message-item"]');
+    expect(messageItems).toHaveLength(1);
+    expect(messageItems[0]?.textContent).toContain('tool-merge-1');
+    expect(messageItems[0]?.textContent).toContain('partial-output');
+
+    await act(async () => {
+      selectB!.click();
+    });
+    await flush();
+
+    await act(async () => {
+      selectA!.click();
+    });
+    await flush();
+
+    const socketA3 = getLatestSocketForJid('web:a');
+
+    await act(async () => {
+      socketA3.emitMessage({
+        type: 'message',
+        data: {
+          id: 'final-a-1',
+          chat_jid: 'web:a',
+          sender_name: 'CNP-Bot',
+          content: '最终文本回复',
+          timestamp: '2099-03-18T08:00:50.000Z',
+          is_from_me: false,
+          is_bot_message: true,
+        },
+      });
+    });
+    await flush();
+
+    messageItems = container.querySelectorAll('[data-testid="message-item"]');
+    expect(messageItems).toHaveLength(1);
+
+    const mergedText = messageItems[0]?.textContent ?? '';
+    expect(mergedText).toContain('tool-merge-1');
+    expect(mergedText).toContain('partial-output');
+    expect(mergedText).toContain('最终文本回复');
+
+    expect(messageItems[0]?.getAttribute('data-messageid')).toBe('final-a-1');
+
+    persistedMessages.set('web:a', [
+      {
+        id: 'final-a-1',
+        chat_jid: 'web:a',
+        sender_name: 'CNP-Bot',
+        content: '最终文本回复',
+        timestamp: '2099-03-18T08:00:50.000Z',
+        is_from_me: false,
+        is_bot_message: true,
+      },
+    ]);
+
+    await act(async () => {
+      selectB!.click();
+    });
+    await flush();
+
+    await act(async () => {
+      selectA!.click();
+    });
+    await flush();
+
+    messageItems = container.querySelectorAll('[data-testid="message-item"]');
+    expect(messageItems).toHaveLength(1);
+    expect(messageItems[0]?.getAttribute('data-messageid')).toBe('final-a-1');
+    expect(messageItems[0]?.textContent ?? '').toContain('最终文本回复');
+  });
 });

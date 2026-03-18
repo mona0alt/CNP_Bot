@@ -2,7 +2,7 @@
   "instances": [
     {
       "name": "portal",
-      "url": "http://10.255.20.242:8000"
+      "url": "http://10.246.10.199:8481/select/0/prometheus/"
     },
     {
       "name": "paas",
