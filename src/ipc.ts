@@ -10,7 +10,7 @@ import {
   TIMEZONE,
 } from './config.js';
 import { AvailableGroup } from './container-runner.js';
-import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
+import { createTask, deleteTask, getTaskById, insertCommandAuditLog, updateTask } from './db.js';
 import { isValidGroupFolder, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
@@ -46,6 +46,65 @@ export interface IpcDeps {
 
 const ASK_CONFIRM_POLL_MS = 500;
 let askConfirmWatcherRunning = false;
+
+/**
+ * Scan confirm_requests/ and ask_requests/ directories for all registered groups
+ * and reload any unprocessed requests into memory after a host restart.
+ */
+export function loadPendingInteractiveRequests(
+  registeredGroupsFn: () => Record<string, RegisteredGroup>,
+  onAskUser: (groupFolder: string, req: IpcAskRequest) => void,
+  onConfirmBash: (groupFolder: string, req: IpcConfirmRequest) => void,
+): void {
+  const groups = registeredGroupsFn();
+  const folders = new Set<string>();
+  for (const group of Object.values(groups)) {
+    folders.add(group.folder);
+  }
+
+  for (const folder of folders) {
+    let groupIpcDir: string;
+    try {
+      groupIpcDir = resolveGroupIpcPath(folder);
+    } catch {
+      continue;
+    }
+
+    const askDir = path.join(groupIpcDir, 'ask_requests');
+    if (fs.existsSync(askDir)) {
+      for (const file of fs.readdirSync(askDir).filter((f) => f.endsWith('.json'))) {
+        try {
+          const data = JSON.parse(
+            fs.readFileSync(path.join(askDir, file), 'utf-8'),
+          ) as IpcAskRequest;
+          if (data.type === 'ask_user' && data.requestId && data.question) {
+            onAskUser(folder, data);
+          }
+        } catch {
+          /* skip unreadable files */
+        }
+      }
+    }
+
+    const confirmDir = path.join(groupIpcDir, 'confirm_requests');
+    if (fs.existsSync(confirmDir)) {
+      for (const file of fs.readdirSync(confirmDir).filter((f) => f.endsWith('.json'))) {
+        try {
+          const data = JSON.parse(
+            fs.readFileSync(path.join(confirmDir, file), 'utf-8'),
+          ) as IpcConfirmRequest;
+          if (data.type === 'confirm_bash' && data.requestId && data.command) {
+            onConfirmBash(folder, data);
+          }
+        } catch {
+          /* skip unreadable files */
+        }
+      }
+    }
+  }
+
+  logger.info('Loaded pending interactive requests from disk');
+}
 
 /**
  * Start a fast-poll watcher for ask_requests and confirm_requests from all groups.
@@ -139,6 +198,31 @@ export function startAskConfirmWatcher(
       } catch (err) {
         logger.error({ err, folder }, 'Error reading confirm_requests dir');
       }
+
+      // Clean up orphaned response files (container crashed before consuming them)
+      const ORPHAN_TTL_MS = 10 * 60 * 1000; // 10 minutes
+      for (const subdir of ['confirm_responses', 'ask_responses']) {
+        const responseDir = path.join(groupIpcDir, subdir);
+        try {
+          if (fs.existsSync(responseDir)) {
+            const now = Date.now();
+            for (const file of fs.readdirSync(responseDir).filter((f) => f.endsWith('.json'))) {
+              const filePath = path.join(responseDir, file);
+              try {
+                const { mtimeMs } = fs.statSync(filePath);
+                if (now - mtimeMs > ORPHAN_TTL_MS) {
+                  fs.unlinkSync(filePath);
+                  logger.debug({ filePath }, 'Deleted orphaned response file');
+                }
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
     }
 
     setTimeout(poll, ASK_CONFIRM_POLL_MS);
@@ -174,11 +258,14 @@ export function writeAskResponse(
 
 /**
  * Write a confirm response so the container script can read it.
+ * Also records the decision in the audit log.
  */
 export function writeConfirmResponse(
   groupFolder: string,
   requestId: string,
   approved: boolean,
+  command?: string,
+  reason?: string,
 ): boolean {
   try {
     const groupIpcDir = resolveGroupIpcPath(groupFolder);
@@ -189,6 +276,13 @@ export function writeConfirmResponse(
     fs.writeFileSync(tempPath, JSON.stringify({ approved }));
     fs.renameSync(tempPath, filePath);
     logger.debug({ groupFolder, requestId, approved }, 'Wrote confirm response');
+    if (command) {
+      try {
+        insertCommandAuditLog({ group_folder: groupFolder, command, reason, approved });
+      } catch (auditErr) {
+        logger.warn({ auditErr, groupFolder }, 'Failed to write audit log');
+      }
+    }
     return true;
   } catch (err) {
     logger.error(

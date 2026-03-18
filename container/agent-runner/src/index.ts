@@ -293,15 +293,15 @@ function createDangerousCommandHook(): HookCallback {
     );
 
     try {
-      const { execSync } = await import('child_process');
-      execSync(
-        `${JSON.stringify(confirmBin)} ${JSON.stringify(command)} ${JSON.stringify(reason)}`,
-        {
-          stdio: 'inherit',
-          timeout: 310000,
-        },
-      );
-      return {};
+      const { spawnSync } = await import('child_process');
+      const result = spawnSync(confirmBin, [command, reason], {
+        stdio: 'inherit',
+        timeout: 310_000,
+      });
+      const code = result.status;
+      if (code === 0) return {};
+      // Fall through to denial logic below
+      throw Object.assign(new Error(`cnp-confirm exited with code ${String(code)}`), { status: code });
     } catch (err) {
       const error = err as { status?: number; code?: number | string; message?: string };
       const code = error.status ?? error.code;

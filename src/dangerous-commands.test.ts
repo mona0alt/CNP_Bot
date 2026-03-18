@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { findDangerousCommandReason } from './dangerous-commands.js';
+import { findDangerousCommandReason } from '../container/agent-runner/src/dangerous-commands.js';
 
 describe('dangerous command detection', () => {
   it('detects recursive delete', () => {

@@ -15,19 +15,29 @@ RESPONSE_DIR="${IPC_ROOT}/confirm_responses"
 
 mkdir -p "$REQUEST_DIR" "$RESPONSE_DIR"
 
-REQUEST_ID="$(node -e "console.log(require('crypto').randomUUID())")"
+# Generate a UUID without Node.js
+if command -v uuidgen &>/dev/null; then
+  REQUEST_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+else
+  REQUEST_ID="$(cat /proc/sys/kernel/random/uuid)"
+fi
 
 REQUEST_FILE="${REQUEST_DIR}/${REQUEST_ID}.json"
 REQUEST_TMP_FILE="${REQUEST_FILE}.tmp"
-node -e "
-const fs = require('fs');
-const [requestFile, tempFile, requestId, chatJid, command, reason] = process.argv.slice(1);
-fs.writeFileSync(
-  tempFile,
-  JSON.stringify({ type: 'confirm_bash', requestId, chatJid, command, reason }),
-);
-fs.renameSync(tempFile, requestFile);
-" "$REQUEST_FILE" "$REQUEST_TMP_FILE" "$REQUEST_ID" "$CHAT_JID" "$COMMAND" "$REASON"
+
+# Build JSON with printf — no Node.js required.
+# Values are escaped by replacing \ with \\ and " with \".
+escape_json() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+CMD_ESC="$(escape_json "$COMMAND")"
+REASON_ESC="$(escape_json "$REASON")"
+JID_ESC="$(escape_json "$CHAT_JID")"
+
+printf '{"type":"confirm_bash","requestId":"%s","chatJid":"%s","command":"%s","reason":"%s"}' \
+  "$REQUEST_ID" "$JID_ESC" "$CMD_ESC" "$REASON_ESC" > "$REQUEST_TMP_FILE"
+mv "$REQUEST_TMP_FILE" "$REQUEST_FILE"
 
 RESPONSE_FILE="${RESPONSE_DIR}/${REQUEST_ID}.json"
 TIMEOUT_SECONDS="${CNP_CONFIRM_TIMEOUT_SECONDS:-300}"
@@ -35,11 +45,9 @@ START_TS="$(date +%s)"
 
 while true; do
   if [[ -f "$RESPONSE_FILE" ]]; then
-    if APPROVED="$(node -e "
-const fs = require('fs');
-const data = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
-console.log(data.approved ? 'true' : 'false');
-" "$RESPONSE_FILE" 2>/dev/null)"; then
+    # Read the approved field with grep/sed — no Node.js
+    APPROVED="$(grep -o '"approved":[^,}]*' "$RESPONSE_FILE" 2>/dev/null | sed 's/"approved"://' | tr -d ' ' || true)"
+    if [[ -n "$APPROVED" ]]; then
       rm -f "$RESPONSE_FILE"
       if [[ "$APPROVED" == "true" ]]; then
         exit 0
@@ -47,8 +55,7 @@ console.log(data.approved ? 'true' : 'false');
       exit 2
     fi
 
-    # Host may still be writing the JSON file. Retry on the next poll tick
-    # instead of failing the whole tool invocation.
+    # Host may still be writing the JSON file. Retry on the next poll tick.
     sleep 0.1
     continue
   fi

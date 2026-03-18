@@ -95,6 +95,16 @@ function createSchema(database: Database.Database): void {
       updated_at TEXT NOT NULL,
       last_login TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS command_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_folder TEXT NOT NULL,
+      command TEXT NOT NULL,
+      reason TEXT,
+      approved INTEGER NOT NULL,
+      timestamp TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_group ON command_audit_log(group_folder, timestamp);
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -124,12 +134,6 @@ function createSchema(database: Database.Database): void {
     database.exec(`ALTER TABLE chats ADD COLUMN channel TEXT`);
     database.exec(`ALTER TABLE chats ADD COLUMN is_group INTEGER DEFAULT 0`);
     // Backfill from JID patterns
-    database.exec(
-      `UPDATE chats SET channel = 'web', is_group = 1 WHERE jid LIKE '%@g.us'`,
-    );
-    database.exec(
-      `UPDATE chats SET channel = 'web', is_group = 0 WHERE jid LIKE '%@s.whatsapp.net'`,
-    );
     database.exec(
       `UPDATE chats SET channel = 'discord', is_group = 1 WHERE jid LIKE 'dc:%'`,
     );
@@ -992,4 +996,24 @@ export function updateUserLastLogin(id: string): void {
 
 export function deleteUser(id: string): void {
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
+}
+
+// --- Command audit log ---
+
+export function insertCommandAuditLog(entry: {
+  group_folder: string;
+  command: string;
+  reason?: string;
+  approved: boolean;
+}): void {
+  db.prepare(
+    `INSERT INTO command_audit_log (group_folder, command, reason, approved, timestamp)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(
+    entry.group_folder,
+    entry.command,
+    entry.reason ?? null,
+    entry.approved ? 1 : 0,
+    new Date().toISOString(),
+  );
 }

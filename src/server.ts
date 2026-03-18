@@ -428,7 +428,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         timestamp,
         undefined,
         'web',
-        jid.endsWith('@g.us'),
+        false,
       );
       storeMessageDirect(msg);
       if (opts.sendMessage) {
@@ -857,7 +857,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
                   timestamp,
                   undefined,
                   'web',
-                  jid.endsWith('@g.us'),
+                  false,
                 );
                 storeMessageDirect(msg);
                 if (opts.sendMessage) {

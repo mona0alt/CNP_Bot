@@ -6,7 +6,7 @@
 
 CNP-Bot 是一个面向运维场景的智能体平台，核心能力：
 
-- **多渠道接入**：WhatsApp、Web Chat，可扩展 Telegram / Discord
+- **多渠道接入**：Web Chat，可扩展 Telegram / Discord
 - **容器隔离**：每个对话组在独立 Linux 容器中运行，文件系统互不干扰
 - **运维工具集成**：内置 Bash、浏览器自动化、Prometheus 监控等工具
 - **定时任务**：支持 cron / interval / once 三种调度模式
@@ -17,7 +17,7 @@ CNP-Bot 是一个面向运维场景的智能体平台，核心能力：
 | 文件 | 用途 |
 |------|------|
 | `src/index.ts` | 编排核心：状态管理、消息循环、Agent 调用 |
-| `src/channels/whatsapp.ts` | WhatsApp 连接、认证、收发消息 |
+| `src/channels/web.ts` | Web Chat 频道实现 |
 | `src/ipc.ts` | IPC 监听与任务处理 |
 | `src/router.ts` | 消息格式化与出站路由 |
 | `src/config.ts` | 触发词规则、路径、轮询间隔等配置 |

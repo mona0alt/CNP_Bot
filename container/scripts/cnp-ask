@@ -14,19 +14,27 @@ RESPONSE_DIR="${IPC_ROOT}/ask_responses"
 
 mkdir -p "$REQUEST_DIR" "$RESPONSE_DIR"
 
-REQUEST_ID="$(node -e "console.log(require('crypto').randomUUID())")"
+# Generate a UUID without Node.js
+if command -v uuidgen &>/dev/null; then
+  REQUEST_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+else
+  REQUEST_ID="$(cat /proc/sys/kernel/random/uuid)"
+fi
 
 REQUEST_FILE="${REQUEST_DIR}/${REQUEST_ID}.json"
 REQUEST_TMP_FILE="${REQUEST_FILE}.tmp"
-node -e "
-const fs = require('fs');
-const [requestFile, tempFile, requestId, chatJid, question] = process.argv.slice(1);
-fs.writeFileSync(
-  tempFile,
-  JSON.stringify({ type: 'ask_user', requestId, chatJid, question }),
-);
-fs.renameSync(tempFile, requestFile);
-" "$REQUEST_FILE" "$REQUEST_TMP_FILE" "$REQUEST_ID" "$CHAT_JID" "$QUESTION"
+
+# Build JSON with printf — no Node.js required.
+escape_json() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+QUESTION_ESC="$(escape_json "$QUESTION")"
+JID_ESC="$(escape_json "$CHAT_JID")"
+
+printf '{"type":"ask_user","requestId":"%s","chatJid":"%s","question":"%s"}' \
+  "$REQUEST_ID" "$JID_ESC" "$QUESTION_ESC" > "$REQUEST_TMP_FILE"
+mv "$REQUEST_TMP_FILE" "$REQUEST_FILE"
 
 RESPONSE_FILE="${RESPONSE_DIR}/${REQUEST_ID}.json"
 TIMEOUT_SECONDS="${CNP_ASK_TIMEOUT_SECONDS:-300}"
@@ -34,18 +42,16 @@ START_TS="$(date +%s)"
 
 while true; do
   if [[ -f "$RESPONSE_FILE" ]]; then
-    if ANSWER="$(node -e "
-const fs = require('fs');
-const data = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
-console.log(data.answer || '');
-" "$RESPONSE_FILE" 2>/dev/null)"; then
+    # Extract the answer field with sed — no Node.js.
+    # The response JSON is: {"answer":"<value>"}
+    ANSWER="$(sed 's/.*"answer":"\(.*\)".*/\1/' "$RESPONSE_FILE" 2>/dev/null || true)"
+    if [[ -n "$ANSWER" ]] || grep -q '"answer":""' "$RESPONSE_FILE" 2>/dev/null; then
       rm -f "$RESPONSE_FILE"
       printf '%s\n' "$ANSWER"
       exit 0
     fi
 
-    # Host may still be writing the JSON file. Retry on the next poll tick
-    # instead of failing the whole tool invocation.
+    # Host may still be writing the JSON file. Retry on the next poll tick.
     sleep 0.1
     continue
   fi

@@ -8,29 +8,13 @@ beforeEach(() => {
   _setRegisteredGroups({});
 });
 
-// --- JID ownership patterns ---
-
-describe('JID ownership patterns', () => {
-  // These test the patterns that will become ownsJid() on the Channel interface
-
-  it('WhatsApp group JID: ends with @g.us', () => {
-    const jid = '12345678@g.us';
-    expect(jid.endsWith('@g.us')).toBe(true);
-  });
-
-  it('WhatsApp DM JID: ends with @s.whatsapp.net', () => {
-    const jid = '12345678@s.whatsapp.net';
-    expect(jid.endsWith('@s.whatsapp.net')).toBe(true);
-  });
-});
-
 // --- getAvailableGroups ---
 
 describe('getAvailableGroups', () => {
   it('returns only groups, excludes DMs', () => {
-    storeChatMetadata('group1@g.us', '2024-01-01T00:00:01.000Z', 'Group 1', 'whatsapp', true);
-    storeChatMetadata('user@s.whatsapp.net', '2024-01-01T00:00:02.000Z', 'User DM', 'whatsapp', false);
-    storeChatMetadata('group2@g.us', '2024-01-01T00:00:03.000Z', 'Group 2', 'whatsapp', true);
+    storeChatMetadata('group1@g.us', '2024-01-01T00:00:01.000Z', 'Group 1', 'web', true);
+    storeChatMetadata('user@s.whatsapp.net', '2024-01-01T00:00:02.000Z', 'User DM', 'web', false);
+    storeChatMetadata('group2@g.us', '2024-01-01T00:00:03.000Z', 'Group 2', 'web', true);
 
     const groups = getAvailableGroups();
     expect(groups).toHaveLength(2);
@@ -41,7 +25,7 @@ describe('getAvailableGroups', () => {
 
   it('excludes __group_sync__ sentinel', () => {
     storeChatMetadata('__group_sync__', '2024-01-01T00:00:00.000Z');
-    storeChatMetadata('group@g.us', '2024-01-01T00:00:01.000Z', 'Group', 'whatsapp', true);
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:01.000Z', 'Group', 'web', true);
 
     const groups = getAvailableGroups();
     expect(groups).toHaveLength(1);
@@ -49,8 +33,8 @@ describe('getAvailableGroups', () => {
   });
 
   it('marks registered groups correctly', () => {
-    storeChatMetadata('reg@g.us', '2024-01-01T00:00:01.000Z', 'Registered', 'whatsapp', true);
-    storeChatMetadata('unreg@g.us', '2024-01-01T00:00:02.000Z', 'Unregistered', 'whatsapp', true);
+    storeChatMetadata('reg@g.us', '2024-01-01T00:00:01.000Z', 'Registered', 'web', true);
+    storeChatMetadata('unreg@g.us', '2024-01-01T00:00:02.000Z', 'Unregistered', 'web', true);
 
     _setRegisteredGroups({
       'reg@g.us': {
@@ -70,9 +54,9 @@ describe('getAvailableGroups', () => {
   });
 
   it('returns groups ordered by most recent activity', () => {
-    storeChatMetadata('old@g.us', '2024-01-01T00:00:01.000Z', 'Old', 'whatsapp', true);
-    storeChatMetadata('new@g.us', '2024-01-01T00:00:05.000Z', 'New', 'whatsapp', true);
-    storeChatMetadata('mid@g.us', '2024-01-01T00:00:03.000Z', 'Mid', 'whatsapp', true);
+    storeChatMetadata('old@g.us', '2024-01-01T00:00:01.000Z', 'Old', 'web', true);
+    storeChatMetadata('new@g.us', '2024-01-01T00:00:05.000Z', 'New', 'web', true);
+    storeChatMetadata('mid@g.us', '2024-01-01T00:00:03.000Z', 'Mid', 'web', true);
 
     const groups = getAvailableGroups();
     expect(groups[0].jid).toBe('new@g.us');
@@ -86,7 +70,7 @@ describe('getAvailableGroups', () => {
     // Explicitly non-group with unusual JID
     storeChatMetadata('custom:abc', '2024-01-01T00:00:02.000Z', 'Custom DM', 'custom', false);
     // A real group for contrast
-    storeChatMetadata('group@g.us', '2024-01-01T00:00:03.000Z', 'Group', 'whatsapp', true);
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:03.000Z', 'Group', 'web', true);
 
     const groups = getAvailableGroups();
     expect(groups).toHaveLength(1);

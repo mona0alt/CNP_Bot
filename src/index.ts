@@ -47,6 +47,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import {
+  loadPendingInteractiveRequests,
   startAskConfirmWatcher,
   startIpcWatcher,
   type IpcAskRequest,
@@ -340,11 +341,58 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
+  // Track tool_use blocks from stream events so they can be persisted with the final message.
+  // The frontend merges these in-memory, but the DB only stores the final text result.
+  // By accumulating here, we ensure tool cards survive session switches / page reloads.
+  const pendingStreamTools = new Map<
+    number,
+    { id: string; name: string; inputJson: string }
+  >();
+  const completedStreamTools: Array<{
+    type: 'tool_use';
+    id: string;
+    name: string;
+    input: unknown;
+    status: 'executed';
+  }> = [];
+
   const agentResult = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.streamEvent) {
       const event = result.streamEvent.event;
       if (event) {
+        // Track tool_use block lifecycle for persistence
+        if (
+          event.type === 'content_block_start' &&
+          event.content_block?.type === 'tool_use'
+        ) {
+          pendingStreamTools.set(event.index, {
+            id: event.content_block.id,
+            name: event.content_block.name,
+            inputJson: '',
+          });
+        } else if (
+          event.type === 'content_block_delta' &&
+          event.delta?.type === 'input_json_delta'
+        ) {
+          const pending = pendingStreamTools.get(event.index);
+          if (pending) pending.inputJson += event.delta.partial_json ?? '';
+        } else if (event.type === 'content_block_stop') {
+          const pending = pendingStreamTools.get(event.index);
+          if (pending) {
+            let input: unknown = {};
+            try { input = JSON.parse(pending.inputJson); } catch { /* use empty */ }
+            completedStreamTools.push({
+              type: 'tool_use' as const,
+              id: pending.id,
+              name: pending.name,
+              input,
+              status: 'executed' as const,
+            });
+            pendingStreamTools.delete(event.index);
+          }
+        }
+
         // Forward raw event to channel if supported (for rich UI)
         if (channel.streamEvent) {
           await channel.streamEvent(chatJid, event);
@@ -375,8 +423,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           : JSON.stringify(result.result);
 
       let finalContent: string;
-      if (raw.trim().startsWith('[') && raw.trim().endsWith(']')) {
+      const isAlreadyArray = raw.trim().startsWith('[') && raw.trim().endsWith(']');
+      if (isAlreadyArray) {
+        // Container already serialized blocks (including any tool_use blocks)
         finalContent = raw;
+        completedStreamTools.length = 0;
+      } else if (completedStreamTools.length > 0) {
+        // Merge accumulated tool_use blocks with the final text so they persist in DB
+        const cleanText = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        const blocks: unknown[] = [...completedStreamTools];
+        if (cleanText) blocks.push({ type: 'text', text: cleanText });
+        finalContent = JSON.stringify(blocks);
+        completedStreamTools.length = 0;
       } else {
         finalContent = raw
           .replace(/<internal>[\s\S]*?<\/internal>/g, '')
@@ -863,7 +921,14 @@ async function main(): Promise<void> {
       const jid = Object.keys(registeredGroups).find(
         (k) => registeredGroups[k]?.folder === groupFolder,
       );
-      const ok = writeConfirmResponse(groupFolder, requestId, approved);
+      const pending = jid ? pendingConfirmByJid.get(jid)?.get(requestId) : undefined;
+      const ok = writeConfirmResponse(
+        groupFolder,
+        requestId,
+        approved,
+        pending?.command,
+        pending?.reason,
+      );
       if (ok && jid) {
         removePendingConfirm(jid, requestId);
       }
@@ -984,6 +1049,23 @@ async function main(): Promise<void> {
       }
     },
   );
+  // Reload any confirm/ask requests that arrived while the host was offline
+  loadPendingInteractiveRequests(
+    () => registeredGroups,
+    (groupFolder, req) => {
+      const jid = Object.keys(registeredGroups).find(
+        (k) => registeredGroups[k]?.folder === groupFolder,
+      );
+      if (jid) upsertPendingAsk(jid, req);
+    },
+    (groupFolder, req) => {
+      const jid = Object.keys(registeredGroups).find(
+        (k) => registeredGroups[k]?.folder === groupFolder,
+      );
+      if (jid) upsertPendingConfirm(jid, req);
+    },
+  );
+
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {

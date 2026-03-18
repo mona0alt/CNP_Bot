@@ -232,6 +232,8 @@ export function useChatWebSocket({
                   newPrev[msgIndex] = { ...msg, content: JSON.stringify(updatedBlocks) };
                   return newPrev;
                 }
+                // No target found — discard stale tool_result, do not fall through
+                return prev;
               }
 
               const activeStreamIndex = findActiveStreamIndex(prev);
@@ -351,18 +353,13 @@ export function useChatWebSocket({
 
                 const streamMessage = prev[activeStreamIndex];
                 const streamBlocks = parseMessageContent(streamMessage.content);
-                const hasTools = streamBlocks.some(b => b.type === 'tool_use');
-                if (hasTools) {
+                const nonTextBlocks = streamBlocks.filter(b => b.type !== 'text');
+                if (nonTextBlocks.length > 0) {
+                  // Always prefer stream's tool blocks: they carry live status/result from
+                  // tool_result events. Take text from the DB message (authoritative, clean).
                   const finalBlocks = parseMessageContent(msg.content);
-                  const nonTextBlocks = streamBlocks.filter(b => b.type !== 'text');
                   const textBlocks = finalBlocks.filter(b => b.type === 'text');
-                  if (nonTextBlocks.length > 0) {
-                    const finalHasNonText = finalBlocks.some(b => b.type !== 'text');
-                    if (!finalHasNonText) {
-                      const mergedBlocks = [...nonTextBlocks, ...textBlocks];
-                      msg.content = JSON.stringify(mergedBlocks);
-                    }
-                  }
+                  msg.content = JSON.stringify([...nonTextBlocks, ...textBlocks]);
                 }
                 messageIdsRef.current.add(msg.id);
                 activeStreamIdRef.current = null;
