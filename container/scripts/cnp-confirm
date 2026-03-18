@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+  echo "usage: cnp-confirm <command> <reason>" >&2
+  exit 1
+fi
+
+COMMAND="$1"
+REASON="$2"
+IPC_ROOT="${IPC_DIR:-/workspace/ipc}"
+CHAT_JID="${CNP_BOT_CHAT_JID:-}"
+REQUEST_DIR="${IPC_ROOT}/confirm_requests"
+RESPONSE_DIR="${IPC_ROOT}/confirm_responses"
+
+mkdir -p "$REQUEST_DIR" "$RESPONSE_DIR"
+
+REQUEST_ID="$(node -e "console.log(require('crypto').randomUUID())")"
+
+REQUEST_FILE="${REQUEST_DIR}/${REQUEST_ID}.json"
+REQUEST_TMP_FILE="${REQUEST_FILE}.tmp"
+node -e "
+const fs = require('fs');
+const [requestFile, tempFile, requestId, chatJid, command, reason] = process.argv.slice(1);
+fs.writeFileSync(
+  tempFile,
+  JSON.stringify({ type: 'confirm_bash', requestId, chatJid, command, reason }),
+);
+fs.renameSync(tempFile, requestFile);
+" "$REQUEST_FILE" "$REQUEST_TMP_FILE" "$REQUEST_ID" "$CHAT_JID" "$COMMAND" "$REASON"
+
+RESPONSE_FILE="${RESPONSE_DIR}/${REQUEST_ID}.json"
+TIMEOUT_SECONDS="${CNP_CONFIRM_TIMEOUT_SECONDS:-300}"
+START_TS="$(date +%s)"
+
+while true; do
+  if [[ -f "$RESPONSE_FILE" ]]; then
+    if APPROVED="$(node -e "
+const fs = require('fs');
+const data = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+console.log(data.approved ? 'true' : 'false');
+" "$RESPONSE_FILE" 2>/dev/null)"; then
+      rm -f "$RESPONSE_FILE"
+      if [[ "$APPROVED" == "true" ]]; then
+        exit 0
+      fi
+      exit 2
+    fi
+
+    # Host may still be writing the JSON file. Retry on the next poll tick
+    # instead of failing the whole tool invocation.
+    sleep 0.1
+    continue
+  fi
+
+  NOW_TS="$(date +%s)"
+  if (( NOW_TS - START_TS >= TIMEOUT_SECONDS )); then
+    echo "Timed out waiting for confirm response" >&2
+    exit 3
+  fi
+  sleep 0.5
+done

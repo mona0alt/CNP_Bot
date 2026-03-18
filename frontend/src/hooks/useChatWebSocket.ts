@@ -1,5 +1,13 @@
 import { useEffect, useRef, useCallback } from "react";
 import type { Message, ContentBlock } from "@/lib/types";
+import type {
+  AskUserRequest,
+  ConfirmBashRequest,
+} from "@/lib/interactive-events";
+import {
+  extractAskUserRequest,
+  extractConfirmBashRequest,
+} from "@/lib/interactive-events";
 import { parseMessageContent } from "@/lib/message-parser";
 import { applyEventToBlocks } from "@/lib/message-utils";
 
@@ -30,6 +38,10 @@ interface UseChatWebSocketOptions {
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setIsGenerating: (v: boolean) => void;
   onUnauthorized?: () => void | Promise<void>;
+  onAskUser?: (request: AskUserRequest) => void;
+  onConfirmBash?: (request: ConfirmBashRequest) => void;
+  onAskUserAck?: (requestId: string, ok: boolean, answer?: string) => void;
+  onConfirmBashAck?: (requestId: string, ok: boolean) => void;
 }
 
 export function useChatWebSocket({
@@ -39,6 +51,10 @@ export function useChatWebSocket({
   setMessages,
   setIsGenerating,
   onUnauthorized,
+  onAskUser,
+  onConfirmBash,
+  onAskUserAck,
+  onConfirmBashAck,
 }: UseChatWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const messageIdsRef = useRef<Set<string>>(new Set());
@@ -158,7 +174,43 @@ export function useChatWebSocket({
             sender?: string;
             is_bot_message?: boolean;
             timestamp?: string;
+            requestId?: string;
+            question?: string;
+            command?: string;
+            reason?: string;
+            ok?: boolean;
+            answer?: string;
           };
+
+          const askRequest = extractAskUserRequest(payload, jid);
+          if (askRequest) {
+            onAskUser?.(askRequest);
+            return;
+          }
+
+          const confirmRequest = extractConfirmBashRequest(payload, jid);
+          if (confirmRequest) {
+            onConfirmBash?.(confirmRequest);
+            return;
+          }
+
+          if (
+            payload.type === "ask_user_ack" &&
+            typeof payload.requestId === "string" &&
+            typeof payload.ok === "boolean"
+          ) {
+            onAskUserAck?.(payload.requestId, payload.ok, payload.answer);
+            return;
+          }
+
+          if (
+            payload.type === "confirm_bash_ack" &&
+            typeof payload.requestId === "string" &&
+            typeof payload.ok === "boolean"
+          ) {
+            onConfirmBashAck?.(payload.requestId, payload.ok);
+            return;
+          }
 
           if (payload.type === "stream_event" && payload.event && payload.chat_jid === jid) {
             const event = payload.event;
@@ -342,21 +394,52 @@ export function useChatWebSocket({
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [jid, token, apiBase, fetchMessages, findActiveStreamIndex, findLastMatchingBotMessageIndex, isStandaloneChartMessage, setMessages, setIsGenerating]); // findActiveStreamIndex is stable ([] deps)
+  }, [
+    jid,
+    token,
+    apiBase,
+    fetchMessages,
+    findActiveStreamIndex,
+    findLastMatchingBotMessageIndex,
+    isStandaloneChartMessage,
+    setMessages,
+    setIsGenerating,
+    onAskUser,
+    onConfirmBash,
+    onAskUserAck,
+    onConfirmBashAck,
+  ]); // findActiveStreamIndex is stable ([] deps)
+
+  const sendWsPayload = useCallback((payload: Record<string, unknown>) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload));
+      return true;
+    }
+    return false;
+  }, []);
 
   const sendMessage = useCallback((content: string) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "send", content }));
-    }
-  }, []);
+    return sendWsPayload({ type: "send", content });
+  }, [sendWsPayload]);
 
   const stopGenerating = useCallback(() => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "stop" }));
-    }
-  }, []);
+    return sendWsPayload({ type: "stop" });
+  }, [sendWsPayload]);
 
-  return { sendMessage, stopGenerating, fetchMessages };
+  const sendAskUserResponse = useCallback((requestId: string, answer: string) => {
+    return sendWsPayload({ type: "ask_user_response", requestId, answer });
+  }, [sendWsPayload]);
+
+  const sendConfirmBashResponse = useCallback((requestId: string, approved: boolean) => {
+    return sendWsPayload({ type: "confirm_bash_response", requestId, approved });
+  }, [sendWsPayload]);
+
+  return {
+    sendMessage,
+    stopGenerating,
+    sendAskUserResponse,
+    sendConfirmBashResponse,
+    fetchMessages,
+  };
 }

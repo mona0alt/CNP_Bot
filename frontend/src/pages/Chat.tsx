@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessageSquare, Trash2 } from 'lucide-react';
 import type { Chat, Message, SlashCommand } from '@/lib/types';
+import { AskUserCard } from '@/components/AskUserCard';
+import { ConfirmBashCard } from '@/components/ConfirmBashCard';
 import { StatusSidebar } from '@/components/StatusSidebar';
 import { ChatSidebar, MessageInput } from '@/components/Chat';
 import { MessageItem } from '@/components/Chat/MessageItem';
@@ -8,6 +10,14 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useChatWebSocket } from '@/hooks/useChatWebSocket';
 import { useStreamingMessages } from '@/contexts/StreamingMessagesContext';
 import { useAuth } from '@/contexts/AuthContext';
+import type {
+  AskUserRequest,
+  ConfirmBashRequest,
+} from '@/lib/interactive-events';
+import {
+  appendPendingAsk,
+  appendPendingConfirm,
+} from '@/lib/interactive-events';
 
 export function Chat() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -34,6 +44,8 @@ export function Chat() {
   }, [selectedJid]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
+  const [askRequests, setAskRequests] = useState<AskUserRequest[]>([]);
+  const [confirmRequests, setConfirmRequests] = useState<ConfirmBashRequest[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
 
@@ -57,6 +69,50 @@ export function Chat() {
     await logout();
     window.location.href = '/login';
   }, [logout]);
+
+  const handleIncomingAskUser = useCallback((request: AskUserRequest) => {
+    setAskRequests((prev) => appendPendingAsk(prev, request));
+  }, []);
+
+  const handleIncomingConfirmBash = useCallback(
+    (request: ConfirmBashRequest) => {
+      setConfirmRequests((prev) => appendPendingConfirm(prev, request));
+    },
+    [],
+  );
+
+  const handleAskUserAck = useCallback((
+    requestId: string,
+    ok: boolean,
+    answer?: string,
+  ) => {
+    setAskRequests((prev) =>
+      prev.map((request) =>
+        request.requestId === requestId
+          ? {
+              ...request,
+              submitting: false,
+              answer: answer ?? request.answer,
+              answered: ok ? true : request.answered,
+            }
+          : request,
+      ),
+    );
+  }, []);
+
+  const handleConfirmBashAck = useCallback((requestId: string, ok: boolean) => {
+    setConfirmRequests((prev) => {
+      if (ok) {
+        return prev.filter((request) => request.requestId !== requestId);
+      }
+
+      return prev.map((request) =>
+        request.requestId === requestId
+          ? { ...request, submitting: false }
+          : request,
+      );
+    });
+  }, []);
 
   // Chat list operations
   const fetchChats = useCallback(async () => {
@@ -170,13 +226,23 @@ export function Chat() {
   };
 
   // WebSocket hook
-  const { sendMessage, stopGenerating, fetchMessages } = useChatWebSocket({
+  const {
+    sendMessage,
+    stopGenerating,
+    sendAskUserResponse,
+    sendConfirmBashResponse,
+    fetchMessages,
+  } = useChatWebSocket({
     jid: selectedJid,
     apiBase,
     token,
     setMessages,
     setIsGenerating,
     onUnauthorized: handleUnauthorized,
+    onAskUser: handleIncomingAskUser,
+    onConfirmBash: handleIncomingConfirmBash,
+    onAskUserAck: handleAskUserAck,
+    onConfirmBashAck: handleConfirmBashAck,
   });
 
   const fetchSlashCommands = useCallback(() => {
@@ -208,6 +274,11 @@ export function Chat() {
   }, [fetchChats, fetchSlashCommands]);
 
   // Load messages when chat is selected
+  useEffect(() => {
+    setAskRequests([]);
+    setConfirmRequests([]);
+  }, [selectedJid]);
+
   useEffect(() => {
     if (!selectedJid) {
       setMessages([]);
@@ -277,9 +348,12 @@ export function Chat() {
     const content = newMessage.trim();
     const timestamp = new Date().toISOString();
     setNewMessage('');
+    const sent = sendMessage(content);
+    if (!sent) {
+      setNewMessage(content);
+      return;
+    }
     setIsGenerating(true);
-
-    sendMessage(content);
     const optimisticMsg: Message = {
       id: 'temp-' + Date.now(),
       chat_jid: selectedJid,
@@ -304,6 +378,42 @@ export function Chat() {
       });
     }
   };
+
+  const handleAskUserSubmit = useCallback(
+    (requestId: string, answer: string) => {
+      const sent = sendAskUserResponse(requestId, answer);
+      if (!sent) {
+        console.warn('ask_user 响应发送失败：WebSocket 未连接');
+        return;
+      }
+      setAskRequests((prev) =>
+        prev.map((request) =>
+          request.requestId === requestId
+            ? { ...request, submitting: true, answer }
+            : request,
+        ),
+      );
+    },
+    [sendAskUserResponse],
+  );
+
+  const handleConfirmBashRespond = useCallback(
+    (requestId: string, approved: boolean) => {
+      const sent = sendConfirmBashResponse(requestId, approved);
+      if (!sent) {
+        console.warn('confirm_bash 响应发送失败：WebSocket 未连接');
+        return;
+      }
+      setConfirmRequests((prev) =>
+        prev.map((request) =>
+          request.requestId === requestId
+            ? { ...request, submitting: true, approved }
+            : request,
+        ),
+      );
+    },
+    [sendConfirmBashResponse],
+  );
 
   // Render items with date separators
   const renderItems = useMemo(() => {
@@ -385,6 +495,22 @@ export function Chat() {
                   return <MessageItem key={it.key} message={it.msg} />;
                 })
               )}
+
+              {askRequests.map((request) => (
+                <AskUserCard
+                  key={request.requestId}
+                  request={request}
+                  onSubmit={handleAskUserSubmit}
+                />
+              ))}
+
+              {confirmRequests.map((request) => (
+                <ConfirmBashCard
+                  key={request.requestId}
+                  request={request}
+                  onRespond={handleConfirmBashRespond}
+                />
+              ))}
             </div>
 
             <MessageInput

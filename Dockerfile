@@ -52,6 +52,13 @@ RUN cd container/agent-runner && npm install
 # Copy source code
 COPY --chown=node:node . .
 
+# Install helper scripts used by ask user / dangerous bash confirmation
+USER root
+COPY container/scripts/cnp-ask /usr/local/bin/cnp-ask
+COPY container/scripts/cnp-confirm /usr/local/bin/cnp-confirm
+RUN chmod +x /usr/local/bin/cnp-ask /usr/local/bin/cnp-confirm
+USER node
+
 # Copy custom skills
 RUN mkdir -p /home/node/.claude/skills/jumpserver
 RUN mkdir -p /home/node/.claude/skills/prometheus

@@ -24,6 +24,8 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 
+import { findDangerousCommandReason } from './dangerous-commands.js';
+
 interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -84,6 +86,20 @@ const IPC_DIR = process.env.IPC_DIR || path.join(WORKSPACE_ROOT, 'ipc');
 const IPC_INPUT_DIR = path.join(IPC_DIR, 'input');
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
+
+function resolveHelperBinary(name: 'cnp-confirm' | 'cnp-ask'): string {
+  const envKey = name === 'cnp-confirm' ? 'CNP_CONFIRM_BIN' : 'CNP_ASK_BIN';
+  const fromEnv = process.env[envKey];
+  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+
+  const systemPath = `/usr/local/bin/${name}`;
+  if (fs.existsSync(systemPath)) return systemPath;
+
+  const repoPath = path.resolve(process.cwd(), 'container', 'scripts', name);
+  if (fs.existsSync(repoPath)) return repoPath;
+
+  return name;
+}
 
 /**
  * Push-based async iterable for streaming user messages to the SDK.
@@ -259,6 +275,56 @@ function createSanitizeBashHook(): HookCallback {
         },
       },
     };
+  };
+}
+
+function createDangerousCommandHook(): HookCallback {
+  return async (input, _toolUseId, _context) => {
+    const preInput = input as PreToolUseHookInput;
+    const command = (preInput.tool_input as { command?: string })?.command;
+    if (!command) return {};
+
+    const reason = findDangerousCommandReason(command);
+    if (!reason) return {};
+
+    const confirmBin = resolveHelperBinary('cnp-confirm');
+    log(
+      `Dangerous command detected: ${command.slice(0, 200)}, reason: ${reason}`,
+    );
+
+    try {
+      const { execSync } = await import('child_process');
+      execSync(
+        `${JSON.stringify(confirmBin)} ${JSON.stringify(command)} ${JSON.stringify(reason)}`,
+        {
+          stdio: 'inherit',
+          timeout: 310000,
+        },
+      );
+      return {};
+    } catch (err) {
+      const error = err as { status?: number; code?: number | string; message?: string };
+      const code = error.status ?? error.code;
+
+      if (code === 2) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'deny',
+            permissionDecisionReason: `用户拒绝执行危险命令（${reason}）`,
+          },
+        };
+      }
+
+      log(`cnp-confirm error (code=${String(code)}): ${error.message ?? ''}`);
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: `危险命令确认失败（${reason}），已拒绝执行`,
+        },
+      };
+    }
   };
 }
 
@@ -529,7 +595,7 @@ async function runQuery(
         'ToolSearch',
         'Skill',
         'NotebookEdit',
-        // 'mcp__cnp-bot__*'
+        'mcp__cnp-bot__*',
       ],
       includePartialMessages: true,
       env: sdkEnv,
@@ -538,9 +604,8 @@ async function runQuery(
       allowDangerouslySkipPermissions: process.getuid?.() !== 0,
       executable: process.execPath as any,
       settingSources: ['user'],
-      /*
       mcpServers: {
-        cnp-bot: {
+        'cnp-bot': {
           command: process.execPath,
           args: [mcpServerPath],
           env: {
@@ -550,12 +615,16 @@ async function runQuery(
           },
         },
       },
-*/
       hooks: {
         PreCompact: [
           { hooks: [createPreCompactHook(containerInput.assistantName)] },
         ],
-        PreToolUse: [{ matcher: 'Bash', hooks: [createSanitizeBashHook()] }],
+        PreToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [createDangerousCommandHook(), createSanitizeBashHook()],
+          },
+        ],
       },
     },
   })) {

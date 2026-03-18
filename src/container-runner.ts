@@ -170,6 +170,10 @@ function buildVolumeMounts(
   fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
+  fs.mkdirSync(path.join(groupIpcDir, 'ask_requests'), { recursive: true });
+  fs.mkdirSync(path.join(groupIpcDir, 'ask_responses'), { recursive: true });
+  fs.mkdirSync(path.join(groupIpcDir, 'confirm_requests'), { recursive: true });
+  fs.mkdirSync(path.join(groupIpcDir, 'confirm_responses'), { recursive: true });
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
@@ -378,6 +382,11 @@ export async function runContainerAgent(
         HOME: path.dirname(groupSessionsDir),
         WORKSPACE_ROOT: tempWorkspace,
         IPC_DIR: path.join(tempWorkspace, 'ipc'),
+        CNP_CONFIRM_BIN: path.resolve(
+          process.cwd(),
+          'container/scripts/cnp-confirm',
+        ),
+        CNP_ASK_BIN: path.resolve(process.cwd(), 'container/scripts/cnp-ask'),
         TZ: TIMEZONE,
       };
     }
@@ -490,15 +499,19 @@ export async function runContainerAgent(
         { group: group.name, containerName },
         'Container timeout, stopping gracefully',
       );
-      exec(stopContainer(containerName), { timeout: 15000 }, (err) => {
-        if (err) {
-          logger.warn(
-            { group: group.name, containerName, err },
-            'Graceful stop failed, force killing',
-          );
-          container.kill('SIGKILL');
-        }
-      });
+      if (!USE_LOCAL_AGENT) {
+        exec(stopContainer(containerName), { timeout: 15000 }, (err) => {
+          if (err) {
+            logger.warn(
+              { group: group.name, containerName, err },
+              'Graceful stop failed, force killing',
+            );
+            container.kill('SIGKILL');
+          }
+        });
+      } else {
+        container.kill('SIGTERM');
+      }
     };
 
     let timeout = setTimeout(killOnTimeout, timeoutMs);

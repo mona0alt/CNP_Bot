@@ -2,7 +2,7 @@ import { ChildProcess, exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { DATA_DIR, MAX_CONCURRENT_CONTAINERS } from './config.js';
+import { DATA_DIR, MAX_CONCURRENT_CONTAINERS, USE_LOCAL_AGENT } from './config.js';
 import { stopContainer } from './container-runtime.js';
 import { logger } from './logger.js';
 
@@ -63,7 +63,7 @@ export class GroupQueue {
     logger.info({ groupJid }, 'Stopping group process');
     state.interrupted = true;
 
-    if (state.containerName) {
+    if (!USE_LOCAL_AGENT && state.containerName) {
       exec(stopContainer(state.containerName), { timeout: 15000 }, (err) => {
         if (err) {
           logger.warn({ groupJid, containerName: state.containerName, err }, 'Failed to stop container');

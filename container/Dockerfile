@@ -43,6 +43,9 @@ RUN npm install
 
 # Copy source code
 COPY agent-runner/ ./
+COPY scripts/cnp-ask /usr/local/bin/cnp-ask
+COPY scripts/cnp-confirm /usr/local/bin/cnp-confirm
+RUN chmod +x /usr/local/bin/cnp-ask /usr/local/bin/cnp-confirm
 
 # Build TypeScript
 RUN npm run build

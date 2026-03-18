@@ -150,6 +150,27 @@ export interface ServerOpts {
   ) => { usage?: { input_tokens: number; output_tokens: number } } | undefined;
   onCreateChat?: (jid: string, userId: string) => void;
   isGroupActive?: (jid: string) => boolean;
+  /** Returns the group folder for a given JID, used to write ask/confirm responses */
+  getGroupFolder?: (jid: string) => string | undefined;
+  /** Called when user submits answer to an ask_user request */
+  onAskUserResponse?: (
+    groupFolder: string,
+    requestId: string,
+    answer: string,
+  ) => boolean;
+  /** Called when user approves/denies a confirm_bash request */
+  onConfirmBashResponse?: (
+    groupFolder: string,
+    requestId: string,
+    approved: boolean,
+  ) => boolean;
+  /** Returns current pending interactive requests for websocket replay/reconnect recovery */
+  getPendingInteractive?: (
+    jid: string,
+  ) => {
+    asks: Array<{ requestId: string; question: string }>;
+    confirms: Array<{ requestId: string; command: string; reason?: string }>;
+  };
 }
 
 export interface BroadcastCapability {
@@ -728,6 +749,27 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       }, 15000);
       sendJson({ type: 'ready', jid });
 
+      const pendingInteractive = opts.getPendingInteractive?.(jid);
+      if (pendingInteractive) {
+        for (const ask of pendingInteractive.asks) {
+          sendJson({
+            type: 'ask_user',
+            chat_jid: jid,
+            requestId: ask.requestId,
+            question: ask.question,
+          });
+        }
+        for (const confirm of pendingInteractive.confirms) {
+          sendJson({
+            type: 'confirm_bash',
+            chat_jid: jid,
+            requestId: confirm.requestId,
+            command: confirm.command,
+            reason: confirm.reason,
+          });
+        }
+      }
+
       socket.on('message', async (data: RawData) => {
         try {
           const parsed = JSON.parse(String(data) || '{}') as any;
@@ -735,6 +777,50 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
             if (opts.onStopGeneration) {
               opts.onStopGeneration(jid);
             }
+            return;
+          }
+          if (
+            parsed?.type === 'ask_user_response' &&
+            typeof parsed.requestId === 'string' &&
+            typeof parsed.answer === 'string'
+          ) {
+            const groupFolder = opts.getGroupFolder?.(jid);
+            const ok =
+              groupFolder && opts.onAskUserResponse
+                ? opts.onAskUserResponse(
+                    groupFolder,
+                    parsed.requestId,
+                    parsed.answer,
+                  )
+                : false;
+            broadcastToJid(jid, {
+              type: 'ask_user_ack',
+              requestId: parsed.requestId,
+              answer: parsed.answer,
+              ok,
+            });
+            return;
+          }
+          if (
+            parsed?.type === 'confirm_bash_response' &&
+            typeof parsed.requestId === 'string' &&
+            typeof parsed.approved === 'boolean'
+          ) {
+            const groupFolder = opts.getGroupFolder?.(jid);
+            const ok =
+              groupFolder && opts.onConfirmBashResponse
+                ? opts.onConfirmBashResponse(
+                    groupFolder,
+                    parsed.requestId,
+                    parsed.approved,
+                  )
+                : false;
+            broadcastToJid(jid, {
+              type: 'confirm_bash_ack',
+              requestId: parsed.requestId,
+              approved: parsed.approved,
+              ok,
+            });
             return;
           }
           if (

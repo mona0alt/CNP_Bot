@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "usage: cnp-ask <question>" >&2
+  exit 1
+fi
+
+QUESTION="$1"
+IPC_ROOT="${IPC_DIR:-/workspace/ipc}"
+CHAT_JID="${CNP_BOT_CHAT_JID:-}"
+REQUEST_DIR="${IPC_ROOT}/ask_requests"
+RESPONSE_DIR="${IPC_ROOT}/ask_responses"
+
+mkdir -p "$REQUEST_DIR" "$RESPONSE_DIR"
+
+REQUEST_ID="$(node -e "console.log(require('crypto').randomUUID())")"
+
+REQUEST_FILE="${REQUEST_DIR}/${REQUEST_ID}.json"
+REQUEST_TMP_FILE="${REQUEST_FILE}.tmp"
+node -e "
+const fs = require('fs');
+const [requestFile, tempFile, requestId, chatJid, question] = process.argv.slice(1);
+fs.writeFileSync(
+  tempFile,
+  JSON.stringify({ type: 'ask_user', requestId, chatJid, question }),
+);
+fs.renameSync(tempFile, requestFile);
+" "$REQUEST_FILE" "$REQUEST_TMP_FILE" "$REQUEST_ID" "$CHAT_JID" "$QUESTION"
+
+RESPONSE_FILE="${RESPONSE_DIR}/${REQUEST_ID}.json"
+TIMEOUT_SECONDS="${CNP_ASK_TIMEOUT_SECONDS:-300}"
+START_TS="$(date +%s)"
+
+while true; do
+  if [[ -f "$RESPONSE_FILE" ]]; then
+    if ANSWER="$(node -e "
+const fs = require('fs');
+const data = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+console.log(data.answer || '');
+" "$RESPONSE_FILE" 2>/dev/null)"; then
+      rm -f "$RESPONSE_FILE"
+      printf '%s\n' "$ANSWER"
+      exit 0
+    fi
+
+    # Host may still be writing the JSON file. Retry on the next poll tick
+    # instead of failing the whole tool invocation.
+    sleep 0.1
+    continue
+  fi
+
+  NOW_TS="$(date +%s)"
+  if (( NOW_TS - START_TS >= TIMEOUT_SECONDS )); then
+    echo "Timed out waiting for ask response" >&2
+    exit 3
+  fi
+  sleep 0.5
+done

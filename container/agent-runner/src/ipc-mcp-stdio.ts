@@ -10,10 +10,15 @@ import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
+import { randomUUID } from 'crypto';
 
 const IPC_DIR = '/workspace/ipc';
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
 const TASKS_DIR = path.join(IPC_DIR, 'tasks');
+const ASK_REQUESTS_DIR = path.join(IPC_DIR, 'ask_requests');
+const ASK_RESPONSES_DIR = path.join(IPC_DIR, 'ask_responses');
+const ASK_POLL_MS = 500;
+const ASK_TIMEOUT_MS = 5 * 60 * 1000;
 
 // Context from environment variables (set by the agent runner)
 const chatJid = process.env.CNP_BOT_CHAT_JID!;
@@ -32,6 +37,28 @@ function writeIpcFile(dir: string, data: object): string {
   fs.renameSync(tempPath, filepath);
 
   return filename;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForAskResponse(requestId: string): Promise<string> {
+  const responsePath = path.join(ASK_RESPONSES_DIR, `${requestId}.json`);
+  const started = Date.now();
+
+  while (Date.now() - started < ASK_TIMEOUT_MS) {
+    if (fs.existsSync(responsePath)) {
+      const raw = fs.readFileSync(responsePath, 'utf-8');
+      fs.unlinkSync(responsePath);
+      const data = JSON.parse(raw) as { answer?: string };
+      return data.answer || '';
+    }
+
+    await sleep(ASK_POLL_MS);
+  }
+
+  throw new Error('Timed out waiting for ask_user response');
 }
 
 const server = new McpServer({
@@ -59,6 +86,45 @@ server.tool(
     writeIpcFile(MESSAGES_DIR, data);
 
     return { content: [{ type: 'text' as const, text: 'Message sent.' }] };
+  },
+);
+
+server.tool(
+  'ask_user',
+  'Ask the user a follow-up question when required information is missing. This pauses the current flow until the user replies.',
+  {
+    question: z
+      .string()
+      .min(1)
+      .describe('The follow-up question to show to the user'),
+  },
+  async (args) => {
+    const requestId = randomUUID();
+
+    writeIpcFile(ASK_REQUESTS_DIR, {
+      type: 'ask_user',
+      requestId,
+      chatJid,
+      question: args.question,
+      timestamp: new Date().toISOString(),
+    });
+
+    try {
+      const answer = await waitForAskResponse(requestId);
+      return {
+        content: [{ type: 'text' as const, text: answer }],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `等待用户回答超时：${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
   },
 );
 

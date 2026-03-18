@@ -46,7 +46,14 @@ import {
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
-import { startIpcWatcher } from './ipc.js';
+import {
+  startAskConfirmWatcher,
+  startIpcWatcher,
+  type IpcAskRequest,
+  type IpcConfirmRequest,
+  writeAskResponse,
+  writeConfirmResponse,
+} from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { startServer } from './server.js';
@@ -100,10 +107,48 @@ export const groupStats: Record<
   }
 > = {};
 let messageLoopRunning = false;
+const pendingAskByJid = new Map<string, Map<string, IpcAskRequest>>();
+const pendingConfirmByJid = new Map<string, Map<string, IpcConfirmRequest>>();
 
 let web: WebChannel;
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+
+function upsertPendingAsk(jid: string, req: IpcAskRequest): void {
+  let byRequestId = pendingAskByJid.get(jid);
+  if (!byRequestId) {
+    byRequestId = new Map();
+    pendingAskByJid.set(jid, byRequestId);
+  }
+  byRequestId.set(req.requestId, req);
+}
+
+function removePendingAsk(jid: string, requestId: string): void {
+  const byRequestId = pendingAskByJid.get(jid);
+  if (!byRequestId) return;
+  byRequestId.delete(requestId);
+  if (byRequestId.size === 0) {
+    pendingAskByJid.delete(jid);
+  }
+}
+
+function upsertPendingConfirm(jid: string, req: IpcConfirmRequest): void {
+  let byRequestId = pendingConfirmByJid.get(jid);
+  if (!byRequestId) {
+    byRequestId = new Map();
+    pendingConfirmByJid.set(jid, byRequestId);
+  }
+  byRequestId.set(req.requestId, req);
+}
+
+function removePendingConfirm(jid: string, requestId: string): void {
+  const byRequestId = pendingConfirmByJid.get(jid);
+  if (!byRequestId) return;
+  byRequestId.delete(requestId);
+  if (byRequestId.size === 0) {
+    pendingConfirmByJid.delete(jid);
+  }
+}
 
 function loadState(): void {
   const rawTs = getRouterState('last_timestamp') || '';
@@ -790,6 +835,40 @@ async function main(): Promise<void> {
       });
     },
     isGroupActive: (jid) => queue.isGroupActive(jid),
+    getGroupFolder: (jid) => registeredGroups[jid]?.folder,
+    getPendingInteractive: (jid) => ({
+      asks: Array.from(pendingAskByJid.get(jid)?.values() || []).map((req) => ({
+        requestId: req.requestId,
+        question: req.question,
+      })),
+      confirms: Array.from(pendingConfirmByJid.get(jid)?.values() || []).map(
+        (req) => ({
+          requestId: req.requestId,
+          command: req.command,
+          reason: req.reason,
+        }),
+      ),
+    }),
+    onAskUserResponse: (groupFolder, requestId, answer) => {
+      const jid = Object.keys(registeredGroups).find(
+        (k) => registeredGroups[k]?.folder === groupFolder,
+      );
+      const ok = writeAskResponse(groupFolder, requestId, answer);
+      if (ok && jid) {
+        removePendingAsk(jid, requestId);
+      }
+      return ok;
+    },
+    onConfirmBashResponse: (groupFolder, requestId, approved) => {
+      const jid = Object.keys(registeredGroups).find(
+        (k) => registeredGroups[k]?.folder === groupFolder,
+      );
+      const ok = writeConfirmResponse(groupFolder, requestId, approved);
+      if (ok && jid) {
+        removePendingConfirm(jid, requestId);
+      }
+      return ok;
+    },
     onDeleteChat: (jid) => {
       logger.info({ jid }, 'Deleting chat, stopping container process');
       queue.stopGroup(jid);
@@ -805,6 +884,8 @@ async function main(): Promise<void> {
         delete sessions[folder];
         deleteSession(folder);
       }
+      pendingAskByJid.delete(jid);
+      pendingConfirmByJid.delete(jid);
       delete lastAgentTimestamp[jid];
 
       // Clean up web:UUID chat group folder and orphaned data
@@ -871,6 +952,38 @@ async function main(): Promise<void> {
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
   });
+  startAskConfirmWatcher(
+    () => registeredGroups,
+    (groupFolder, req) => {
+      const jid = Object.keys(registeredGroups).find(
+        (k) => registeredGroups[k]?.folder === groupFolder,
+      );
+      if (jid) {
+        upsertPendingAsk(jid, req);
+        broadcastToJid(jid, {
+          type: 'ask_user',
+          chat_jid: jid,
+          requestId: req.requestId,
+          question: req.question,
+        });
+      }
+    },
+    (groupFolder, req) => {
+      const jid = Object.keys(registeredGroups).find(
+        (k) => registeredGroups[k]?.folder === groupFolder,
+      );
+      if (jid) {
+        upsertPendingConfirm(jid, req);
+        broadcastToJid(jid, {
+          type: 'confirm_bash',
+          chat_jid: jid,
+          requestId: req.requestId,
+          command: req.command,
+          reason: req.reason,
+        });
+      }
+    },
+  );
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {

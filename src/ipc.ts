@@ -11,9 +11,24 @@ import {
 } from './config.js';
 import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
-import { isValidGroupFolder } from './group-folder.js';
+import { isValidGroupFolder, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
+
+export interface IpcAskRequest {
+  type: 'ask_user';
+  requestId: string;
+  question: string;
+  chatJid?: string;
+}
+
+export interface IpcConfirmRequest {
+  type: 'confirm_bash';
+  requestId: string;
+  command: string;
+  reason?: string;
+  chatJid?: string;
+}
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
@@ -27,6 +42,161 @@ export interface IpcDeps {
     availableGroups: AvailableGroup[],
     registeredJids: Set<string>,
   ) => void;
+}
+
+const ASK_CONFIRM_POLL_MS = 500;
+let askConfirmWatcherRunning = false;
+
+/**
+ * Start a fast-poll watcher for ask_requests and confirm_requests from all groups.
+ * Calls the provided callbacks when requests are found.
+ */
+export function startAskConfirmWatcher(
+  registeredGroupsFn: () => Record<string, RegisteredGroup>,
+  onAskUser: (groupFolder: string, req: IpcAskRequest) => void,
+  onConfirmBash: (groupFolder: string, req: IpcConfirmRequest) => void,
+): void {
+  if (askConfirmWatcherRunning) return;
+  askConfirmWatcherRunning = true;
+
+  const poll = () => {
+    const groups = registeredGroupsFn();
+
+    const folders = new Set<string>();
+    for (const group of Object.values(groups)) {
+      folders.add(group.folder);
+    }
+
+    for (const folder of folders) {
+      let groupIpcDir: string;
+      try {
+        groupIpcDir = resolveGroupIpcPath(folder);
+      } catch {
+        continue;
+      }
+
+      const askDir = path.join(groupIpcDir, 'ask_requests');
+      try {
+        if (fs.existsSync(askDir)) {
+          const files = fs.readdirSync(askDir).filter((f) => f.endsWith('.json'));
+          for (const file of files) {
+            const filePath = path.join(askDir, file);
+            try {
+              const data = JSON.parse(
+                fs.readFileSync(filePath, 'utf-8'),
+              ) as IpcAskRequest;
+              fs.unlinkSync(filePath);
+              if (data.type === 'ask_user' && data.requestId && data.question) {
+                onAskUser(folder, data);
+              }
+            } catch (err) {
+              logger.error({ err, file, folder }, 'Error processing ask_request');
+              try {
+                fs.unlinkSync(filePath);
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+        }
+      } catch (err) {
+        logger.error({ err, folder }, 'Error reading ask_requests dir');
+      }
+
+      const confirmDir = path.join(groupIpcDir, 'confirm_requests');
+      try {
+        if (fs.existsSync(confirmDir)) {
+          const files = fs
+            .readdirSync(confirmDir)
+            .filter((f) => f.endsWith('.json'));
+          for (const file of files) {
+            const filePath = path.join(confirmDir, file);
+            try {
+              const data = JSON.parse(
+                fs.readFileSync(filePath, 'utf-8'),
+              ) as IpcConfirmRequest;
+              fs.unlinkSync(filePath);
+              if (
+                data.type === 'confirm_bash' &&
+                data.requestId &&
+                data.command
+              ) {
+                onConfirmBash(folder, data);
+              }
+            } catch (err) {
+              logger.error(
+                { err, file, folder },
+                'Error processing confirm_request',
+              );
+              try {
+                fs.unlinkSync(filePath);
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+        }
+      } catch (err) {
+        logger.error({ err, folder }, 'Error reading confirm_requests dir');
+      }
+    }
+
+    setTimeout(poll, ASK_CONFIRM_POLL_MS);
+  };
+
+  poll();
+  logger.info('Ask/Confirm IPC watcher started');
+}
+
+/**
+ * Write an ask response so the container script can read it.
+ */
+export function writeAskResponse(
+  groupFolder: string,
+  requestId: string,
+  answer: string,
+): boolean {
+  try {
+    const groupIpcDir = resolveGroupIpcPath(groupFolder);
+    const responseDir = path.join(groupIpcDir, 'ask_responses');
+    fs.mkdirSync(responseDir, { recursive: true });
+    const filePath = path.join(responseDir, `${requestId}.json`);
+    const tempPath = `${filePath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify({ answer }));
+    fs.renameSync(tempPath, filePath);
+    logger.debug({ groupFolder, requestId }, 'Wrote ask response');
+    return true;
+  } catch (err) {
+    logger.error({ err, groupFolder, requestId }, 'Failed to write ask response');
+    return false;
+  }
+}
+
+/**
+ * Write a confirm response so the container script can read it.
+ */
+export function writeConfirmResponse(
+  groupFolder: string,
+  requestId: string,
+  approved: boolean,
+): boolean {
+  try {
+    const groupIpcDir = resolveGroupIpcPath(groupFolder);
+    const responseDir = path.join(groupIpcDir, 'confirm_responses');
+    fs.mkdirSync(responseDir, { recursive: true });
+    const filePath = path.join(responseDir, `${requestId}.json`);
+    const tempPath = `${filePath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify({ approved }));
+    fs.renameSync(tempPath, filePath);
+    logger.debug({ groupFolder, requestId, approved }, 'Wrote confirm response');
+    return true;
+  } catch (err) {
+    logger.error(
+      { err, groupFolder, requestId },
+      'Failed to write confirm response',
+    );
+    return false;
+  }
 }
 
 let ipcWatcherRunning = false;
