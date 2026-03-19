@@ -145,6 +145,8 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
   let container: HTMLDivElement;
   let root: Root;
   let fetchMock: ReturnType<typeof vi.fn>;
+  let createChatCalls: number;
+  let currentChats: ChatSummary[];
 
   const chats: ChatSummary[] = [
     {
@@ -188,12 +190,31 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     FakeWebSocket.instances = [];
     vi.stubGlobal('WebSocket', FakeWebSocket);
+    createChatCalls = 0;
+    currentChats = [...chats];
 
-    fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const method = init?.method ?? 'GET';
 
       if (url.endsWith('/api/chats')) {
-        return new Response(JSON.stringify(chats), { status: 200 });
+        if (method === 'POST') {
+          createChatCalls += 1;
+          const createdChat = {
+            jid: 'web:created-by-test',
+            name: 'Created By Test',
+            last_message_time: '2026-03-18T08:00:02.000Z',
+            last_message: '',
+            last_user_message: '',
+            is_group: 0,
+          };
+          currentChats = [createdChat];
+          return new Response(
+            JSON.stringify(createdChat),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify(currentChats), { status: 200 });
       }
 
       if (url.endsWith('/api/slash-commands')) {
@@ -231,6 +252,68 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it('已有会话时进入页面不会自动创建新会话', async () => {
+    await act(async () => {
+      root.render(
+        <AuthContext.Provider value={authValue}>
+          <StreamingMessagesProvider>
+            <Chat />
+          </StreamingMessagesProvider>
+        </AuthContext.Provider>,
+      );
+    });
+
+    await flush();
+
+    expect(createChatCalls).toBe(0);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/chats'),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+        }),
+      }),
+    );
+
+    const selectA = container.querySelector(
+      '[data-testid="select-web\\:a"]',
+    ) as HTMLButtonElement | null;
+    expect(selectA).not.toBeNull();
+    expect(selectA?.getAttribute('data-selected')).toBe('true');
+  });
+
+  it('没有任何会话时，只自动创建一次 session', async () => {
+    currentChats = [];
+
+    await act(async () => {
+      root.render(
+        <AuthContext.Provider value={authValue}>
+          <StreamingMessagesProvider>
+            <Chat />
+          </StreamingMessagesProvider>
+        </AuthContext.Provider>,
+      );
+    });
+
+    await flush();
+    await flush();
+
+    expect(createChatCalls).toBe(1);
+
+    const created = container.querySelector(
+      '[data-testid="select-web\\:created-by-test"]',
+    ) as HTMLButtonElement | null;
+    expect(created).not.toBeNull();
+    expect(created?.getAttribute('data-selected')).toBe('true');
+
+    const postCalls = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = String(input);
+      const method = (init as RequestInit | undefined)?.method ?? 'GET';
+      return url.endsWith('/api/chats') && method === 'POST';
+    });
+    expect(postCalls).toHaveLength(1);
   });
 
   it('切换 A -> B -> A 后，继续流式更新仍写回同一张消息卡片', async () => {

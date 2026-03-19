@@ -19,9 +19,9 @@ export function Sidebar() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   const links = [
-    { href: "/", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/chats", label: "Chats", icon: MessageSquare },
-    ...(user?.role === "admin" ? [{ href: "/users", label: "Users", icon: Users }] : []),
+    { href: "/", label: "控制台", icon: LayoutDashboard },
+    { href: "/chats", label: "会话", icon: MessageSquare },
+    ...(user?.role === "admin" ? [{ href: "/users", label: "用户管理", icon: Users }] : []),
   ];
 
   const handleLogout = async () => {
@@ -34,12 +34,12 @@ export function Sidebar() {
     setPasswordSuccess(false);
 
     if (newPassword !== confirmPassword) {
-      setPasswordError("Passwords do not match");
+      setPasswordError("两次输入的密码不一致");
       return;
     }
 
     if (newPassword.length < 6) {
-      setPasswordError("Password must be at least 6 characters");
+      setPasswordError("密码长度不能少于 6 位");
       return;
     }
 
@@ -55,7 +55,7 @@ export function Sidebar() {
         setPasswordSuccess(false);
       }, 1500);
     } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : "Password change failed");
+      setPasswordError(err instanceof Error ? err.message : "修改密码失败");
     } finally {
       setIsChangingPassword(false);
     }
@@ -99,7 +99,7 @@ export function Sidebar() {
             className="w-full flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+            <span>{theme === "dark" ? "浅色模式" : "深色模式"}</span>
           </button>
         </div>
 
@@ -119,7 +119,7 @@ export function Sidebar() {
             {showUserMenu && (
               <div className="absolute bottom-full left-0 right-0 mb-2 bg-popover border rounded-md shadow-lg overflow-hidden">
                 <div className="px-4 py-2 text-xs text-muted-foreground border-b">
-                  {user?.role === "admin" ? "Administrator" : "User"}
+                  {user?.role === "admin" ? "管理员" : "普通用户"}
                 </div>
                 <button
                   onClick={() => {
@@ -129,14 +129,14 @@ export function Sidebar() {
                   className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-muted transition-colors"
                 >
                   <Key className="w-4 h-4" />
-                  Change Password
+                  修改密码
                 </button>
                 <button
                   onClick={handleLogout}
                   className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-muted transition-colors"
                 >
                   <LogOut className="w-4 h-4" />
-                  Logout
+                  退出登录
                 </button>
               </div>
             )}
@@ -148,7 +148,7 @@ export function Sidebar() {
       {showPasswordModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-background p-6 rounded-lg w-full max-w-md space-y-4">
-            <h2 className="text-xl font-bold">Change Password</h2>
+            <h2 className="text-xl font-bold">修改密码</h2>
             <form onSubmit={handleChangePassword} className="space-y-4">
               {passwordError && (
                 <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-950 rounded-md">
@@ -157,11 +157,11 @@ export function Sidebar() {
               )}
               {passwordSuccess && (
                 <div className="p-3 text-sm text-green-500 bg-green-50 dark:bg-green-950 rounded-md">
-                  Password changed successfully!
+                  密码修改成功
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium mb-1">Current Password</label>
+                <label className="block text-sm font-medium mb-1">当前密码</label>
                 <input
                   type="password"
                   value={currentPassword}
@@ -171,7 +171,7 @@ export function Sidebar() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">New Password</label>
+                <label className="block text-sm font-medium mb-1">新密码</label>
                 <input
                   type="password"
                   value={newPassword}
@@ -182,7 +182,7 @@ export function Sidebar() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Confirm New Password</label>
+                <label className="block text-sm font-medium mb-1">确认新密码</label>
                 <input
                   type="password"
                   value={confirmPassword}
@@ -204,14 +204,14 @@ export function Sidebar() {
                   }}
                   className="flex-1 py-2 px-4 border rounded-md hover:bg-muted transition-colors"
                 >
-                  Cancel
+                  取消
                 </button>
                 <button
                   type="submit"
                   disabled={isChangingPassword}
                   className="flex-1 py-2 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
                 >
-                  {isChangingPassword ? "Changing..." : "Change"}
+                  {isChangingPassword ? "提交中..." : "确认修改"}
                 </button>
               </div>
             </form>

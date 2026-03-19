@@ -30,7 +30,7 @@ export class WebChannel implements Channel {
       is_bot_message: true,
     };
 
-    storeChatMetadata(jid, timestamp, jid === 'web:default' ? 'Web Chat' : jid, 'web', false);
+    storeChatMetadata(jid, timestamp, jid, 'web', false);
     storeMessageDirect(message);
     
     // Also broadcast full message to clients so they can update their view

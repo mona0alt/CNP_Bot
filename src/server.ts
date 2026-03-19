@@ -201,18 +201,6 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     }
   };
 
-  try {
-    storeChatMetadata(
-      'web:default',
-      new Date().toISOString(),
-      'Web Chat',
-      'web',
-      false,
-    );
-  } catch (err) {
-    logger.warn({ err }, 'Failed to ensure web chat exists');
-  }
-
   // API Endpoints
   app.get('/api/status', (req, res) => {
     res.json({
@@ -710,7 +698,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
   wss.on('connection', (socket: WebSocket, req: IncomingMessage) => {
     // Parse non-sensitive URL params (jid, since) — token is NOT read from URL
     const u = new URL(req.url || '', 'http://localhost');
-    const jid = u.searchParams.get('jid') || 'web:default';
+    const jid = u.searchParams.get('jid') || '';
     const since = u.searchParams.get('since') || '';
 
     let interval: ReturnType<typeof setInterval> | null = null;

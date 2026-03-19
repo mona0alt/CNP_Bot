@@ -220,8 +220,6 @@ export class GroupQueue {
       // Try to derive folder from jid for web chats
       if (groupJid.startsWith('web:')) {
         folder = groupJid.replace(/:/g, '-');
-      } else if (groupJid === 'web:default') {
-        folder = 'main';
       }
     }
 

@@ -10,9 +10,9 @@ JUMPSERVER_PASS="${JUMPSERVER_PASS:?}"
 TARGET_SERVER="${TARGET_SERVER:-10.246.104.45}"
 
 # 创建 tmux 会话
-SOCKET_DIR="${TMPDIR:-/tmp}/clawdbot-tmux-sockets"
+SOCKET_DIR="${TMPDIR:-/tmp}/cnpbot-tmux-sockets"
 mkdir -p "$SOCKET_DIR"
-SOCKET="$SOCKET_DIR/clawdbot.sock"
+SOCKET="$SOCKET_DIR/cnpbot.sock"
 SESSION="server-check"
 
 echo "正在连接到 JumpServer: $JUMPSERVER_HOST"

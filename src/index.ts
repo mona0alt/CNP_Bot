@@ -40,6 +40,7 @@ import {
   storeChatMetadata,
   storeMessage,
   createUser,
+  deleteChat,
   deleteRegisteredGroup,
   deleteTasksForChatJid,
   type MessageCursor,
@@ -114,6 +115,10 @@ const pendingConfirmByJid = new Map<string, Map<string, IpcConfirmRequest>>();
 let web: WebChannel;
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+
+function getWebChatFolder(jid: string): string {
+  return jid.replace(/:/g, '-');
+}
 
 function upsertPendingAsk(jid: string, req: IpcAskRequest): void {
   let byRequestId = pendingAskByJid.get(jid);
@@ -228,6 +233,39 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
   );
 }
 
+function cleanupLegacyDefaultWebChat(): void {
+  const jid = 'web:default';
+  const group = registeredGroups[jid];
+  const folder = group?.folder;
+
+  if (!group) return;
+
+  logger.info(
+    { jid, folder },
+    'Removing legacy default web chat so all web chats use the same UUID session model',
+  );
+
+  if (folder) {
+    delete sessions[folder];
+    deleteSession(folder);
+  }
+
+  delete lastAgentTimestamp[jid];
+  delete registeredGroups[jid];
+  deleteRegisteredGroup(jid);
+  deleteTasksForChatJid(jid);
+  deleteChat(jid);
+
+  if (folder && folder !== MAIN_GROUP_FOLDER) {
+    const groupDir = resolveGroupFolderPath(folder);
+    try {
+      fs.rmSync(groupDir, { recursive: true, force: true });
+    } catch (err) {
+      logger.warn({ jid, folder, groupDir, err }, 'Failed to delete legacy default web chat group folder');
+    }
+  }
+}
+
 /**
  * Get available groups list for the agent.
  * Returns groups ordered by most recent activity.
@@ -280,9 +318,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (missedMessages.length === 0) return true;
 
   // Only require trigger if the group is configured for it.
-  // We explicitly exempt web:default to ensure web chat always works without trigger.
-  const needsTrigger =
-    chatJid !== 'web:default' && group.requiresTrigger !== false;
+  const needsTrigger = group.requiresTrigger !== false;
 
   if (needsTrigger) {
     const hasTrigger = missedMessages.some((m) =>
@@ -661,10 +697,7 @@ async function startMessageLoop(): Promise<void> {
           }
 
           // Only require trigger if the group is configured for it.
-          // We explicitly exempt web:default to ensure web chat always works without trigger,
-          // regardless of DB state (though it should be registered with requiresTrigger: false).
-          const needsTrigger =
-            chatJid !== 'web:default' && group.requiresTrigger !== false;
+          const needsTrigger = group.requiresTrigger !== false;
 
           // Check active state once and reuse below to avoid duplicate isGroupActive calls.
           const isActive = queue.isGroupActive(chatJid);
@@ -764,16 +797,7 @@ async function main(): Promise<void> {
   await ensureDefaultAdmin();
 
   loadState();
-
-  if (!registeredGroups['web:default']) {
-    registerGroup('web:default', {
-      name: 'Web Chat',
-      folder: MAIN_GROUP_FOLDER,
-      trigger: `@${ASSISTANT_NAME}`,
-      added_at: new Date().toISOString(),
-      requiresTrigger: false,
-    });
-  }
+  cleanupLegacyDefaultWebChat();
 
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
@@ -811,11 +835,7 @@ async function main(): Promise<void> {
       // Auto-register new web chats so they can be processed by the agent
       if (jid.startsWith('web:') && !registeredGroups[jid]) {
         logger.info({ jid }, 'Auto-registering new web chat session');
-
-        // Use a unique folder for new web chats to ensure session isolation
-        // Only web:default shares the main folder
-        const folder =
-          jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
+        const folder = getWebChatFolder(jid);
 
         registerGroup(jid, {
           name: 'New Chat',
@@ -830,7 +850,7 @@ async function main(): Promise<void> {
       storeChatMetadata(
         jid,
         timestamp,
-        jid === 'web:default' ? 'Web Chat' : jid,
+        jid,
         'web',
         false,
         userId,
@@ -894,8 +914,7 @@ async function main(): Promise<void> {
     onCreateChat: (jid, _userId) => {
       if (!jid.startsWith('web:') || registeredGroups[jid]) return;
       logger.info({ jid }, 'Pre-registering new web chat session');
-      const folder =
-        jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
+      const folder = getWebChatFolder(jid);
       registerGroup(jid, {
         name: 'New Chat',
         folder,
@@ -954,8 +973,7 @@ async function main(): Promise<void> {
       const group = registeredGroups[jid];
       let folder = group?.folder;
       if (!folder && jid.startsWith('web:')) {
-        folder =
-          jid === 'web:default' ? MAIN_GROUP_FOLDER : jid.replace(/:/g, '-');
+        folder = getWebChatFolder(jid);
       }
       if (folder) {
         delete sessions[folder];
@@ -965,11 +983,9 @@ async function main(): Promise<void> {
       pendingConfirmByJid.delete(jid);
       delete lastAgentTimestamp[jid];
 
-      // Clean up web:UUID chat group folder and orphaned data
-      // (web:default uses MAIN_GROUP_FOLDER and must never be deleted)
+      // Clean up isolated web chat group folder and orphaned data
       if (
         jid.startsWith('web:') &&
-        jid !== 'web:default' &&
         folder &&
         folder !== MAIN_GROUP_FOLDER
       ) {

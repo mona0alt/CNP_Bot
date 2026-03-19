@@ -24,6 +24,7 @@ import { mergePersistedAndStreamingMessages } from '@/hooks/streaming-session-re
 
 export function Chat() {
   const [chats, setChats] = useState<Chat[]>([]);
+  const [chatsLoaded, setChatsLoaded] = useState(false);
   const [selectedJid, setSelectedJid] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,6 +53,7 @@ export function Chat() {
   const [confirmRequests, setConfirmRequests] = useState<ConfirmBashRequest[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
+  const creatingInitialChatRef = useRef(false);
 
   const {
     saveStreamingMessages,
@@ -120,7 +122,10 @@ export function Chat() {
 
   // Chat list operations
   const fetchChats = useCallback(async () => {
-    if (!token) return;
+    if (!token) {
+      setChatsLoaded(false);
+      return;
+    }
     try {
       const res = await fetch(`${apiBase}/api/chats`, {
         headers: authHeaders,
@@ -136,6 +141,8 @@ export function Chat() {
       setChats(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error(error);
+    } finally {
+      setChatsLoaded(true);
     }
   }, [apiBase, authHeaders, token, handleUnauthorized]);
 
@@ -179,25 +186,35 @@ export function Chat() {
     });
   };
 
-  const handleCreateChat = async () => {
+  const createChatSession = useCallback(async (): Promise<Chat | null> => {
     try {
-      if (!token) return;
+      if (!token) return null;
       const res = await fetch(`${apiBase}/api/chats`, {
         method: 'POST',
         headers: authHeaders,
       });
       if (res.status === 401 || res.status === 403) {
         await handleUnauthorized();
-        return;
+        return null;
       }
       if (!res.ok) throw new Error('Failed to create chat');
-      const newChat = await res.json();
-      fetchChats();
-      setSelectedJid(newChat.jid);
+      const newChat = await res.json() as Chat;
+      setChats((prev) => [newChat, ...prev.filter((chat) => chat.jid !== newChat.jid)]);
+      creatingInitialChatRef.current = false;
+      return newChat;
     } catch (error) {
+      creatingInitialChatRef.current = false;
       console.error('Failed to create chat', error);
+      return null;
     }
-  };
+  }, [apiBase, authHeaders, token, handleUnauthorized]);
+
+  const handleCreateChat = useCallback(async () => {
+    const newChat = await createChatSession();
+    if (newChat) {
+      setSelectedJid(newChat.jid);
+    }
+  }, [createChatSession]);
 
   const handleDeleteChat = async (jid: string) => {
     try {
@@ -300,9 +317,28 @@ export function Chat() {
 
   // Initial load
   useEffect(() => {
+    setChatsLoaded(false);
     fetchChats();
     fetchSlashCommands();
   }, [fetchChats, fetchSlashCommands]);
+
+  useEffect(() => {
+    if (!chatsLoaded) return;
+    if (selectedJid && chats.some((chat) => chat.jid === selectedJid)) return;
+    if (chats.length > 0) {
+      setSelectedJid(chats[0]!.jid);
+      return;
+    }
+
+    if (!token) return;
+    if (creatingInitialChatRef.current) return;
+    creatingInitialChatRef.current = true;
+    void createChatSession().then((newChat) => {
+      if (newChat) {
+        setSelectedJid(newChat.jid);
+      }
+    });
+  }, [chats, chatsLoaded, selectedJid, token, createChatSession]);
 
   // Load messages when chat is selected
   useEffect(() => {

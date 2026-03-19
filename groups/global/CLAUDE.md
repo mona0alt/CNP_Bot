@@ -26,25 +26,16 @@ You can connect to remote servers via JumpServer (Bastion Host) for any scenario
 
 **Usage (via tmux for stability):**
 ```bash
-SOCKET_DIR="${TMPDIR:-/tmp}/clawdbot-tmux-sockets"
-mkdir -p "$SOCKET_DIR"
-SOCKET="$SOCKET_DIR/clawdbot.sock"
-SESSION=jumpserver
+bash /home/node/.claude/skills/jumpserver/scripts/connect.sh
+```
 
-# Create session
-tmux -S "$SOCKET" new -d -s "$SESSION" -n shell
+This script is idempotent and uses:
+- socket: `/tmp/cnpbot-tmux-sockets/cnpbot.sock`
+- session: `jumpserver`
 
-# Connect to JumpServer
-tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "ssh ${JUMPSERVER_USER}@${JUMPSERVER_HOST} -p${JUMPSERVER_PORT}" Enter
-sleep 3
-# Handle confirmation if needed
-tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- 'yes' Enter
-sleep 2
-# Enter password
-tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "$JUMPSERVER_PASS" Enter
-sleep 3
-# Check output
-tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -200
+To inspect the current pane again:
+```bash
+tmux -S /tmp/cnpbot-tmux-sockets/cnpbot.sock capture-pane -p -J -t jumpserver:0.0 -S -200
 ```
 
 **After Connection:**
