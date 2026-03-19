@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/contexts/ThemeContext";
 import { ChevronDown, ChevronRight, Terminal, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { redactSensitiveToolText } from "@/lib/tool-redaction";
 
 export interface ToolCallCardProps {
   toolName: string;
@@ -24,17 +25,17 @@ export function ToolCallCard({
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const inputString = useMemo(() => {
-    if (typeof input === "string") return input;
+    if (typeof input === "string") return redactSensitiveToolText(input);
     if (typeof input === "object" && input !== null && "command" in input) {
-      return String((input as { command: unknown }).command);
+      return redactSensitiveToolText(String((input as { command: unknown }).command));
     }
-    return JSON.stringify(input, null, 2);
+    return redactSensitiveToolText(JSON.stringify(input, null, 2));
   }, [input]);
 
   const resultString = useMemo(() => {
     if (result === undefined || result === null) return null;
-    if (typeof result === "string") return result;
-    return JSON.stringify(result, null, 2);
+    if (typeof result === "string") return redactSensitiveToolText(result);
+    return redactSensitiveToolText(JSON.stringify(result, null, 2));
   }, [result]);
 
   const StatusIcon = {

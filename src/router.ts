@@ -26,6 +26,17 @@ export function formatOutbound(rawText: string): string {
   return text;
 }
 
+export function shouldPreserveInternalTagsForJid(jid: string): boolean {
+  return jid.startsWith('web:');
+}
+
+export function formatOutboundForJid(jid: string, rawText: string): string {
+  if (shouldPreserveInternalTagsForJid(jid)) {
+    return rawText.trim();
+  }
+  return formatOutbound(rawText);
+}
+
 export function routeOutbound(
   channels: Channel[],
   jid: string,

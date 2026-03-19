@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     sqlite3 \
     tmux \
+    sshpass \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20

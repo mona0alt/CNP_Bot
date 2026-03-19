@@ -161,14 +161,14 @@ export function Dashboard() {
           </div>
         </section>
 
-        <section className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-12">
           {groupedMetrics.map((group) => {
             const Icon = group.icon;
 
             return (
               <article
                 key={group.title}
-                className="flex h-full flex-col rounded-[20px] border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-700/90 dark:bg-slate-900 dark:shadow-[0_8px_24px_-18px_rgba(0,0,0,0.65)]"
+                className="flex h-full flex-col rounded-[20px] border border-slate-200 bg-white px-4 py-4 shadow-sm md:col-span-1 xl:col-span-3 dark:border-slate-700/90 dark:bg-slate-900 dark:shadow-[0_8px_24px_-18px_rgba(0,0,0,0.65)]"
               >
                 <div className="flex min-h-[44px] items-start justify-between gap-3">
                   <div>
@@ -198,8 +198,8 @@ export function Dashboard() {
           })}
         </section>
 
-        <section className="grid items-stretch gap-6 xl:grid-cols-[minmax(0,1.6fr)_420px]">
-          <article className="flex h-full flex-col rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700/90 dark:bg-slate-900 dark:shadow-[0_10px_30px_-18px_rgba(0,0,0,0.65)]">
+        <section className="grid items-stretch gap-6 xl:grid-cols-12">
+          <article className="flex h-full flex-col rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm xl:col-span-9 dark:border-slate-700/90 dark:bg-slate-900 dark:shadow-[0_10px_30px_-18px_rgba(0,0,0,0.65)]">
             <div className="border-b border-slate-200 pb-4 dark:border-slate-700/90">
               <p className="text-sm font-medium text-slate-500 dark:text-slate-300">任务中心</p>
               <h2 className="mt-2 text-xl font-semibold text-slate-950 dark:text-white">
@@ -244,7 +244,7 @@ export function Dashboard() {
             </div>
           </article>
 
-          <div className="grid auto-rows-fr gap-6">
+          <div className="grid auto-rows-fr gap-6 xl:col-span-3">
             <article className="flex h-full flex-col rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700/90 dark:bg-slate-900 dark:shadow-[0_10px_30px_-18px_rgba(0,0,0,0.65)]">
               <p className="text-sm font-medium text-slate-500 dark:text-slate-300">能力模块</p>
               <h2 className="mt-2 text-xl font-semibold text-slate-950 dark:text-white">技能摘要</h2>

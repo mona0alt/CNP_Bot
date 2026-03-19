@@ -5,6 +5,7 @@ import {
   escapeXml,
   formatMessages,
   formatOutbound,
+  formatOutboundForJid,
   stripInternalTags,
 } from './router.js';
 import { NewMessage } from './types.js';
@@ -177,6 +178,26 @@ describe('formatOutbound', () => {
   it('strips internal tags from remaining text', () => {
     expect(
       formatOutbound('<internal>thinking</internal>The answer is 42'),
+    ).toBe('The answer is 42');
+  });
+});
+
+describe('formatOutboundForJid', () => {
+  it('web 会话保留 internal 标签供前端渲染 thinking 卡片', () => {
+    expect(
+      formatOutboundForJid(
+        'web:test',
+        '<internal>thinking</internal>The answer is 42',
+      ),
+    ).toBe('<internal>thinking</internal>The answer is 42');
+  });
+
+  it('非 web 会话继续剥离 internal 标签', () => {
+    expect(
+      formatOutboundForJid(
+        'group@g.us',
+        '<internal>thinking</internal>The answer is 42',
+      ),
     ).toBe('The answer is 42');
   });
 });

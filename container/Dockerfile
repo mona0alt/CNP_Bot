@@ -3,6 +3,11 @@
 
 FROM nanobot:latest
 
+# Install system dependencies for Chromium and sshpass for JumpServer automation
+RUN apt-get update && apt-get install -y \
+    sshpass \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install system dependencies for Chromium
 # RUN apt-get update && apt-get install -y \
 #     chromium \

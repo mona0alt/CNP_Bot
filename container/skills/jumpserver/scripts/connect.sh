@@ -12,6 +12,16 @@ SESSION="${JUMPSERVER_TMUX_SESSION:-jumpserver}"
 
 mkdir -p "$SOCKET_DIR"
 
+redact_sensitive_output() {
+  sed -E "s/(sshpass[[:space:]]+-p[[:space:]]+)(\"[^\"]*\"|'[^']*'|[^[:space:]]+)/\\1'***'/g"
+}
+
+# 检查 sshpass 是否可用
+USE_SSHPASS=false
+if command -v sshpass &>/dev/null; then
+  USE_SSHPASS=true
+fi
+
 if ! tmux -S "$SOCKET" has-session -t "$SESSION" 2>/dev/null; then
   tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
   sleep 1
@@ -28,18 +38,30 @@ current_pane="$(
 )"
 
 if [[ "$current_pane" != "ssh" ]]; then
+  # 清空当前 pane
   tmux -S "$SOCKET" send-keys -t "$pane_target" C-c
   sleep 1
-  tmux -S "$SOCKET" send-keys -t "$pane_target" -- "ssh ${JUMPSERVER_USER}@${JUMPSERVER_HOST} -p${JUMPSERVER_PORT}" Enter
+
+  if [[ "$USE_SSHPASS" == "true" ]]; then
+    # 使用 sshpass 自动输入密码，避免交互式输入
+    tmux -S "$SOCKET" send-keys -t "$pane_target" -- "sshpass -p '${JUMPSERVER_PASS}' ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=60 ${JUMPSERVER_USER}@${JUMPSERVER_HOST} -p${JUMPSERVER_PORT}" Enter
+  else
+    # 交互式 SSH 连接（需要手动输入密码）
+    tmux -S "$SOCKET" send-keys -t "$pane_target" -- "ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=60 ${JUMPSERVER_USER}@${JUMPSERVER_HOST} -p${JUMPSERVER_PORT}" Enter
+  fi
   sleep 3
 fi
 
-tmux -S "$SOCKET" capture-pane -p -J -t "$pane_target" -S -200
+tmux -S "$SOCKET" capture-pane -p -J -t "$pane_target" -S -200 | redact_sensitive_output
 
 cat <<EOF
 
 tmux socket: $SOCKET
 tmux session: $SESSION
-If the SSH prompt asks to trust the host, send: yes
-If it asks for a password, send: \$JUMPSERVER_PASS
 EOF
+
+if [[ "$USE_SSHPASS" != "true" ]]; then
+  echo "sshpass not found, using interactive mode:"
+  echo "If the SSH prompt asks to trust the host, send: yes"
+  echo "If it asks for a password, send: \$JUMPSERVER_PASS"
+fi

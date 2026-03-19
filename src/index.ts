@@ -56,7 +56,11 @@ import {
   writeAskResponse,
   writeConfirmResponse,
 } from './ipc.js';
-import { findChannel, formatMessages, formatOutbound } from './router.js';
+import {
+  findChannel,
+  formatMessages,
+  formatOutboundForJid,
+} from './router.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { startServer } from './server.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
@@ -389,8 +393,41 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     id: string;
     name: string;
     input: unknown;
-    status: 'executed';
+    status: 'calling' | 'executed' | 'error';
+    result?: string | object;
   }> = [];
+  const normalizeToolResultContent = (content: unknown): string | object | undefined => {
+    if (content === null || content === undefined) return undefined;
+    if (Array.isArray(content)) {
+      return content
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          if (
+            typeof item === 'object' &&
+            item !== null &&
+            'text' in item &&
+            typeof (item as { text?: unknown }).text === 'string'
+          ) {
+            return (item as { text: string }).text;
+          }
+          return JSON.stringify(item);
+        })
+        .join('\n');
+    }
+    if (typeof content === 'object') return content as object;
+    return String(content);
+  };
+  const updateCompletedToolResult = (
+    toolUseId: string | undefined,
+    status: 'executed' | 'error',
+    resultContent: unknown,
+  ): void => {
+    if (!toolUseId) return;
+    const tool = completedStreamTools.find((item) => item.id === toolUseId);
+    if (!tool) return;
+    tool.status = status;
+    tool.result = normalizeToolResultContent(resultContent);
+  };
 
   const agentResult = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
@@ -423,9 +460,24 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               id: pending.id,
               name: pending.name,
               input,
-              status: 'executed' as const,
+              status: 'calling' as const,
             });
             pendingStreamTools.delete(event.index);
+          }
+        } else if (event.type === 'tool_result') {
+          updateCompletedToolResult(
+            event.tool_use_id,
+            event.is_error ? 'error' : 'executed',
+            event.content,
+          );
+        } else if (
+          event.type === 'content_block_start' &&
+          event.content_block?.type !== 'tool_use'
+        ) {
+          for (const tool of completedStreamTools) {
+            if (tool.status === 'calling') {
+              tool.status = 'executed';
+            }
           }
         }
 
@@ -466,15 +518,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         completedStreamTools.length = 0;
       } else if (completedStreamTools.length > 0) {
         // Merge accumulated tool_use blocks with the final text so they persist in DB
-        const cleanText = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        const cleanText = formatOutboundForJid(chatJid, raw);
+        for (const tool of completedStreamTools) {
+          if (tool.status === 'calling') {
+            tool.status = 'executed';
+          }
+        }
         const blocks: unknown[] = [...completedStreamTools];
         if (cleanText) blocks.push({ type: 'text', text: cleanText });
         finalContent = JSON.stringify(blocks);
         completedStreamTools.length = 0;
       } else {
-        finalContent = raw
-          .replace(/<internal>[\s\S]*?<\/internal>/g, '')
-          .trim();
+        finalContent = formatOutboundForJid(chatJid, raw);
       }
 
       logger.info({ group: group.name }, `Agent output: ${finalContent.slice(0, 200)}`);
@@ -828,7 +883,7 @@ async function main(): Promise<void> {
     sendMessage: async (jid, rawText) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      const text = formatOutbound(rawText);
+      const text = formatOutboundForJid(jid, rawText);
       if (text) await channel.sendMessage(jid, text);
     },
     onWebUserMessage: async (jid, text, userId) => {
@@ -1028,7 +1083,7 @@ async function main(): Promise<void> {
         logger.warn({ jid }, 'No channel owns JID, cannot send message');
         return;
       }
-      const text = formatOutbound(rawText);
+      const text = formatOutboundForJid(jid, rawText);
       if (text) await channel.sendMessage(jid, text);
     },
   });

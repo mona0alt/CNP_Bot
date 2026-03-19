@@ -9,6 +9,7 @@ import { PrometheusChartCard } from '@/components/PrometheusChartCard';
 import type { PrometheusChartBlock } from '@/lib/types';
 import { ThoughtProcess } from "@/components/ThoughtProcess";
 import { useTheme } from "@/contexts/ThemeContext";
+import { shouldHideToolUseBlock } from "@/lib/tool-visibility";
 
 interface MessageItemProps {
   message: Message;
@@ -49,7 +50,9 @@ export function MessageItem({ message: msg }: MessageItemProps) {
     return 0;
   });
 
-  const hasVisibleContent = sortedBlocks.some((block) => {
+  const visibleBlocks = sortedBlocks.filter((block) => !shouldHideToolUseBlock(block));
+
+  const hasVisibleContent = visibleBlocks.some((block) => {
     if (block.type === 'tool_use') return true;
     if (block.type === 'prometheus_chart') return true;
     if (block.type === 'thinking' || block.type === 'redacted_thinking') return true;
@@ -87,7 +90,7 @@ export function MessageItem({ message: msg }: MessageItemProps) {
           </div>
         ) : null}
 
-        {sortedBlocks.map((block, bIdx) => {
+        {visibleBlocks.map((block, bIdx) => {
           if (block.type === 'tool_use') {
             let inputObj = block.input || {};
             const isEmptyObject = typeof inputObj === 'object' && inputObj !== null && Object.keys(inputObj).length === 0;
