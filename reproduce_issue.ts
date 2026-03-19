@@ -13,9 +13,9 @@ const input = {
   secrets: {
     ANTHROPIC_API_KEY: 'sk-ant-dummy',
     CLAUDE_CODE_OAUTH_TOKEN: 'dummy-token',
-    ANTHROPIC_BASE_URL: 'http://localhost:3001',
-    CLAUDE_BASE_URL: 'http://localhost:3001',
-    MODEL: 'claude-3-5-sonnet-20241022'
+    ANTHROPIC_BASE_URL: 'https://api.minimaxi.com/anthropic',
+    CLAUDE_BASE_URL: 'https://api.minimaxi.com/anthropic',
+    MODEL: 'MiniMax-M2.5'
   }
 };
 
