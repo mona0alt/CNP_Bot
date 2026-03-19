@@ -156,7 +156,7 @@ export function MessageInput({
   };
 
   return (
-    <div className="p-4 border-t bg-card/50 relative">
+    <div className="p-4 border-t bg-card/60 backdrop-blur-sm relative">
       {isPopupVisible && slashCommands.length > 0 && (
         <SlashCommandPopup
           commands={slashCommands}
@@ -168,7 +168,7 @@ export function MessageInput({
           onHover={setSelectedIndex}
         />
       )}
-      <div className="flex gap-2">
+      <div className="flex gap-3 items-center">
         <input
           ref={inputRef}
           type="text"
@@ -179,23 +179,29 @@ export function MessageInput({
           placeholder={
             isGenerating ? 'Agent is thinking...' : 'Type a message... (try /)'
           }
-          className="flex-1 bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+          className="flex-1 h-11 bg-background/90 border border-border/80 rounded-2xl px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/60 focus:border-ring disabled:opacity-50 disabled:cursor-not-allowed transition-[border-color,box-shadow]"
         />
         <button
           onClick={isGenerating ? onStop : onSend}
           disabled={!isGenerating && !value.trim()}
           className={cn(
-            'px-4 py-2 rounded-md disabled:opacity-50 flex items-center justify-center transition-colors',
+            'h-11 px-4 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-sm border',
             isGenerating
-              ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-              : 'bg-primary text-primary-foreground hover:bg-primary/90',
+              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-300 border-amber-500/25 hover:bg-amber-500/16 hover:border-amber-500/35'
+              : 'bg-primary text-primary-foreground border-primary hover:bg-primary/92',
           )}
-          title={isGenerating ? 'Stop generating' : 'Send message'}
+          title={isGenerating ? '停止生成' : '发送消息'}
         >
           {isGenerating ? (
-            <Square size={18} fill="currentColor" />
+            <>
+              <Square size={14} fill="currentColor" />
+              <span className="text-sm font-medium">停止</span>
+            </>
           ) : (
-            <Send size={18} />
+            <>
+              <Send size={16} />
+              <span className="text-sm font-medium">发送</span>
+            </>
           )}
         </button>
       </div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MessageSquare, Trash2 } from 'lucide-react';
+import { ChevronRight, MessageSquare, PanelLeftOpen, Trash2 } from 'lucide-react';
 import type { Chat, Message, SlashCommand } from '@/lib/types';
 import { AskUserCard } from '@/components/AskUserCard';
 import { ConfirmBashCard } from '@/components/ConfirmBashCard';
@@ -29,6 +29,7 @@ export function Chat() {
   const [loading, setLoading] = useState(false);
   const [generatingJids, setGeneratingJids] = useState<Set<string>>(new Set());
   const [newMessage, setNewMessage] = useState('');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Derived: is the currently selected session generating?
   const isGenerating = selectedJid ? generatingJids.has(selectedJid) : false;
@@ -516,20 +517,49 @@ export function Chat() {
         onSelectChat={setSelectedJid}
         onCreateChat={handleCreateChat}
         onDeleteChat={handleDeleteChat}
+        collapsed={isSidebarCollapsed}
+        onToggleCollapsed={() => setIsSidebarCollapsed((prev) => !prev)}
       />
 
       <div className="flex-1 flex flex-col bg-background h-full overflow-hidden">
         {selectedJid ? (
           <>
-            <div className="h-[60px] px-4 border-b flex items-center justify-between bg-card/50 shrink-0">
-              <h3 className="font-semibold text-lg">{chatName}</h3>
-              <button
-                onClick={() => setShowDeleteDialog(true)}
-                className="p-2 text-muted-foreground hover:text-destructive rounded-md hover:bg-muted transition-colors"
-                title="Delete Chat"
-              >
-                <Trash2 size={18} />
-              </button>
+            <div className="h-[60px] px-4 border-b flex items-center justify-between bg-card/60 backdrop-blur-sm shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                {isSidebarCollapsed && (
+                  <button
+                    onClick={() => setIsSidebarCollapsed(false)}
+                    className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+                    title="展开会话列表"
+                    aria-label="展开会话列表"
+                  >
+                    <PanelLeftOpen size={18} />
+                  </button>
+                )}
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-lg truncate">{chatName}</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">当前会话</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {!isSidebarCollapsed && (
+                  <button
+                    onClick={() => setIsSidebarCollapsed(true)}
+                    className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+                    title="收起会话列表"
+                    aria-label="收起会话列表"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowDeleteDialog(true)}
+                  className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title="删除会话"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
             </div>
 
             <div
@@ -592,7 +622,7 @@ export function Chat() {
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
             <div className="text-center">
               <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>Select a chat to view history</p>
+              <p>选择一个会话查看历史消息</p>
             </div>
           </div>
         )}
@@ -602,10 +632,10 @@ export function Chat() {
 
       <ConfirmDialog
         open={showDeleteDialog}
-        title="Delete Chat"
-        message="Are you sure you want to delete this chat? This action cannot be undone."
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        title="删除会话"
+        message="确定要删除当前会话吗？该操作无法撤销。"
+        confirmLabel="删除"
+        cancelLabel="取消"
         onConfirm={() => {
           if (selectedJid) {
             handleDeleteChat(selectedJid);
