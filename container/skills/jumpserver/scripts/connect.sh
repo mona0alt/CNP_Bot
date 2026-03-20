@@ -37,7 +37,7 @@ current_pane="$(
   tmux -S "$SOCKET" display-message -p -t "$pane_target" '#{pane_current_command}' 2>/dev/null || true
 )"
 
-if [[ "$current_pane" != "ssh" ]]; then
+if [[ "$current_pane" != "ssh" && "$current_pane" != "sshpass" ]]; then
   # 清空当前 pane
   tmux -S "$SOCKET" send-keys -t "$pane_target" C-c
   sleep 1

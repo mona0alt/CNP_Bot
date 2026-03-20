@@ -17,7 +17,7 @@ SOCKET="${SOCKET_DIR}/cnpbot.sock"
 SESSION="${JUMPSERVER_TMUX_SESSION:-jumpserver}"
 PANE="${SESSION}:0.0"
 
-CONNECT_TIMEOUT="${JUMPSERVER_CONNECT_TIMEOUT:-90}"
+CONNECT_TIMEOUT="${JUMPSERVER_CONNECT_TIMEOUT:-30}"
 
 mkdir -p "$SOCKET_DIR"
 
@@ -25,11 +25,24 @@ redact_sensitive_output() {
   sed -E "s/(sshpass[[:space:]]+-p[[:space:]]+)(\"[^\"]*\"|'[^']*'|[^[:space:]]+)/\\1'***'/g"
 }
 
-capture() {
+# 抓取 pane 最后 N 行（默认 10），用于精确匹配最新输出
+capture_tail() {
+  local lines="${1:-10}"
+  tmux -S "$SOCKET" capture-pane -p -J -t "$PANE" -S "-${lines}" 2>/dev/null || true
+}
+
+# 抓取 pane 大范围输出
+capture_full() {
   tmux -S "$SOCKET" capture-pane -p -J -t "$PANE" -S -200 2>/dev/null || true
 }
 
-# 轮询等待 pane 输出匹配 pattern，最多 timeout 秒
+# 清空 pane 历史，确保后续 capture 只包含新输出
+clear_pane_history() {
+  tmux -S "$SOCKET" send-keys -t "$PANE" "" ""
+  tmux -S "$SOCKET" clear-history -t "$PANE" 2>/dev/null || true
+}
+
+# 轮询等待 pane 最后几行匹配 pattern（快速、精确）
 wait_for_pattern() {
   local pattern="$1"
   local timeout="$2"
@@ -41,51 +54,94 @@ wait_for_pattern() {
     if (( now - start >= timeout )); then
       return 1
     fi
-    local out
-    out=$(capture)
-    if echo "$out" | grep -qE "$pattern"; then
+    if capture_tail 5 | grep -qE "$pattern"; then
       return 0
     fi
-    sleep 0.5
+    sleep 0.3
   done
 }
 
-# 检测远程 shell prompt（$ 或 # 结尾）
+# 堡垒机菜单 pattern
+MENU_PATTERN='\[Host\]>|Opt>|opt>'
+
+# 检测最后一行是否是远程 shell prompt
 is_remote_prompt() {
-  local out
-  out=$(capture)
   local last_line
-  last_line=$(echo "$out" | grep -v '^\s*$' | tail -1)
+  last_line=$(capture_tail 5 | grep -v '^\s*$' | tail -1)
   [[ -z "$last_line" ]] && return 1
   echo "$last_line" | grep -qE '(\$|#)\s*$'
+}
+
+# 检测是否已连接到指定目标（prompt 里包含目标 IP 片段）
+is_connected_to_target() {
+  local target="$1"
+  # 把 IP 中的 . 转义，用于 grep
+  local escaped_target
+  escaped_target=$(echo "$target" | sed 's/\./\\./g')
+  # 只看最后几行 prompt
+  local last_lines
+  last_lines=$(capture_tail 5)
+  # 检查 prompt 行 [user@hostname]# 中的 hostname 是否含目标 IP
+  # JumpServer 主机名格式通常是 bd-xxx-10-245-17-1，IP 中的 . 变成 -
+  local ip_as_dash
+  ip_as_dash=$(echo "$target" | tr '.' '-')
+  echo "$last_lines" | grep -qE "@[^]]*($escaped_target|$ip_as_dash)" && return 0
+  return 1
+}
+
+# 检测是否在堡垒机菜单
+is_at_menu() {
+  capture_tail 5 | grep -qE "$MENU_PATTERN"
 }
 
 # ── 1. 确保 tmux session 存在 ──
 if ! tmux -S "$SOCKET" has-session -t "$SESSION" 2>/dev/null; then
   tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
-  sleep 0.5
-fi
-
-# ── 2. 检查是否已经在目标机的 shell 上（已有连接可复用） ──
-current_cmd="$(tmux -S "$SOCKET" display-message -p -t "$PANE" '#{pane_current_command}' 2>/dev/null || true)"
-if [[ "$current_cmd" == "ssh" ]]; then
-  if is_remote_prompt; then
-    echo "REUSED_CONNECTION=true"
-    capture | redact_sensitive_output
-    exit 0
-  fi
-fi
-
-# ── 3. SSH 连接到 JumpServer ──
-USE_SSHPASS=false
-if command -v sshpass &>/dev/null; then
-  USE_SSHPASS=true
-fi
-
-if [[ "$current_cmd" != "ssh" ]]; then
-  tmux -S "$SOCKET" send-keys -t "$PANE" C-c
   sleep 0.3
+fi
 
+# 判断 pane 当前进程是否为 SSH 会话（sshpass 包裹 ssh 时 pane_current_command 是 sshpass）
+is_pane_in_ssh() {
+  local cmd="$1"
+  [[ "$cmd" == "ssh" || "$cmd" == "sshpass" ]]
+}
+
+# ── 2. 检查当前连接状态 ──
+current_cmd="$(tmux -S "$SOCKET" display-message -p -t "$PANE" '#{pane_current_command}' 2>/dev/null || true)"
+
+if is_pane_in_ssh "$current_cmd"; then
+  if is_at_menu; then
+    # 已在堡垒机菜单，直接跳到步骤 4 输入 IP
+    echo "Already at jump server menu"
+  elif is_remote_prompt; then
+    if is_connected_to_target "$TARGET_IP"; then
+      echo "REUSED_CONNECTION=true (already on $TARGET_IP)"
+      echo "$TARGET_IP" > "${SOCKET_DIR}/current_target"
+      capture_full | redact_sensitive_output
+      exit 0
+    else
+      # 在其他目标机，发 exit 退回堡垒机菜单
+      echo "Switching target: exiting current host..."
+      # 先清空历史，这样 exit 后 capture_tail 只看到新输出
+      clear_pane_history
+      tmux -S "$SOCKET" send-keys -t "$PANE" "exit" Enter
+      if ! wait_for_pattern "$MENU_PATTERN" 10; then
+        echo "ERROR: 未能返回堡垒机菜单" >&2
+        capture_tail 20 | redact_sensitive_output
+        exit 1
+      fi
+    fi
+  fi
+  # ssh 进程存在但状态不明（非菜单也非远程 prompt），继续往下走
+fi
+
+# ── 3. 如果不在 SSH 会话中，建立到 JumpServer 的连接 ──
+current_cmd="$(tmux -S "$SOCKET" display-message -p -t "$PANE" '#{pane_current_command}' 2>/dev/null || true)"
+if ! is_pane_in_ssh "$current_cmd"; then
+  USE_SSHPASS=false
+  if command -v sshpass &>/dev/null; then
+    USE_SSHPASS=true
+  fi
   if [[ "$USE_SSHPASS" == "true" ]]; then
     tmux -S "$SOCKET" send-keys -t "$PANE" -- \
       "sshpass -p '${JUMPSERVER_PASS}' ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=60 ${JUMPSERVER_USER}@${JUMPSERVER_HOST} -p${JUMPSERVER_PORT}" Enter
@@ -93,27 +149,48 @@ if [[ "$current_cmd" != "ssh" ]]; then
     tmux -S "$SOCKET" send-keys -t "$PANE" -- \
       "ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=60 ${JUMPSERVER_USER}@${JUMPSERVER_HOST} -p${JUMPSERVER_PORT}" Enter
   fi
+  if ! wait_for_pattern "$MENU_PATTERN" "$CONNECT_TIMEOUT"; then
+    echo "ERROR: JumpServer 菜单等待超时 (${CONNECT_TIMEOUT}s)" >&2
+    capture_tail 20 | redact_sensitive_output
+    exit 1
+  fi
 fi
 
-# ── 4. 等待 JumpServer 菜单出现 (Opt>) ──
-if ! wait_for_pattern 'Opt>|opt>|目标主机|请选择' "$CONNECT_TIMEOUT"; then
-  echo "ERROR: JumpServer 菜单等待超时 (${CONNECT_TIMEOUT}s)" >&2
-  capture | redact_sensitive_output
-  exit 1
-fi
-
-# ── 5. 输入目标 IP ──
+# ── 4. 输入目标 IP ──
 tmux -S "$SOCKET" send-keys -t "$PANE" -- "$TARGET_IP" Enter
 
-# ── 6. 等待目标机 shell prompt 出现 ──
-if ! wait_for_pattern '(\$|#)\s*$' "$CONNECT_TIMEOUT"; then
-  echo "ERROR: 目标主机连接超时 (${CONNECT_TIMEOUT}s)" >&2
-  capture | redact_sensitive_output
-  exit 1
-fi
+# ── 5. 等待目标机 shell prompt 出现（同时检测连接失败快速退出）──
+wait_start=$(date +%s)
+while true; do
+  wait_now=$(date +%s)
+  if (( wait_now - wait_start >= CONNECT_TIMEOUT )); then
+    echo "ERROR: 目标主机连接超时 (${CONNECT_TIMEOUT}s)" >&2
+    capture_tail 20 | redact_sensitive_output
+    exit 1
+  fi
+  tail_output=$(capture_tail 5)
+  # 检测目标机 shell prompt
+  if echo "$tail_output" | tail -1 | grep -qE '(\$|#)\s*$'; then
+    break
+  fi
+  # 检测 JumpServer 连接失败（返回菜单表示连接失败）
+  if echo "$tail_output" | grep -qE 'error:|错误|网络不通'; then
+    echo "ERROR: JumpServer 连接目标失败" >&2
+    capture_tail 20 | redact_sensitive_output
+    exit 1
+  fi
+  if echo "$tail_output" | tail -1 | grep -qE '\[Host\]>'; then
+    echo "ERROR: 目标主机连接失败（已返回堡垒机菜单）" >&2
+    capture_tail 20 | redact_sensitive_output
+    exit 1
+  fi
+  sleep 0.3
+done
 
-# ── 7. 输出最终 pane 内容 ──
-capture | redact_sensitive_output
+# ── 6. 记录当前目标并输出 ──
+echo "$TARGET_IP" > "${SOCKET_DIR}/current_target"
+
+capture_full | redact_sensitive_output
 
 cat <<EOF
 
