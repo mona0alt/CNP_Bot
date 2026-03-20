@@ -243,6 +243,61 @@ describe('server chat integration - concurrent sessions', () => {
       expect(toolUse!.event!.name).toBe('Bash');
       expect(toolUse!.event!.input!.command).toBe('ls');
     });
+
+    it('broadcasts jumpserver_session events without leaking internal tool_use cards', async () => {
+      const promise = collectMessages(wsA, 2);
+
+      broadcastToJid(JID_A, {
+        type: 'stream_event',
+        event: {
+          type: 'jumpserver_session',
+          block: {
+            type: 'jumpserver_session',
+            id: 'jump-1',
+            stage: 'running_remote_command',
+            target_host: '10.246.104.234',
+            executions: [
+              { id: 'exec-1', command: 'journalctl -n 50', status: 'running' },
+            ],
+          },
+        },
+      });
+      broadcastToJid(JID_A, {
+        type: 'message',
+        data: {
+          id: randomUUID(),
+          chat_jid: JID_A,
+          content: JSON.stringify([
+            {
+              type: 'jumpserver_session',
+              id: 'jump-1',
+              stage: 'completed',
+              target_host: '10.246.104.234',
+              executions: [
+                {
+                  id: 'exec-1',
+                  command: 'journalctl -n 50',
+                  status: 'completed',
+                },
+              ],
+            },
+          ]),
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      const received = await promise;
+      const sessionEvent = (
+        received as Array<{ type: string; event?: { type?: string; block?: { target_host?: string } } }>
+      ).find(
+        (msg) =>
+          msg.type === 'stream_event' &&
+          msg.event?.type === 'jumpserver_session',
+      );
+
+      expect(sessionEvent).toBeDefined();
+      expect(sessionEvent?.event?.block?.target_host).toBe('10.246.104.234');
+    });
   });
 
   // --- Session B ---

@@ -553,4 +553,128 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
     expect(messageItems[0]?.getAttribute('data-messageid')).toBe('final-a-1');
     expect(messageItems[0]?.textContent ?? '').toContain('最终文本回复');
   });
+
+  it('JumpServer 专用流式事件会复用同一条消息并在最终消息中保留聚合块', async () => {
+    await act(async () => {
+      root.render(
+        <AuthContext.Provider value={authValue}>
+          <StreamingMessagesProvider>
+            <Chat />
+          </StreamingMessagesProvider>
+        </AuthContext.Provider>,
+      );
+    });
+
+    await flush();
+
+    const selectA = container.querySelector(
+      '[data-testid="select-web\\:a"]',
+    ) as HTMLButtonElement | null;
+    expect(selectA).not.toBeNull();
+
+    await act(async () => {
+      selectA!.click();
+    });
+    await flush();
+
+    const socketA = getLatestSocketForJid('web:a');
+
+    await act(async () => {
+      socketA.emitMessage({
+        type: 'stream_event',
+        chat_jid: 'web:a',
+        event: {
+          type: 'jumpserver_session',
+          block: {
+            type: 'jumpserver_session',
+            id: 'jump-1',
+            stage: 'jumpserver_ready',
+            status: 'calling',
+            latest_output: 'Opt> 输入目标主机',
+            executions: [],
+          },
+        },
+      });
+    });
+    await flush();
+
+    await act(async () => {
+      socketA.emitMessage({
+        type: 'stream_event',
+        chat_jid: 'web:a',
+        event: {
+          type: 'jumpserver_session',
+          block: {
+            type: 'jumpserver_session',
+            id: 'jump-1',
+            stage: 'running_remote_command',
+            target_host: '10.246.104.234',
+            latest_output: 'Mar 19 kernel: test',
+            executions: [
+              {
+                id: 'exec-1',
+                command: 'journalctl -n 50',
+                status: 'running',
+              },
+            ],
+          },
+        },
+      });
+    });
+    await flush();
+
+    let messageItems = container.querySelectorAll('[data-testid="message-item"]');
+    const jumpStreamItems = Array.from(messageItems).filter((item) =>
+      (item.textContent ?? '').includes('jump-1'),
+    );
+    expect(jumpStreamItems).toHaveLength(1);
+    const streamText = jumpStreamItems[0]?.textContent ?? '';
+    expect(streamText).toContain('jumpserver_session');
+    expect(streamText).toContain('10.246.104.234');
+    expect(streamText).toContain('journalctl -n 50');
+    expect(streamText).toContain('Mar 19 kernel: test');
+
+    await act(async () => {
+      socketA.emitMessage({
+        type: 'message',
+        data: {
+          id: 'final-jump-1',
+          chat_jid: 'web:a',
+          sender_name: 'CNP-Bot',
+          content: JSON.stringify([
+            {
+              type: 'jumpserver_session',
+              id: 'jump-1',
+              stage: 'completed',
+              target_host: '10.246.104.234',
+              executions: [
+                {
+                  id: 'exec-1',
+                  command: 'journalctl -n 50',
+                  status: 'completed',
+                },
+              ],
+            },
+            { type: 'text', text: '最终文本回复' },
+          ]),
+          timestamp: '2099-03-18T08:01:50.000Z',
+          is_from_me: false,
+          is_bot_message: true,
+        },
+      });
+    });
+    await flush();
+
+    messageItems = container.querySelectorAll('[data-testid="message-item"]');
+    const mergedItems = Array.from(messageItems).filter((item) =>
+      (item.textContent ?? '').includes('final-jump-1') ||
+      (item.textContent ?? '').includes('jump-1'),
+    );
+    expect(mergedItems).toHaveLength(1);
+    const mergedText = mergedItems[0]?.textContent ?? '';
+    expect(mergedText).toContain('jumpserver_session');
+    expect(mergedText).toContain('journalctl -n 50');
+    expect(mergedText).toContain('最终文本回复');
+    expect(mergedItems[0]?.getAttribute('data-messageid')).toBe('final-jump-1');
+  });
 });

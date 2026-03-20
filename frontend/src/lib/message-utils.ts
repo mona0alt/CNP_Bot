@@ -19,6 +19,7 @@ interface StreamEvent {
   tool_use_id?: string;
   is_error?: boolean;
   content?: unknown;
+  block?: ContentBlock;
 }
 
 interface ToolContent {
@@ -50,6 +51,30 @@ export function finalizePendingToolCalls(
 
 export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): ContentBlock[] {
   const newBlocks = [...blocks];
+
+  if (event.type === 'jumpserver_session' && event.block?.type === 'jumpserver_session') {
+    let fallbackIndex = -1;
+    for (let index = newBlocks.length - 1; index >= 0; index -= 1) {
+      if (newBlocks[index]?.type === 'jumpserver_session') {
+        fallbackIndex = index;
+        break;
+      }
+    }
+    const existingIndex = event.block.id
+      ? newBlocks.findIndex(
+          (block) =>
+            block.type === 'jumpserver_session' &&
+            block.id === event.block?.id,
+        )
+      : fallbackIndex;
+
+    if (existingIndex !== -1) {
+      newBlocks[existingIndex] = event.block;
+    } else {
+      newBlocks.push(event.block);
+    }
+    return newBlocks;
+  }
 
   if (event.type === 'content_block_start' && event.content_block) {
     newBlocks.push({

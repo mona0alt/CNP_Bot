@@ -66,6 +66,10 @@ import { startServer } from './server.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 import {
+  createJumpServerStreamAggregator,
+  type JumpServerBlock,
+} from './jumpserver-stream-aggregator.js';
+import {
   executeSlashCommand,
   isSlashCommand,
   updateSdkCommands,
@@ -386,7 +390,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // By accumulating here, we ensure tool cards survive session switches / page reloads.
   const pendingStreamTools = new Map<
     number,
-    { id: string; name: string; inputJson: string }
+    { id: string; name: string; inputJson: string; bufferedEvents: unknown[] }
   >();
   const completedStreamTools: Array<{
     type: 'tool_use';
@@ -428,13 +432,82 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     tool.status = status;
     tool.result = normalizeToolResultContent(resultContent);
   };
+  const jumpServerAggregator = createJumpServerStreamAggregator();
+  let latestJumpServerBlock: JumpServerBlock | null = null;
+  const emitJumpServerBlock = async (block: JumpServerBlock | undefined) => {
+    if (!block) return;
+    latestJumpServerBlock = block;
+    if (channel.streamEvent) {
+      await channel.streamEvent(chatJid, {
+        type: 'jumpserver_session',
+        block,
+      });
+      resetIdleTimer();
+    }
+  };
+  const finalizeJumpServerBlock = (
+    state: 'completed' | 'cancelled' | 'error',
+    errorMessage?: string,
+  ): JumpServerBlock | null => {
+    if (!latestJumpServerBlock && !jumpServerAggregator.getBlock()) {
+      return null;
+    }
+
+    const nextBlock =
+      state === 'completed'
+        ? jumpServerAggregator.complete()
+        : state === 'cancelled'
+          ? jumpServerAggregator.cancel()
+          : jumpServerAggregator.fail(errorMessage);
+
+    latestJumpServerBlock = nextBlock ?? latestJumpServerBlock;
+    return latestJumpServerBlock;
+  };
+  const buildFinalContent = (rawText?: string | null): string => {
+    const cleanText = rawText ? formatOutboundForJid(chatJid, rawText) : '';
+    const finalizedJumpServerBlock = latestJumpServerBlock ?? jumpServerAggregator.getBlock();
+
+    if (finalizedJumpServerBlock) {
+      latestJumpServerBlock = finalizedJumpServerBlock;
+      const blocks: unknown[] = [finalizedJumpServerBlock];
+      if (cleanText) blocks.push({ type: 'text', text: cleanText });
+      completedStreamTools.length = 0;
+      return JSON.stringify(blocks);
+    }
+
+    for (const tool of completedStreamTools) {
+      if (tool.status === 'calling') {
+        tool.status = 'executed';
+      }
+    }
+    if (completedStreamTools.length > 0) {
+      const blocks: unknown[] = [...completedStreamTools];
+      if (cleanText) blocks.push({ type: 'text', text: cleanText });
+      completedStreamTools.length = 0;
+      return JSON.stringify(blocks);
+    }
+
+    return cleanText;
+  };
+  const sendFinalContentIfNeeded = async (rawText?: string | null) => {
+    const finalContent = buildFinalContent(rawText);
+    if (!finalContent) return;
+
+    logger.info(
+      { group: group.name },
+      `Agent output: ${finalContent.slice(0, 200)}`,
+    );
+    await channel.sendMessage(chatJid, finalContent);
+    outputSentToUser = true;
+  };
 
   const agentResult = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.streamEvent) {
       const event = result.streamEvent.event;
       if (event) {
-        // Track tool_use block lifecycle for persistence
+        let shouldForwardRawEvent = true;
+
         if (
           event.type === 'content_block_start' &&
           event.content_block?.type === 'tool_use'
@@ -443,28 +516,70 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             id: event.content_block.id,
             name: event.content_block.name,
             inputJson: '',
+            bufferedEvents: [event],
           });
+          shouldForwardRawEvent = false;
         } else if (
           event.type === 'content_block_delta' &&
           event.delta?.type === 'input_json_delta'
         ) {
           const pending = pendingStreamTools.get(event.index);
-          if (pending) pending.inputJson += event.delta.partial_json ?? '';
+          if (pending) {
+            pending.inputJson += event.delta.partial_json ?? '';
+            pending.bufferedEvents.push(event);
+            shouldForwardRawEvent = false;
+          }
         } else if (event.type === 'content_block_stop') {
           const pending = pendingStreamTools.get(event.index);
           if (pending) {
             let input: unknown = {};
             try { input = JSON.parse(pending.inputJson); } catch { /* use empty */ }
-            completedStreamTools.push({
-              type: 'tool_use' as const,
-              id: pending.id,
+            const jumpServerResult = jumpServerAggregator.consume({
+              type: 'tool_use',
               name: pending.name,
-              input,
-              status: 'calling' as const,
+              toolUseId: pending.id,
+              input:
+                typeof input === 'object' && input !== null
+                  ? (input as { command?: string })
+                  : { command: String(input) },
             });
+            if (jumpServerResult.block) {
+              await emitJumpServerBlock(jumpServerResult.block);
+            }
+            if (jumpServerResult.hiddenOriginalEvent) {
+              shouldForwardRawEvent = false;
+            } else {
+              completedStreamTools.push({
+                type: 'tool_use' as const,
+                id: pending.id,
+                name: pending.name,
+                input,
+                status: 'calling' as const,
+              });
+              if (channel.streamEvent) {
+                for (const bufferedEvent of pending.bufferedEvents) {
+                  await channel.streamEvent(chatJid, bufferedEvent);
+                }
+                await channel.streamEvent(chatJid, event);
+                resetIdleTimer();
+              }
+            }
             pendingStreamTools.delete(event.index);
+            shouldForwardRawEvent = false;
           }
         } else if (event.type === 'tool_result') {
+          const jumpServerResult = jumpServerAggregator.consume({
+            type: 'tool_result',
+            toolUseId: event.tool_use_id,
+            content: event.content,
+            isError: event.is_error,
+          });
+          if (jumpServerResult.block) {
+            await emitJumpServerBlock(jumpServerResult.block);
+          }
+          if (jumpServerResult.hiddenOriginalEvent) {
+            shouldForwardRawEvent = false;
+          }
           updateCompletedToolResult(
             event.tool_use_id,
             event.is_error ? 'error' : 'executed',
@@ -482,10 +597,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         }
 
         // Forward raw event to channel if supported (for rich UI)
-        if (channel.streamEvent) {
+        if (shouldForwardRawEvent && channel.streamEvent) {
           await channel.streamEvent(chatJid, event);
           resetIdleTimer();
-        } else {
+        } else if (shouldForwardRawEvent) {
           // Keep legacy text streaming for compatibility (only if streamEvent not supported)
           if (
             event.type === 'content_block_delta' &&
@@ -513,23 +628,34 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       let finalContent: string;
       const isAlreadyArray = raw.trim().startsWith('[') && raw.trim().endsWith(']');
       if (isAlreadyArray) {
-        // Container already serialized blocks (including any tool_use blocks)
-        finalContent = raw;
-        completedStreamTools.length = 0;
-      } else if (completedStreamTools.length > 0) {
-        // Merge accumulated tool_use blocks with the final text so they persist in DB
-        const cleanText = formatOutboundForJid(chatJid, raw);
-        for (const tool of completedStreamTools) {
-          if (tool.status === 'calling') {
-            tool.status = 'executed';
-          }
+        const parsedBlocks = JSON.parse(raw) as unknown[];
+        if (latestJumpServerBlock) {
+          finalizeJumpServerBlock('completed');
+          const filteredBlocks = parsedBlocks.filter((block) => {
+            if (!block || typeof block !== 'object') return true;
+            const blockType = (block as { type?: unknown }).type;
+            if (blockType === 'jumpserver_session') return false;
+            if (blockType !== 'tool_use') return true;
+            const input = (block as { input?: { command?: unknown } }).input;
+            const command =
+              input && typeof input === 'object' && 'command' in input
+                ? String(input.command ?? '')
+                : '';
+            return !/jumpserver\/scripts\/connect\.sh|tmux[\s\S]*(?:send-keys|capture-pane)/.test(
+              command,
+            );
+          });
+          finalContent = JSON.stringify([latestJumpServerBlock, ...filteredBlocks]);
+        } else {
+          // Container already serialized blocks (including any tool_use blocks)
+          finalContent = raw;
         }
-        const blocks: unknown[] = [...completedStreamTools];
-        if (cleanText) blocks.push({ type: 'text', text: cleanText });
-        finalContent = JSON.stringify(blocks);
         completedStreamTools.length = 0;
       } else {
-        finalContent = formatOutboundForJid(chatJid, raw);
+        if (latestJumpServerBlock) {
+          finalizeJumpServerBlock('completed');
+        }
+        finalContent = buildFinalContent(raw);
       }
 
       logger.info({ group: group.name }, `Agent output: ${finalContent.slice(0, 200)}`);
@@ -559,11 +685,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
     if (result.status === 'error') {
       hadError = true;
+      finalizeJumpServerBlock('error', result.error);
     }
   });
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
+
+  if (!outputSentToUser && (latestJumpServerBlock || jumpServerAggregator.getBlock())) {
+    if (queue.isInterrupted(chatJid)) {
+      finalizeJumpServerBlock('cancelled');
+    } else if (agentResult.status === 'error' || hadError) {
+      finalizeJumpServerBlock('error', agentResult.error);
+    } else {
+      finalizeJumpServerBlock('completed');
+    }
+    await sendFinalContentIfNeeded(null);
+  }
 
   if (agentResult.status === 'error' || hadError) {
     // If the process was interrupted by user, don't treat it as an error that needs retry.

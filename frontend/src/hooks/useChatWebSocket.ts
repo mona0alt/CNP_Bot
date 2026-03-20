@@ -33,6 +33,7 @@ interface StreamEvent {
   tool_use_id?: string;
   is_error?: boolean;
   content?: unknown;
+  block?: ContentBlock;
 }
 
 interface UseChatWebSocketOptions {
@@ -251,6 +252,34 @@ export function useChatWebSocket({
           if (payload.type === "stream_event" && payload.event && payload.chat_jid === jid) {
             const event = payload.event;
             setMessages((prev) => {
+              if (event.type === 'jumpserver_session') {
+                const activeStreamIndex = findActiveStreamIndex(prev);
+                if (activeStreamIndex === -1) {
+                  const newId = 'stream-' + Date.now();
+                  activeStreamIdRef.current = newId;
+                  const newMsg: Message = {
+                    id: newId,
+                    chat_jid: payload.chat_jid!,
+                    sender_name: 'CNP-Bot',
+                    content: JSON.stringify(applyEventToBlocks([], event)),
+                    timestamp: new Date().toISOString(),
+                    is_from_me: false,
+                    is_bot_message: true,
+                  };
+                  return [...prev, newMsg];
+                }
+
+                const streamMessage = prev[activeStreamIndex];
+                const blocks = parseMessageContent(streamMessage.content);
+                const updatedBlocks = applyEventToBlocks(blocks, event);
+                const nextMessages = [...prev];
+                nextMessages[activeStreamIndex] = {
+                  ...streamMessage,
+                  content: JSON.stringify(updatedBlocks),
+                };
+                return nextMessages;
+              }
+
               if (event.type === 'tool_result') {
                 const streamIndex = findActiveStreamIndex(prev);
                 const toolResultTargetIndex = streamIndex !== -1

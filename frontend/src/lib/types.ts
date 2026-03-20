@@ -30,6 +30,39 @@ export interface PrometheusChartBlock {
   [key: string]: unknown;
 }
 
+export interface JumpServerExecution {
+  id: string;
+  command: string;
+  status: 'running' | 'completed' | 'error' | 'cancelled';
+  output?: string;
+  started_at?: string;
+  finished_at?: string;
+  error_message?: string;
+}
+
+export interface JumpServerBlock {
+  type: 'jumpserver_session';
+  id?: string;
+  stage:
+    | 'connecting_jumpserver'
+    | 'jumpserver_ready'
+    | 'sending_target'
+    | 'target_connecting'
+    | 'target_connected'
+    | 'running_remote_command'
+    | 'completed'
+    | 'error'
+    | 'cancelled';
+  status?: 'calling' | 'executed' | 'error' | 'cancelled';
+  jumpserver_host?: string;
+  target_host?: string;
+  target_hint?: string;
+  latest_output?: string;
+  executions?: JumpServerExecution[];
+  error_message?: string;
+  [key: string]: unknown;
+}
+
 export type ContentBlock =
   | { type: 'text'; text?: string; [key: string]: unknown }
   | {
@@ -43,6 +76,7 @@ export type ContentBlock =
       [key: string]: unknown;
     }
   | { type: 'thinking' | 'redacted_thinking'; text?: string; [key: string]: unknown }
+  | JumpServerBlock
   | PrometheusChartBlock;
 
 export interface SlashCommand {

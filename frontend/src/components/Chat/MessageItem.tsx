@@ -4,9 +4,10 @@ import type { Message } from "@/lib/types";
 import { parseMessageContent } from "@/lib/message-parser";
 import { parseThoughts } from "@/lib/thought-parser";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { JumpServerSessionCard } from "@/components/JumpServerSessionCard";
 import { ToolCallCard } from "@/components/ToolCallCard";
 import { PrometheusChartCard } from '@/components/PrometheusChartCard';
-import type { PrometheusChartBlock } from '@/lib/types';
+import type { JumpServerBlock, PrometheusChartBlock } from '@/lib/types';
 import { ThoughtProcess } from "@/components/ThoughtProcess";
 import { useTheme } from "@/contexts/ThemeContext";
 import { shouldHideToolUseBlock } from "@/lib/tool-visibility";
@@ -54,6 +55,7 @@ export function MessageItem({ message: msg }: MessageItemProps) {
 
   const hasVisibleContent = visibleBlocks.some((block) => {
     if (block.type === 'tool_use') return true;
+    if (block.type === 'jumpserver_session') return true;
     if (block.type === 'prometheus_chart') return true;
     if (block.type === 'thinking' || block.type === 'redacted_thinking') return true;
     const segments = parseThoughts(block.text || "");
@@ -120,6 +122,15 @@ export function MessageItem({ message: msg }: MessageItemProps) {
               <PrometheusChartCard
                 key={`chart-${bIdx}`}
                 block={block as PrometheusChartBlock}
+              />
+            );
+          }
+
+          if (block.type === 'jumpserver_session') {
+            return (
+              <JumpServerSessionCard
+                key={`jumpserver-${block.id || bIdx}`}
+                block={block as JumpServerBlock}
               />
             );
           }
