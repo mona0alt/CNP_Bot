@@ -11,6 +11,8 @@ export interface ToolCallCardProps {
   result?: string | object | null;
   className?: string;
   defaultExpanded?: boolean;
+  /** When true, shows input command in the title bar (visible when collapsed) and hides Input section when expanded */
+  showInputInTitle?: boolean;
 }
 
 export function ToolCallCard({
@@ -20,6 +22,7 @@ export function ToolCallCard({
   result,
   className,
   defaultExpanded = false,
+  showInputInTitle = false,
 }: ToolCallCardProps) {
   const { theme } = useTheme();
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -90,8 +93,11 @@ export function ToolCallCard({
         <div className={cn("p-1 rounded-md bg-background border", borderColor)}>
           <Terminal size={14} className={statusColor} />
         </div>
-        <div className="flex-1 font-mono text-xs font-medium truncate">
-          {truncatedToolName}
+        <div className="flex-1 font-mono text-xs font-medium truncate flex items-center gap-2">
+          <span className="truncate">{truncatedToolName}</span>
+          {showInputInTitle && (
+            <span className="text-muted-foreground/60 truncate">| {inputString}</span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {status === "calling" && (
@@ -120,17 +126,19 @@ export function ToolCallCard({
       {expanded && (
         <div className="border-t bg-muted/10">
           <div className="p-3 space-y-3">
-            {/* Input Section */}
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">
-                Input
+            {/* Input Section - hidden when showInputInTitle=true (already shown in header) */}
+            {!showInputInTitle && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">
+                  Input
+                </div>
+                <div className="relative group">
+                  <pre className="text-xs bg-muted/50 p-2 rounded-md overflow-x-auto font-mono text-foreground/80 whitespace-pre-wrap break-all">
+                    {inputString || <span className="text-muted-foreground italic">No input</span>}
+                  </pre>
+                </div>
               </div>
-              <div className="relative group">
-                <pre className="text-xs bg-muted/50 p-2 rounded-md overflow-x-auto font-mono text-foreground/80 whitespace-pre-wrap break-all">
-                  {inputString || <span className="text-muted-foreground italic">No input</span>}
-                </pre>
-              </div>
-            </div>
+            )}
 
             {/* Result Section (only if exists) */}
             {resultString && (
