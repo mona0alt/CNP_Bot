@@ -109,6 +109,10 @@ function isJumpServerPaneTarget(target: string | undefined): boolean {
   return /^jumpserver(?:[:.].*)?$/.test(target);
 }
 
+function looksLikeIpAddress(value: string): boolean {
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(value);
+}
+
 export function extractSendKeysPayload(command: string): string | undefined {
   const marker = command.indexOf(' -- ');
   const rest =
@@ -142,8 +146,10 @@ export function extractSendKeysPayload(command: string): string | undefined {
 export function looksLikeTargetSelection(payload: string): boolean {
   const value = payload.trim();
   if (!value) return false;
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)) return true;
+  if (looksLikeIpAddress(value)) return true;
   if (/^\d+$/.test(value)) return true;
+  if (/^(?:q|quit|exit|:q)$/i.test(value)) return false;
+  if (/^[A-Za-z]$/.test(value)) return false;
   return /^[A-Za-z0-9._:@/-]+$/.test(value) && !/[|&;$`]/.test(value);
 }
 
@@ -151,6 +157,7 @@ export function looksLikeRemoteCommand(payload: string): boolean {
   const value = payload.trim();
   if (!value) return false;
   if (/^(?:C-c|Enter|Up|Down|Left|Right|Space)$/i.test(value)) return false;
+  if (/^(?:q|quit|exit|:q)$/i.test(value)) return false;
   if (looksLikeTargetSelection(value)) return false;
   return /[\s/|&;$`=-]/.test(value) || /[A-Za-z]/.test(value);
 }
@@ -222,6 +229,22 @@ function canTreatAsRemoteCommand(
     current.stage !== 'connecting_jumpserver' &&
     current.stage !== 'jumpserver_ready'
   );
+}
+
+function canUpdateTargetHost(
+  current: JumpServerBlock,
+  payload: string,
+): boolean {
+  const candidate = extractHostFromText(payload) ?? payload.trim();
+  if (!candidate) return false;
+
+  if (!current.target_host) return true;
+
+  if (looksLikeIpAddress(current.target_host)) {
+    return looksLikeIpAddress(candidate) || /^\d+$/.test(candidate);
+  }
+
+  return candidate.length > 1 && !/^(?:q|quit|exit|:q)$/i.test(candidate);
 }
 
 function markRunningExecution(
@@ -332,7 +355,8 @@ export function createJumpServerStreamAggregator() {
 
       if (
         REMOTE_SELECTION_STAGES.has(current.stage) &&
-        looksLikeTargetSelection(payload)
+        looksLikeTargetSelection(payload) &&
+        canUpdateTargetHost(current, payload)
       ) {
         current.target_host = extractHostFromText(payload) ?? payload;
         current.stage = 'sending_target';
@@ -343,6 +367,13 @@ export function createJumpServerStreamAggregator() {
       if (
         canTreatAsRemoteCommand(current, payload)
       ) {
+        current.executions = markRunningExecution(
+          current.executions,
+          'completed',
+          {
+            finished_at: new Date().toISOString(),
+          },
+        ) ?? current.executions;
         const executions = current.executions ?? [];
         current.executions = [
           ...executions,

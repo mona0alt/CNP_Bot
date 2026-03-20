@@ -109,6 +109,31 @@ describe('JumpServerStreamAggregator', () => {
     expect(result.block?.stage).toBe('sending_target');
   });
 
+  it('does not overwrite an ip target_host with q from pager quit', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    aggregator.seed({
+      type: 'jumpserver_session',
+      id: 'jump-1',
+      stage: 'target_connecting',
+      status: 'calling',
+      target_host: '10.246.104.234',
+      executions: [],
+    });
+
+    const result = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-send-q',
+      input: {
+        command: 'tmux -S /tmp/cnpbot-tmux-sockets/cnpbot.sock send-keys -t jumpserver "q" C-m',
+      },
+    });
+
+    expect(result.hiddenOriginalEvent).toBe(true);
+    expect(result.block?.target_host).toBe('10.246.104.234');
+    expect(result.block?.executions ?? []).toHaveLength(0);
+  });
+
   it('moves to target_connected when capture-pane shows a remote prompt', () => {
     const aggregator = createJumpServerStreamAggregator();
     aggregator.seed({
@@ -223,6 +248,41 @@ describe('JumpServerStreamAggregator', () => {
     expect(result.block?.stage).toBe('running_remote_command');
     expect(result.block?.executions?.[0]).toMatchObject({
       command: 'journalctl -n 50',
+      status: 'running',
+    });
+  });
+
+  it('completes previous running execution before appending the next remote command', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    aggregator.seed({
+      type: 'jumpserver_session',
+      id: 'jump-1',
+      stage: 'running_remote_command',
+      status: 'calling',
+      target_host: '10.246.104.234',
+      executions: [
+        {
+          id: 'exec-1',
+          command: 'journalctl -n 50',
+          status: 'running',
+        },
+      ],
+    });
+
+    const result = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-next-command',
+      input: {
+        command: 'tmux -S /tmp/cnpbot-tmux-sockets/cnpbot.sock send-keys -t jumpserver "dmesg | tail -n 20" C-m',
+      },
+    });
+
+    expect(result.hiddenOriginalEvent).toBe(true);
+    expect(result.block?.executions).toHaveLength(2);
+    expect(result.block?.executions?.[0]?.status).toBe('completed');
+    expect(result.block?.executions?.[1]).toMatchObject({
+      command: 'dmesg | tail -n 20',
       status: 'running',
     });
   });
