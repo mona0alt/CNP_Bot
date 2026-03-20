@@ -2,7 +2,6 @@ import {
   Loader2,
   MonitorCog,
   Server,
-  Shield,
 } from 'lucide-react';
 
 import type { JumpServerBlock, JumpServerExecution } from '@/lib/types';
@@ -13,24 +12,15 @@ import { useTheme } from '@/contexts/ThemeContext';
 
 function stageLabel(stage: JumpServerBlock['stage'], targetHost?: string) {
   switch (stage) {
-    case 'connecting_jumpserver':
-      return '正在连接堡垒机';
-    case 'jumpserver_ready':
-      return '已连接堡垒机';
-    case 'sending_target':
-      return targetHost ? `正在选择目标主机 ${targetHost}` : '正在选择目标主机';
-    case 'target_connecting':
-      return targetHost ? `正在连接目标主机 ${targetHost}` : '正在连接目标主机';
-    case 'target_connected':
-      return targetHost ? `已连接目标主机 ${targetHost}` : '已连接目标主机';
-    case 'running_remote_command':
-      return '正在执行远端命令';
-    case 'completed':
-      return '已完成';
-    case 'cancelled':
-      return '已取消';
-    case 'error':
-      return '执行失败';
+    case 'connecting_jumpserver': return '正在连接堡垒机…';
+    case 'jumpserver_ready': return '堡垒机已就绪';
+    case 'sending_target': return targetHost ? `正在选择目标 ${targetHost}` : '正在选择目标主机';
+    case 'target_connecting': return targetHost ? `正在连接 ${targetHost}` : '正在连接目标主机';
+    case 'target_connected': return targetHost ? `已连接 ${targetHost}` : '已连接目标主机';
+    case 'running_remote_command': return '正在执行远端命令';
+    case 'completed': return '已完成';
+    case 'cancelled': return '已取消';
+    case 'error': return '执行失败';
   }
 }
 
@@ -80,13 +70,9 @@ export function JumpServerSessionCard({ block }: { block: JumpServerBlock }) {
   const badgeClass = isLight
     ? 'border-slate-200 bg-white/90 text-slate-700'
     : 'border-slate-800 bg-slate-950/60 text-slate-200';
-  const hintClass = isLight
-    ? 'border-slate-200 bg-white/90 text-slate-600'
-    : 'border-slate-800 bg-slate-950/60 text-slate-300';
   const iconWrapClass = isLight
     ? 'border-sky-200 bg-white/90'
     : 'border-slate-700/80 bg-slate-900/90';
-  const subTitleClass = isLight ? 'text-slate-600' : 'text-slate-300';
   const sectionTitleClass = isLight ? 'text-slate-500' : 'text-slate-400';
   const toolCardClass = isLight
     ? 'my-0 border-slate-200 bg-white shadow-sm'
@@ -112,30 +98,16 @@ export function JumpServerSessionCard({ block }: { block: JumpServerBlock }) {
           <div className="text-sm font-semibold tracking-wide">
             JumpServer 远程会话
           </div>
-          <div className={cn('mt-1 text-xs', subTitleClass)}>
+          <div className={cn('mt-0.5 text-xs', isLight ? 'text-slate-500' : 'text-slate-400')}>
             {stageLabel(block.stage, block.target_host)}
           </div>
         </div>
       </div>
 
-      <div className="grid gap-2 md:grid-cols-2">
-        {block.jumpserver_host ? (
-          <div className={cn('flex items-center gap-2 rounded-xl border px-3 py-2 text-xs', badgeClass)}>
-            <Shield size={14} className="text-sky-300" />
-            <span>堡垒机：{block.jumpserver_host}</span>
-          </div>
-        ) : null}
-        {block.target_host ? (
-          <div className={cn('flex items-center gap-2 rounded-xl border px-3 py-2 text-xs', badgeClass)}>
-            <Server size={14} className="text-emerald-300" />
-            <span>目标主机：{block.target_host}</span>
-          </div>
-        ) : null}
-      </div>
-
-      {block.target_hint ? (
-        <div className={cn('rounded-xl border px-3 py-2 text-xs', hintClass)}>
-          目标提示：{block.target_hint}
+      {block.target_host ? (
+        <div className={cn('flex items-center gap-2 rounded-xl border px-3 py-2 text-xs', badgeClass)}>
+          <Server size={14} className="text-emerald-300" />
+          <span>目标主机：{block.target_host}</span>
         </div>
       ) : null}
 
@@ -160,9 +132,9 @@ export function JumpServerSessionCard({ block }: { block: JumpServerBlock }) {
         </div>
       ) : null}
 
-      {block.error_message ? (
+      {block.stage === 'error' && block.error_message ? (
         <div className={cn(
-          'rounded-xl border px-3 py-2 text-xs',
+          'mt-3 rounded-xl border px-3 py-2 text-xs',
           isLight
             ? 'border-red-200 bg-red-50 text-red-700'
             : 'border-red-500/20 bg-red-500/10 text-red-200',
@@ -170,6 +142,7 @@ export function JumpServerSessionCard({ block }: { block: JumpServerBlock }) {
           {block.error_message}
         </div>
       ) : null}
+
     </section>
   );
 }

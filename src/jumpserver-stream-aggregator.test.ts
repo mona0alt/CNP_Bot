@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createJumpServerStreamAggregator,
+  extractConnectAndEnterTargetIp,
+  extractRunRemoteCommand,
+  isConnectAndEnterTargetCommand,
+  isRunRemoteCommandCall,
   type StreamToolEvent,
 } from './jumpserver-stream-aggregator.js';
 
@@ -336,5 +340,205 @@ describe('JumpServerStreamAggregator', () => {
     expect(result?.stage).toBe('cancelled');
     expect(result?.status).toBe('cancelled');
     expect(result?.executions?.[0]?.status).toBe('cancelled');
+  });
+
+  // ── connect-and-enter-target.sh tests ──
+
+  it('detects connect-and-enter-target.sh command', () => {
+    expect(isConnectAndEnterTargetCommand(
+      'bash /home/node/.claude/skills/jumpserver/scripts/connect-and-enter-target.sh 10.246.104.45',
+    )).toBe(true);
+    expect(isConnectAndEnterTargetCommand(
+      '/home/node/.claude/skills/jumpserver/scripts/connect-and-enter-target.sh 10.1.2.3',
+    )).toBe(true);
+    expect(isConnectAndEnterTargetCommand('connect.sh')).toBe(false);
+  });
+
+  it('extracts target IP from connect-and-enter-target.sh', () => {
+    expect(extractConnectAndEnterTargetIp(
+      'bash /path/connect-and-enter-target.sh 10.246.104.45',
+    )).toBe('10.246.104.45');
+    expect(extractConnectAndEnterTargetIp(
+      'bash /path/connect-and-enter-target.sh "10.246.104.45"',
+    )).toBe('10.246.104.45');
+  });
+
+  it('creates block with target_host when connect-and-enter-target.sh is called', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    const result = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-cet-1',
+      input: {
+        command: 'bash /home/node/.claude/skills/jumpserver/scripts/connect-and-enter-target.sh 10.246.104.45',
+      },
+    });
+
+    expect(result.hiddenOriginalEvent).toBe(true);
+    expect(result.block?.stage).toBe('connecting_jumpserver');
+    expect(result.block?.target_host).toBe('10.246.104.45');
+  });
+
+  it('moves to target_connected when connect-and-enter-target.sh returns with prompt', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-cet-1',
+      input: {
+        command: 'bash /home/node/.claude/skills/jumpserver/scripts/connect-and-enter-target.sh 10.246.104.45',
+      },
+    });
+
+    const result = aggregator.consume({
+      type: 'tool_result',
+      toolUseId: 'tool-cet-1',
+      content: 'Last login: Mon Mar 20\n[root@myhost ~]#',
+      isError: false,
+    });
+
+    expect(result.block?.stage).toBe('target_connected');
+    expect(result.block?.latest_output).toContain('[root@myhost ~]#');
+  });
+
+  // ── run-remote-command.sh tests ──
+
+  it('detects run-remote-command.sh command', () => {
+    expect(isRunRemoteCommandCall(
+      'bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "uname -a"',
+    )).toBe(true);
+    expect(isRunRemoteCommandCall('run-remote-command.sh')).toBe(false);
+  });
+
+  it('extracts remote command from run-remote-command.sh', () => {
+    expect(extractRunRemoteCommand(
+      'bash /path/run-remote-command.sh "journalctl --no-pager -n 50"',
+    )).toBe('journalctl --no-pager -n 50');
+    expect(extractRunRemoteCommand(
+      "bash /path/run-remote-command.sh 'df -h'",
+    )).toBe('df -h');
+    expect(extractRunRemoteCommand(
+      'bash /path/run-remote-command.sh export\\ SYSTEMD_PAGER=cat\\ PAGER=cat\\ \\&\\&\\ journalctl\\ --no-pager\\ -n\\ 100 300',
+    )).toBe('export SYSTEMD_PAGER=cat PAGER=cat && journalctl --no-pager -n 100');
+  });
+
+  it('creates execution entry when run-remote-command.sh is called', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    aggregator.seed({
+      type: 'jumpserver_session',
+      id: 'jump-1',
+      stage: 'target_connected',
+      status: 'calling',
+      target_host: '10.246.104.45',
+      executions: [],
+    });
+
+    const result = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-rrc-1',
+      input: {
+        command: 'bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "uname -a"',
+      },
+    });
+
+    expect(result.hiddenOriginalEvent).toBe(true);
+    expect(result.block?.stage).toBe('running_remote_command');
+    expect(result.block?.executions).toHaveLength(1);
+    expect(result.block?.executions?.[0]).toMatchObject({
+      command: 'uname -a',
+      status: 'running',
+    });
+  });
+
+  it('creates execution entry when run-remote-command.sh uses escaped spaces', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    aggregator.seed({
+      type: 'jumpserver_session',
+      id: 'jump-1',
+      stage: 'target_connected',
+      status: 'calling',
+      target_host: '10.246.104.45',
+      executions: [],
+    });
+
+    const result = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-rrc-escaped',
+      input: {
+        command:
+          'bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh export\\ SYSTEMD_PAGER=cat\\ PAGER=cat\\ \\&\\&\\ journalctl\\ --no-pager\\ -n\\ 100 300',
+      },
+    });
+
+    expect(result.hiddenOriginalEvent).toBe(true);
+    expect(result.block?.stage).toBe('running_remote_command');
+    expect(result.block?.executions).toHaveLength(1);
+    expect(result.block?.executions?.[0]).toMatchObject({
+      command: 'export SYSTEMD_PAGER=cat PAGER=cat && journalctl --no-pager -n 100',
+      status: 'running',
+    });
+  });
+
+  it('completes execution and returns to target_connected when run-remote-command.sh finishes', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    aggregator.seed({
+      type: 'jumpserver_session',
+      id: 'jump-1',
+      stage: 'target_connected',
+      status: 'calling',
+      target_host: '10.246.104.45',
+      executions: [],
+    });
+
+    aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-rrc-1',
+      input: {
+        command: 'bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "uname -a"',
+      },
+    });
+
+    const result = aggregator.consume({
+      type: 'tool_result',
+      toolUseId: 'tool-rrc-1',
+      content: 'Linux myhost 5.15.0 #1 SMP x86_64 GNU/Linux\n[root@myhost ~]#',
+      isError: false,
+    });
+
+    expect(result.block?.stage).toBe('target_connected');
+    expect(result.block?.executions).toHaveLength(1);
+    expect(result.block?.executions?.[0]?.status).toBe('completed');
+    expect(result.block?.executions?.[0]?.output).toContain('Linux myhost');
+  });
+
+  it('completes previous execution when a new run-remote-command.sh is called', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    aggregator.seed({
+      type: 'jumpserver_session',
+      id: 'jump-1',
+      stage: 'running_remote_command',
+      status: 'calling',
+      target_host: '10.246.104.45',
+      executions: [{ id: 'exec-1', command: 'uname -a', status: 'running' }],
+    });
+
+    const result = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-rrc-2',
+      input: {
+        command: 'bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "df -h"',
+      },
+    });
+
+    expect(result.block?.executions).toHaveLength(2);
+    expect(result.block?.executions?.[0]?.status).toBe('completed');
+    expect(result.block?.executions?.[1]).toMatchObject({
+      command: 'df -h',
+      status: 'running',
+    });
   });
 });

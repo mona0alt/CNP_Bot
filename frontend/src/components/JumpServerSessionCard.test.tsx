@@ -65,12 +65,13 @@ describe('JumpServerSessionCard', () => {
 
     const text = container.textContent ?? '';
     expect(text).toContain('JumpServer 远程会话');
-    expect(text).toContain('已连接目标主机');
+    expect(text).toContain('已连接 10.246.104.234');
     expect(text).toContain('10.246.104.234');
     expect(text).toContain('journalctl -n 50');
     expect(text).toContain('Bash');
     expect(text).toContain('Result');
     expect(text).not.toContain('最近输出');
+    expect(text).not.toContain('jumpserver.example.internal');
   });
 
   it('adapts jumpserver card styling in light mode', async () => {

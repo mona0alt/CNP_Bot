@@ -52,7 +52,7 @@ export interface ConsumeResult {
   block?: JumpServerBlock;
 }
 
-type PendingToolKind = 'connect' | 'send_keys' | 'capture' | 'other';
+type PendingToolKind = 'connect' | 'connect_and_enter' | 'run_remote' | 'send_keys' | 'capture' | 'other';
 
 interface PendingToolRecord {
   command: string;
@@ -89,6 +89,73 @@ export function isJumpServerConnectCommand(command: string): boolean {
   return /(?:^|\s)(?:bash\s+)?[^\s]*jumpserver\/scripts\/connect\.sh(?:\s|$)/.test(
     command,
   );
+}
+
+export function isConnectAndEnterTargetCommand(command: string): boolean {
+  return /(?:^|\s)(?:bash\s+)?[^\s]*jumpserver\/scripts\/connect-and-enter-target\.sh(?:\s|$)/.test(
+    command,
+  );
+}
+
+function extractFirstShellWord(input: string): string | undefined {
+  const text = input.trimStart();
+  if (!text) return undefined;
+
+  const firstChar = text[0];
+  if (firstChar === '"' || firstChar === "'") {
+    const quote = firstChar;
+    let value = '';
+    for (let index = 1; index < text.length; index += 1) {
+      const char = text[index];
+      if (char === '\\' && quote === '"' && index + 1 < text.length) {
+        value += text[index + 1];
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        return value;
+      }
+      value += char;
+    }
+    return value;
+  }
+
+  let value = '';
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '\\' && index + 1 < text.length) {
+      value += text[index + 1];
+      index += 1;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      break;
+    }
+    value += char;
+  }
+  return value || undefined;
+}
+
+function sliceAfterScriptName(command: string, scriptName: string): string | undefined {
+  const match = command.match(new RegExp(`${scriptName}(?:\\s|$)`));
+  if (!match?.index && match?.index !== 0) return undefined;
+  return command.slice(match.index + scriptName.length);
+}
+
+export function extractConnectAndEnterTargetIp(command: string): string | undefined {
+  const tail = sliceAfterScriptName(command, 'connect-and-enter-target\\.sh');
+  return tail ? extractFirstShellWord(tail) : undefined;
+}
+
+export function isRunRemoteCommandCall(command: string): boolean {
+  return /(?:^|\s)(?:bash\s+)?[^\s]*jumpserver\/scripts\/run-remote-command\.sh(?:\s|$)/.test(
+    command,
+  );
+}
+
+export function extractRunRemoteCommand(command: string): string | undefined {
+  const tail = sliceAfterScriptName(command, 'run-remote-command\\.sh');
+  return tail ? extractFirstShellWord(tail) : undefined;
 }
 
 export function isTmuxSendKeysCommand(command: string): boolean {
@@ -174,7 +241,7 @@ export function summarizeTerminalOutput(content: unknown): string {
     .filter((line) => line.trim().length > 0);
 
   const summary = lines.slice(-12).join('\n');
-  return summary.length > 1200 ? summary.slice(summary.length - 1200) : summary;
+  return summary.slice(-1200);
 }
 
 export function looksLikeRemotePromptRecovered(output: string): boolean {
@@ -330,6 +397,51 @@ export function createJumpServerStreamAggregator() {
       return emit(true);
     }
 
+    if (isConnectAndEnterTargetCommand(command)) {
+      const targetIp = extractConnectAndEnterTargetIp(command);
+      block = {
+        type: 'jumpserver_session',
+        id: block?.id ?? JUMPSERVER_SESSION_ID,
+        stage: 'connecting_jumpserver',
+        status: 'calling',
+        target_host: targetIp,
+        executions: block?.executions ?? [],
+      };
+      if (event.toolUseId) {
+        pendingToolCommands.set(event.toolUseId, { command, kind: 'connect_and_enter' });
+      }
+      return emit(true);
+    }
+
+    if (isRunRemoteCommandCall(command)) {
+      const remoteCmd = extractRunRemoteCommand(command);
+      if (remoteCmd) {
+        const current = ensureBlock();
+        current.executions = markRunningExecution(
+          current.executions,
+          'completed',
+          { finished_at: new Date().toISOString() },
+        ) ?? current.executions;
+        const executions = current.executions ?? [];
+        current.executions = [
+          ...executions,
+          {
+            id: nextExecutionId(executions),
+            command: remoteCmd,
+            status: 'running',
+            started_at: new Date().toISOString(),
+          },
+        ];
+        current.stage = 'running_remote_command';
+        current.status = 'calling';
+        current.latest_output = undefined;
+      }
+      if (event.toolUseId) {
+        pendingToolCommands.set(event.toolUseId, { command, kind: 'run_remote' });
+      }
+      return emit(true);
+    }
+
     if (!block) {
       return emit(false);
     }
@@ -429,6 +541,38 @@ export function createJumpServerStreamAggregator() {
           ? 'jumpserver_ready'
           : current.stage;
       }
+      return emit(true);
+    }
+
+    if (pending.kind === 'connect_and_enter') {
+      if (summary) {
+        current.latest_output = summary;
+        current.jumpserver_host =
+          current.jumpserver_host ?? extractHostFromText(summary);
+        current.target_host =
+          current.target_host ?? extractHostFromText(summary);
+      }
+      if (event.isError) {
+        // already handled above
+      } else if (looksLikeRemotePromptRecovered(summary)) {
+        current.stage = 'target_connected';
+        current.status = 'calling';
+      } else {
+        current.stage = 'target_connecting';
+      }
+      return emit(true);
+    }
+
+    if (pending.kind === 'run_remote') {
+      if (summary) {
+        current.latest_output = summary;
+        current.executions = markRunningExecution(current.executions, 'completed', {
+          output: summary,
+          finished_at: new Date().toISOString(),
+        });
+      }
+      current.stage = 'target_connected';
+      current.status = 'calling';
       return emit(true);
     }
 

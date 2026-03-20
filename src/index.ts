@@ -68,6 +68,7 @@ import { logger } from './logger.js';
 import {
   createJumpServerStreamAggregator,
   type JumpServerBlock,
+  type JumpServerExecution,
 } from './jumpserver-stream-aggregator.js';
 import {
   executeSlashCommand,
@@ -434,8 +435,87 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
   const jumpServerAggregator = createJumpServerStreamAggregator();
   let latestJumpServerBlock: JumpServerBlock | null = null;
+  const executionMap = (block: JumpServerBlock | null | undefined) =>
+    new Map((block?.executions ?? []).map((execution) => [execution.id, execution]));
+  const durationMs = (
+    startedAt?: string,
+    finishedAt?: string,
+  ): number | undefined => {
+    if (!startedAt || !finishedAt) return undefined;
+    const started = Date.parse(startedAt);
+    const finished = Date.parse(finishedAt);
+    if (Number.isNaN(started) || Number.isNaN(finished)) return undefined;
+    return finished - started;
+  };
+  const logJumpServerDelta = (
+    previous: JumpServerBlock | null,
+    next: JumpServerBlock,
+  ) => {
+    if (!previous || previous.stage !== next.stage) {
+      logger.info(
+        {
+          group: group.name,
+          chatJid,
+          stage: next.stage,
+          targetHost: next.target_host,
+          executionCount: next.executions?.length ?? 0,
+        },
+        'JumpServer stage updated',
+      );
+    }
+
+    const prevExecutions = executionMap(previous);
+    for (const execution of next.executions ?? []) {
+      const prevExecution = prevExecutions.get(execution.id);
+      if (!prevExecution) {
+        logger.info(
+          {
+            group: group.name,
+            chatJid,
+            executionId: execution.id,
+            command: execution.command,
+            targetHost: next.target_host,
+          },
+          'JumpServer remote command started',
+        );
+        continue;
+      }
+
+      if (prevExecution.status !== execution.status) {
+        logger.info(
+          {
+            group: group.name,
+            chatJid,
+            executionId: execution.id,
+            command: execution.command,
+            status: execution.status,
+            durationMs: durationMs(
+              execution.started_at ?? prevExecution.started_at,
+              execution.finished_at ?? prevExecution.finished_at,
+            ),
+          },
+          'JumpServer remote command status updated',
+        );
+      } else if (
+        prevExecution.output !== execution.output &&
+        execution.status === 'running'
+      ) {
+        logger.info(
+          {
+            group: group.name,
+            chatJid,
+            executionId: execution.id,
+            command: execution.command,
+            outputPreview: execution.output?.slice(0, 160),
+          },
+          'JumpServer remote command output updated',
+        );
+      }
+    }
+  };
   const emitJumpServerBlock = async (block: JumpServerBlock | undefined) => {
     if (!block) return;
+    logJumpServerDelta(latestJumpServerBlock, block);
     latestJumpServerBlock = block;
     if (channel.streamEvent) {
       await channel.streamEvent(chatJid, {
@@ -641,7 +721,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               input && typeof input === 'object' && 'command' in input
                 ? String(input.command ?? '')
                 : '';
-            return !/jumpserver\/scripts\/connect\.sh|tmux[\s\S]*(?:send-keys|capture-pane)/.test(
+            return !/jumpserver\/scripts\/(?:connect|connect-and-enter-target|run-remote-command)\.sh|tmux[\s\S]*(?:send-keys|capture-pane)/.test(
               command,
             );
           });

@@ -17,17 +17,17 @@ describe("tool visibility", () => {
     expect(shouldHideToolUseBlock(block)).toBe(true);
   });
 
-  it("保留 jumpserver 入口脚本卡片", () => {
+  it("隐藏 jumpserver 包装脚本卡片", () => {
     const block: ContentBlock = {
       type: "tool_use",
       name: "Bash",
       input: {
-        command: "bash /home/node/.claude/skills/jumpserver/scripts/connect.sh",
+        command: "bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh \"uname -a\"",
       },
       status: "executed",
     };
 
-    expect(shouldHideToolUseBlock(block)).toBe(false);
+    expect(shouldHideToolUseBlock(block)).toBe(true);
   });
 
   it("隐藏已结束但没有任何内容的空工具卡片", () => {

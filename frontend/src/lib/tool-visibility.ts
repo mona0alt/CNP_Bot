@@ -26,7 +26,10 @@ export function shouldHideToolUseBlock(block: ContentBlock): boolean {
   const command = getToolCommand(block);
   if (
     command &&
-    /tmux\s+-S\s+\/tmp\/cnpbot-tmux-sockets\/cnpbot\.sock\b/.test(command)
+    (
+      /tmux\s+-S\s+\/tmp\/cnpbot-tmux-sockets\/cnpbot\.sock\b/.test(command) ||
+      /jumpserver\/scripts\/(?:connect|connect-and-enter-target|run-remote-command)\.sh\b/.test(command)
+    )
   ) {
     return true;
   }
