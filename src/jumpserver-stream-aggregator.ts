@@ -1,4 +1,4 @@
-const JUMPSERVER_SESSION_ID = 'jumpserver-session';
+const JUMPSERVER_SESSION_ID_PREFIX = 'jumpserver-session';
 const REMOTE_SELECTION_STAGES = new Set([
   'connecting_jumpserver',
   'jumpserver_ready',
@@ -281,6 +281,10 @@ function nextExecutionId(executions: JumpServerExecution[]): string {
   return `jumpserver-exec-${executions.length + 1}`;
 }
 
+function nextJumpServerSessionId(sequence: number): string {
+  return `${JUMPSERVER_SESSION_ID_PREFIX}-${sequence}`;
+}
+
 function canTreatAsRemoteCommand(
   current: JumpServerBlock,
   payload: string,
@@ -337,6 +341,7 @@ function markRunningExecution(
 
 export function createJumpServerStreamAggregator() {
   let block: JumpServerBlock | null = null;
+  let blockSequence = 0;
   const pendingToolCommands = new Map<string, PendingToolRecord>();
 
   function emit(hiddenOriginalEvent: boolean): ConsumeResult {
@@ -348,20 +353,32 @@ export function createJumpServerStreamAggregator() {
 
   function ensureBlock(): JumpServerBlock {
     if (!block) {
+      blockSequence += 1;
       block = {
         type: 'jumpserver_session',
-        id: JUMPSERVER_SESSION_ID,
+        id: nextJumpServerSessionId(blockSequence),
         stage: 'connecting_jumpserver',
         status: 'calling',
         executions: [],
       };
     }
     if (!block.id) {
-      block.id = JUMPSERVER_SESSION_ID;
+      blockSequence += 1;
+      block.id = nextJumpServerSessionId(blockSequence);
     }
     if (!block.executions) {
       block.executions = [];
     }
+    return block;
+  }
+
+  function resetBlock(next: Omit<JumpServerBlock, 'type' | 'id'>): JumpServerBlock {
+    blockSequence += 1;
+    block = {
+      type: 'jumpserver_session',
+      id: nextJumpServerSessionId(blockSequence),
+      ...next,
+    };
     return block;
   }
 
@@ -384,13 +401,11 @@ export function createJumpServerStreamAggregator() {
     }
 
     if (isJumpServerConnectCommand(command)) {
-      block = {
-        type: 'jumpserver_session',
-        id: block?.id ?? JUMPSERVER_SESSION_ID,
+      block = resetBlock({
         stage: 'connecting_jumpserver',
         status: 'calling',
-        executions: block?.executions ?? [],
-      };
+        executions: [],
+      });
       if (event.toolUseId) {
         pendingToolCommands.set(event.toolUseId, { command, kind: 'connect' });
       }
@@ -399,14 +414,12 @@ export function createJumpServerStreamAggregator() {
 
     if (isConnectAndEnterTargetCommand(command)) {
       const targetIp = extractConnectAndEnterTargetIp(command);
-      block = {
-        type: 'jumpserver_session',
-        id: block?.id ?? JUMPSERVER_SESSION_ID,
+      block = resetBlock({
         stage: 'connecting_jumpserver',
         status: 'calling',
         target_host: targetIp,
-        executions: block?.executions ?? [],
-      };
+        executions: [],
+      });
       if (event.toolUseId) {
         pendingToolCommands.set(event.toolUseId, { command, kind: 'connect_and_enter' });
       }

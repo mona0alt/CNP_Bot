@@ -25,8 +25,39 @@ describe('JumpServerStreamAggregator', () => {
 
     expect(result.hiddenOriginalEvent).toBe(true);
     expect(result.block?.type).toBe('jumpserver_session');
+    expect(result.block?.id).toBe('jumpserver-session-1');
     expect(result.block?.stage).toBe('connecting_jumpserver');
     expect(result.block?.status).toBe('calling');
+  });
+
+  it('starts a fresh jumpserver card when connect.sh is called again', () => {
+    const aggregator = createJumpServerStreamAggregator();
+
+    aggregator.seed({
+      type: 'jumpserver_session',
+      id: 'jumpserver-session-9',
+      stage: 'target_connected',
+      status: 'calling',
+      target_host: '10.246.104.45',
+      latest_output: 'old output',
+      executions: [{ id: 'jumpserver-exec-1', command: 'uname -a', status: 'completed' }],
+    });
+
+    const result = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-connect-2',
+      input: {
+        command: 'bash /home/node/.claude/skills/jumpserver/scripts/connect.sh',
+      },
+    });
+
+    expect(result.hiddenOriginalEvent).toBe(true);
+    expect(result.block?.id).not.toBe('jumpserver-session-9');
+    expect(result.block?.stage).toBe('connecting_jumpserver');
+    expect(result.block?.target_host).toBeUndefined();
+    expect(result.block?.latest_output).toBeUndefined();
+    expect(result.block?.executions).toEqual([]);
   });
 
   it('moves to jumpserver_ready when connect.sh returns the menu prompt', () => {
@@ -375,8 +406,45 @@ describe('JumpServerStreamAggregator', () => {
     });
 
     expect(result.hiddenOriginalEvent).toBe(true);
+    expect(result.block?.id).toBe('jumpserver-session-1');
     expect(result.block?.stage).toBe('connecting_jumpserver');
     expect(result.block?.target_host).toBe('10.246.104.45');
+  });
+
+  it('creates a new jumpserver card when switching to another target host', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    aggregator.seed({
+      type: 'jumpserver_session',
+      id: 'jumpserver-session-4',
+      stage: 'target_connected',
+      status: 'calling',
+      target_host: '10.246.104.45',
+      latest_output: 'old host output',
+      executions: [
+        {
+          id: 'jumpserver-exec-1',
+          command: 'journalctl --no-pager -n 50',
+          status: 'completed',
+          output: 'old host log',
+        },
+      ],
+    });
+
+    const result = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-cet-2',
+      input: {
+        command: 'bash /home/node/.claude/skills/jumpserver/scripts/connect-and-enter-target.sh 10.245.17.1',
+      },
+    });
+
+    expect(result.hiddenOriginalEvent).toBe(true);
+    expect(result.block?.id).not.toBe('jumpserver-session-4');
+    expect(result.block?.stage).toBe('connecting_jumpserver');
+    expect(result.block?.target_host).toBe('10.245.17.1');
+    expect(result.block?.latest_output).toBeUndefined();
+    expect(result.block?.executions).toEqual([]);
   });
 
   it('moves to target_connected when connect-and-enter-target.sh returns with prompt', () => {

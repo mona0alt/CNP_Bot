@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Brain, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -13,12 +13,22 @@ export function ThoughtProcess({ content, isComplete, autoCollapse }: ThoughtPro
   const isLight = theme === "light";
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
   const isExpanded = manualExpanded ?? (!isComplete || !autoCollapse);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    }
+  }, [content]);
 
   const toggleExpansion = () => {
     setManualExpanded(!isExpanded);
   };
 
   if (!content && isComplete) return null;
+
+  // Collapse multiple newlines into single newline (removes blank lines), let natural wrap handle it
+  const processedContent = content.replace(/\n\n+/g, '\n');
 
   return (
     <div className="border rounded-lg my-2 overflow-hidden bg-card border-amber-500/30">
@@ -62,15 +72,17 @@ export function ThoughtProcess({ content, isComplete, autoCollapse }: ThoughtPro
         </div>
       </div>
 
-      {/* Content - text wrapping enabled */}
+      {/* Content - fixed height, scrollable, shows latest lines */}
       {isExpanded && (
-        <div className="px-4 py-2 text-sm bg-muted/10">
+        <div
+          ref={contentRef}
+          className="px-4 py-2 text-sm bg-muted/10 overflow-y-auto"
+          style={{ maxHeight: '15em' }}
+        >
           <div
-            className={`whitespace-pre-wrap break-words leading-6 ${isLight ? "text-amber-800" : "text-amber-100/90"}`}
+            className={`whitespace-pre-wrap break-words leading-snug ${isLight ? "text-amber-800" : "text-amber-100/90"}`}
           >
-            <span>
-              {content || "Thinking..."}
-            </span>
+            {processedContent || "Thinking..."}
           </div>
         </div>
       )}
