@@ -62,21 +62,23 @@ bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "df -h" 
 
 2. **查看日志优先使用非交互命令**
    ```bash
-   bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "export SYSTEMD_PAGER=cat PAGER=cat && journalctl --no-pager -n 100"
-   bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "tail -100 /var/log/messages"
+   bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "export SYSTEMD_PAGER=cat PAGER=cat && journalctl --no-pager -n 100" 60 <目标IP>
+   bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "tail -100 /var/log/messages" 60 <目标IP>
    ```
 
 3. **长时间命令指定超时**
    ```bash
-   bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "yum install -y nginx" 300
+   bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "yum install -y nginx" 300 <目标IP>
    ```
 
 ## 查看目标机器详情
 
 连接成功后执行：
 ```bash
-bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "echo '=== 系统信息 ===' && uname -a && echo -e '\n=== 主机名 ===' && hostname && echo -e '\n=== 内存信息 ===' && free -h && echo -e '\n=== 磁盘信息 ===' && df -h | grep -E '^/dev|^Filesystem'"
+bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "echo '=== 系统信息 ===' && uname -a && echo -e '\n=== 主机名 ===' && hostname && echo -e '\n=== 内存信息 ===' && free -h && echo -e '\n=== 磁盘信息 ===' && df -h | grep -E '^/dev|^Filesystem'" 60 <目标IP>
 ```
+
+> 即使是同一台机器上的连续命令，也要重复传入目标 IP；脚本只用 `current_target` 判断是否需要切换，不会再隐式补全目标参数。
 
 ## 手动操作 tmux 会话（高级）
 

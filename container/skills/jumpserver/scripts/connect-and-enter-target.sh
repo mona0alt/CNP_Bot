@@ -64,31 +64,6 @@ wait_for_pattern() {
 # 堡垒机菜单 pattern
 MENU_PATTERN='\[Host\]>|Opt>|opt>'
 
-# 检测最后一行是否是远程 shell prompt
-is_remote_prompt() {
-  local last_line
-  last_line=$(capture_tail 5 | grep -v '^\s*$' | tail -1)
-  [[ -z "$last_line" ]] && return 1
-  echo "$last_line" | grep -qE '(\$|#)\s*$'
-}
-
-# 检测是否已连接到指定目标（prompt 里包含目标 IP 片段）
-is_connected_to_target() {
-  local target="$1"
-  # 把 IP 中的 . 转义，用于 grep
-  local escaped_target
-  escaped_target=$(echo "$target" | sed 's/\./\\./g')
-  # 只看最后几行 prompt
-  local last_lines
-  last_lines=$(capture_tail 5)
-  # 检查 prompt 行 [user@hostname]# 中的 hostname 是否含目标 IP
-  # JumpServer 主机名格式通常是 bd-xxx-10-245-17-1，IP 中的 . 变成 -
-  local ip_as_dash
-  ip_as_dash=$(echo "$target" | tr '.' '-')
-  echo "$last_lines" | grep -qE "@[^]]*($escaped_target|$ip_as_dash)" && return 0
-  return 1
-}
-
 # 检测是否在堡垒机菜单
 is_at_menu() {
   capture_tail 5 | grep -qE "$MENU_PATTERN"
@@ -113,26 +88,18 @@ if is_pane_in_ssh "$current_cmd"; then
   if is_at_menu; then
     # 已在堡垒机菜单，直接跳到步骤 4 输入 IP
     echo "Already at jump server menu"
-  elif is_remote_prompt; then
-    if is_connected_to_target "$TARGET_IP"; then
-      echo "REUSED_CONNECTION=true (already on $TARGET_IP)"
-      echo "$TARGET_IP" > "${SOCKET_DIR}/current_target"
-      capture_full | redact_sensitive_output
-      exit 0
-    else
-      # 在其他目标机，发 exit 退回堡垒机菜单
-      echo "Switching target: exiting current host..."
-      # 先清空历史，这样 exit 后 capture_tail 只看到新输出
-      clear_pane_history
-      tmux -S "$SOCKET" send-keys -t "$PANE" "exit" Enter
-      if ! wait_for_pattern "$MENU_PATTERN" 10; then
-        echo "ERROR: 未能返回堡垒机菜单" >&2
-        capture_tail 20 | redact_sensitive_output
-        exit 1
-      fi
+  else
+    # run-remote-command.sh 已根据 current_target 决定需要连接/切换；
+    # 这里不再通过 prompt 判断是否已在目标机，统一退回堡垒机菜单后重新进入目标。
+    echo "Switching target: exiting current host..."
+    clear_pane_history
+    tmux -S "$SOCKET" send-keys -t "$PANE" "exit" Enter
+    if ! wait_for_pattern "$MENU_PATTERN" 10; then
+      echo "ERROR: 未能返回堡垒机菜单" >&2
+      capture_tail 20 | redact_sensitive_output
+      exit 1
     fi
   fi
-  # ssh 进程存在但状态不明（非菜单也非远程 prompt），继续往下走
 fi
 
 # ── 3. 如果不在 SSH 会话中，建立到 JumpServer 的连接 ──
