@@ -98,42 +98,62 @@ export function isConnectAndEnterTargetCommand(command: string): boolean {
 }
 
 function extractFirstShellWord(input: string): string | undefined {
-  const text = input.trimStart();
-  if (!text) return undefined;
+  return extractLeadingShellWords(input, 1)[0];
+}
 
-  const firstChar = text[0];
-  if (firstChar === '"' || firstChar === "'") {
-    const quote = firstChar;
-    let value = '';
-    for (let index = 1; index < text.length; index += 1) {
-      const char = text[index];
-      if (char === '\\' && quote === '"' && index + 1 < text.length) {
-        value += text[index + 1];
-        index += 1;
-        continue;
-      }
-      if (char === quote) {
-        return value;
-      }
-      value += char;
-    }
-    return value;
-  }
+function extractLeadingShellWords(input: string, maxWords: number): string[] {
+  const words: string[] = [];
+  let index = 0;
 
-  let value = '';
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === '\\' && index + 1 < text.length) {
-      value += text[index + 1];
+  while (index < input.length && words.length < maxWords) {
+    while (index < input.length && /\s/.test(input[index] ?? '')) {
       index += 1;
+    }
+    if (index >= input.length) break;
+
+    const firstChar = input[index];
+    if (firstChar === '"' || firstChar === "'") {
+      const quote = firstChar;
+      let value = '';
+      index += 1;
+      while (index < input.length) {
+        const char = input[index];
+        if (char === '\\' && quote === '"' && index + 1 < input.length) {
+          value += input[index + 1];
+          index += 2;
+          continue;
+        }
+        if (char === quote) {
+          index += 1;
+          break;
+        }
+        value += char;
+        index += 1;
+      }
+      words.push(value);
       continue;
     }
-    if (/\s/.test(char)) {
-      break;
+
+    let value = '';
+    while (index < input.length) {
+      const char = input[index];
+      if (char === '\\' && index + 1 < input.length) {
+        value += input[index + 1];
+        index += 2;
+        continue;
+      }
+      if (/\s/.test(char)) {
+        break;
+      }
+      value += char;
+      index += 1;
     }
-    value += char;
+    if (value) {
+      words.push(value);
+    }
   }
-  return value || undefined;
+
+  return words;
 }
 
 function sliceAfterScriptName(command: string, scriptName: string): string | undefined {
@@ -155,7 +175,12 @@ export function isRunRemoteCommandCall(command: string): boolean {
 
 export function extractRunRemoteCommand(command: string): string | undefined {
   const tail = sliceAfterScriptName(command, 'run-remote-command\\.sh');
-  return tail ? extractFirstShellWord(tail) : undefined;
+  return tail ? extractLeadingShellWords(tail, 3)[0] : undefined;
+}
+
+export function extractRunRemoteTargetIp(command: string): string | undefined {
+  const tail = sliceAfterScriptName(command, 'run-remote-command\\.sh');
+  return tail ? extractLeadingShellWords(tail, 3)[2] : undefined;
 }
 
 export function isTmuxSendKeysCommand(command: string): boolean {
@@ -428,8 +453,10 @@ export function createJumpServerStreamAggregator() {
 
     if (isRunRemoteCommandCall(command)) {
       const remoteCmd = extractRunRemoteCommand(command);
+      const targetIp = extractRunRemoteTargetIp(command);
       if (remoteCmd) {
         const current = ensureBlock();
+        current.target_host = targetIp ?? current.target_host;
         current.executions = markRunningExecution(
           current.executions,
           'completed',
@@ -683,5 +710,10 @@ export function createJumpServerStreamAggregator() {
     return block ? cloneBlock(block) : undefined;
   }
 
-  return { consume, seed, cancel, complete, fail, getBlock };
+  function reset(): void {
+    block = null;
+    pendingToolCommands.clear();
+  }
+
+  return { consume, seed, cancel, complete, fail, getBlock, reset };
 }

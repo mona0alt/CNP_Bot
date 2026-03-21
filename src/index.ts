@@ -543,6 +543,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     latestJumpServerBlock = nextBlock ?? latestJumpServerBlock;
     return latestJumpServerBlock;
   };
+  const resetJumpServerTurnState = () => {
+    latestJumpServerBlock = null;
+    jumpServerAggregator.reset();
+  };
   const buildFinalContent = (rawText?: string | null): string => {
     const cleanText = rawText ? formatOutboundForJid(chatJid, rawText) : '';
     const finalizedJumpServerBlock = latestJumpServerBlock ?? jumpServerAggregator.getBlock();
@@ -579,6 +583,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     );
     await channel.sendMessage(chatJid, finalContent);
     outputSentToUser = true;
+    resetJumpServerTurnState();
   };
 
   const agentResult = await runAgent(group, prompt, chatJid, async (result) => {
@@ -742,6 +747,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       if (finalContent) {
         await channel.sendMessage(chatJid, finalContent);
         outputSentToUser = true;
+        resetJumpServerTurnState();
       }
       // A non-null result means the current query has completed and the agent
       // is about to transition into idle-waiting for the next IPC message.

@@ -4,6 +4,7 @@ import {
   createJumpServerStreamAggregator,
   extractConnectAndEnterTargetIp,
   extractRunRemoteCommand,
+  extractRunRemoteTargetIp,
   isConnectAndEnterTargetCommand,
   isRunRemoteCommandCall,
   type StreamToolEvent,
@@ -490,6 +491,15 @@ describe('JumpServerStreamAggregator', () => {
     )).toBe('export SYSTEMD_PAGER=cat PAGER=cat && journalctl --no-pager -n 100');
   });
 
+  it('extracts target ip from run-remote-command.sh', () => {
+    expect(extractRunRemoteTargetIp(
+      'bash /path/run-remote-command.sh "journalctl --no-pager -n 50" 60 10.246.104.45',
+    )).toBe('10.246.104.45');
+    expect(extractRunRemoteTargetIp(
+      'bash /path/run-remote-command.sh export\\ SYSTEMD_PAGER=cat\\ PAGER=cat\\ \\&\\&\\ journalctl\\ --no-pager\\ -n\\ 100 300 10.245.16.39',
+    )).toBe('10.245.16.39');
+  });
+
   it('creates execution entry when run-remote-command.sh is called', () => {
     const aggregator = createJumpServerStreamAggregator();
     aggregator.seed({
@@ -608,5 +618,43 @@ describe('JumpServerStreamAggregator', () => {
       command: 'df -h',
       status: 'running',
     });
+  });
+
+  it('starts a fresh round after reset so previous executions do not leak', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    aggregator.seed({
+      type: 'jumpserver_session',
+      id: 'jump-1',
+      stage: 'completed',
+      status: 'executed',
+      target_host: '10.246.104.45',
+      executions: [
+        { id: 'jumpserver-exec-1', command: 'uname -a', status: 'completed' },
+        { id: 'jumpserver-exec-2', command: 'df -h', status: 'completed' },
+      ],
+    });
+
+    aggregator.reset();
+
+    const result = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-rrc-next-round',
+      input: {
+        command:
+          'bash /home/node/.claude/skills/jumpserver/scripts/run-remote-command.sh "hostname -I" 60 10.245.16.39',
+      },
+    });
+
+    expect(result.hiddenOriginalEvent).toBe(true);
+    expect(result.block?.id).not.toBe('jump-1');
+    expect(result.block?.target_host).toBe('10.245.16.39');
+    expect(result.block?.executions).toEqual([
+      expect.objectContaining({
+        id: 'jumpserver-exec-1',
+        command: 'hostname -I',
+        status: 'running',
+      }),
+    ]);
   });
 });
