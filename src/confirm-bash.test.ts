@@ -48,6 +48,8 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+
+
 });
 
 describe('confirm bash helpers', () => {
@@ -149,4 +151,45 @@ describe('confirm bash helpers', () => {
     const exitCode = await waitForExit(child);
     expect(exitCode).toBe(2);
   });
+
+  it('cnp-confirm 应支持写入可选 targetHost 字段', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cnp-confirm-'));
+    tempDirs.push(tempDir);
+
+    const ipcDir = path.join(tempDir, 'ipc');
+    const requestDir = path.join(ipcDir, 'confirm_requests');
+    const responseDir = path.join(ipcDir, 'confirm_responses');
+    const script = path.resolve(process.cwd(), 'container/scripts/cnp-confirm');
+
+    const child = spawn(
+      'bash',
+      [script, 'rm -rf /tmp/cnp-danger-test', '递归强制删除文件', '10.1.2.3'],
+      {
+        env: {
+          ...process.env,
+          IPC_DIR: ipcDir,
+          CNP_BOT_CHAT_JID: 'web:test-confirm-target-host',
+        },
+        stdio: 'pipe',
+      },
+    );
+
+    const requestFile = await waitForJsonFile(requestDir);
+    const request = JSON.parse(fs.readFileSync(requestFile, 'utf8')) as {
+      requestId: string;
+      targetHost?: string;
+    };
+
+    expect(request.targetHost).toBe('10.1.2.3');
+
+    fs.mkdirSync(responseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(responseDir, `${request.requestId}.json`),
+      JSON.stringify({ approved: true }),
+    );
+
+    const exitCode = await waitForExit(child);
+    expect(exitCode).toBe(0);
+  });
+
 });

@@ -33,6 +33,7 @@ describe('frontend interactive event handling', () => {
         requestId: 'req-1',
         command: 'rm -rf /tmp/cnp-danger-test',
         reason: '递归强制删除文件',
+        targetHost: '10.1.2.3',
       },
       'web:test',
     );
@@ -41,6 +42,7 @@ describe('frontend interactive event handling', () => {
       requestId: 'req-1',
       command: 'rm -rf /tmp/cnp-danger-test',
       reason: '递归强制删除文件',
+      targetHost: '10.1.2.3',
     });
   });
 

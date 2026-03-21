@@ -1208,6 +1208,7 @@ async function main(): Promise<void> {
           requestId: req.requestId,
           command: req.command,
           reason: req.reason,
+          targetHost: req.targetHost,
         }),
       ),
     }),
@@ -1346,6 +1347,7 @@ async function main(): Promise<void> {
           requestId: req.requestId,
           command: req.command,
           reason: req.reason,
+          targetHost: req.targetHost,
         });
       }
     },

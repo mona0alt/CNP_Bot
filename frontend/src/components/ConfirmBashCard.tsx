@@ -46,6 +46,13 @@ export function ConfirmBashCard({
               <p className="text-xs font-medium text-muted-foreground">风险原因</p>
               <p className="mt-1 text-sm text-foreground/90">{request.reason}</p>
             </div>
+
+            <div className="rounded-xl bg-muted/40 px-3 py-2">
+              <p className="text-xs font-medium text-muted-foreground">目标主机</p>
+              <p className="mt-1 text-sm text-foreground/90">
+                {request.targetHost || '未知目标主机'}
+              </p>
+            </div>
           </div>
 
           {!isSubmitting ? (

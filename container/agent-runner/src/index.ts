@@ -24,7 +24,9 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 
-import { findDangerousCommandReason } from './dangerous-commands.js';
+import {
+  getDangerousCommandConfirmContext,
+} from './jumpserver-dangerous-command.js';
 
 interface ContainerInput {
   prompt: string;
@@ -284,17 +286,27 @@ function createDangerousCommandHook(): HookCallback {
     const command = (preInput.tool_input as { command?: string })?.command;
     if (!command) return {};
 
-    const reason = findDangerousCommandReason(command);
-    if (!reason) return {};
+    const context = getDangerousCommandConfirmContext(command);
+    if (!context) return {};
+
+    const { confirmCommand, isRemote, reason, targetHost } = context;
+    const targetHostLabel = targetHost ?? '未知目标主机';
+    const scopeLabel = isRemote
+      ? `远端危险命令（目标主机：${targetHostLabel}）`
+      : '危险命令';
 
     const confirmBin = resolveHelperBinary('cnp-confirm');
     log(
-      `Dangerous command detected: ${command.slice(0, 200)}, reason: ${reason}`,
+      `Dangerous command detected: ${confirmCommand.slice(0, 200)}, reason: ${reason}`,
     );
 
     try {
       const { spawnSync } = await import('child_process');
-      const result = spawnSync(confirmBin, [command, reason], {
+      const args = [confirmCommand, reason];
+      if (isRemote) {
+        args.push(targetHostLabel);
+      }
+      const result = spawnSync(confirmBin, args, {
         stdio: 'inherit',
         timeout: 310_000,
       });
@@ -308,7 +320,7 @@ function createDangerousCommandHook(): HookCallback {
 
       if (code === 2) {
         const retryHint =
-          `用户本次拒绝执行危险命令（${reason}）。这不是永久性限制；如果用户随后再次明确要求执行，可重新调用 Bash，并再次向用户确认。`;
+          `用户本次拒绝执行${scopeLabel}（${reason}）。这不是永久性限制；如果用户随后再次明确要求执行，可重新调用 Bash，并再次向用户确认。`;
         return {
           hookSpecificOutput: {
             hookEventName: 'PreToolUse',
@@ -320,7 +332,7 @@ function createDangerousCommandHook(): HookCallback {
 
       log(`cnp-confirm error (code=${String(code)}): ${error.message ?? ''}`);
       const failureHint =
-        `危险命令确认失败（${reason}），本次已拒绝执行。若用户仍要继续，请稍后重试；系统应再次发起确认。`;
+        `${scopeLabel}确认失败（${reason}），本次已拒绝执行。若用户仍要继续，请稍后重试；系统应再次发起确认。`;
       return {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',

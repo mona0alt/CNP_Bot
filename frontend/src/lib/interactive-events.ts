@@ -10,6 +10,7 @@ export interface ConfirmBashRequest {
   requestId: string;
   command: string;
   reason: string;
+  targetHost?: string;
   responded?: boolean;
   approved?: boolean;
   submitting?: boolean;
@@ -28,6 +29,7 @@ interface ConfirmBashPayload {
   requestId?: string;
   command?: string;
   reason?: string;
+  targetHost?: string;
 }
 
 export function extractAskUserRequest(
@@ -68,6 +70,7 @@ export function extractConfirmBashRequest(
     requestId: payload.requestId,
     command: payload.command,
     reason: payload.reason || '危险命令',
+    targetHost: payload.targetHost,
   };
 }
 

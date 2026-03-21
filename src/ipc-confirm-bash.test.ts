@@ -105,6 +105,7 @@ describe('interactive IPC flow', () => {
         chatJid: 'web:interactive-test',
         command: 'rm -rf /tmp/cnp-danger-test',
         reason: '递归强制删除文件',
+        targetHost: '10.1.2.3',
       }),
     );
 
@@ -114,6 +115,7 @@ describe('interactive IPC flow', () => {
     expect(req.chatJid).toBe('web:interactive-test');
     expect(req.command).toBe('rm -rf /tmp/cnp-danger-test');
     expect(req.reason).toBe('递归强制删除文件');
+    expect(req.targetHost).toBe('10.1.2.3');
   });
 
   it('应把确认结果写入 confirm_responses，供 helper 脚本读取', () => {

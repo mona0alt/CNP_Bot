@@ -27,6 +27,7 @@ export interface IpcConfirmRequest {
   requestId: string;
   command: string;
   reason?: string;
+  targetHost?: string;
   chatJid?: string;
 }
 

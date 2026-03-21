@@ -169,7 +169,7 @@ export interface ServerOpts {
     jid: string,
   ) => {
     asks: Array<{ requestId: string; question: string }>;
-    confirms: Array<{ requestId: string; command: string; reason?: string }>;
+    confirms: Array<{ requestId: string; command: string; reason?: string; targetHost?: string }>;
   };
 }
 
@@ -754,6 +754,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
             requestId: confirm.requestId,
             command: confirm.command,
             reason: confirm.reason,
+            targetHost: confirm.targetHost,
           });
         }
       }

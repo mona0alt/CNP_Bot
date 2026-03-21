@@ -8,6 +8,7 @@ fi
 
 COMMAND="$1"
 REASON="$2"
+TARGET_HOST="${3:-}"
 IPC_ROOT="${IPC_DIR:-/workspace/ipc}"
 CHAT_JID="${CNP_BOT_CHAT_JID:-}"
 REQUEST_DIR="${IPC_ROOT}/confirm_requests"
@@ -35,8 +36,14 @@ CMD_ESC="$(escape_json "$COMMAND")"
 REASON_ESC="$(escape_json "$REASON")"
 JID_ESC="$(escape_json "$CHAT_JID")"
 
-printf '{"type":"confirm_bash","requestId":"%s","chatJid":"%s","command":"%s","reason":"%s"}' \
-  "$REQUEST_ID" "$JID_ESC" "$CMD_ESC" "$REASON_ESC" > "$REQUEST_TMP_FILE"
+if [[ -n "$TARGET_HOST" ]]; then
+  TARGET_HOST_ESC="$(escape_json "$TARGET_HOST")"
+  printf '{"type":"confirm_bash","requestId":"%s","chatJid":"%s","command":"%s","reason":"%s","targetHost":"%s"}' \
+    "$REQUEST_ID" "$JID_ESC" "$CMD_ESC" "$REASON_ESC" "$TARGET_HOST_ESC" > "$REQUEST_TMP_FILE"
+else
+  printf '{"type":"confirm_bash","requestId":"%s","chatJid":"%s","command":"%s","reason":"%s"}' \
+    "$REQUEST_ID" "$JID_ESC" "$CMD_ESC" "$REASON_ESC" > "$REQUEST_TMP_FILE"
+fi
 mv "$REQUEST_TMP_FILE" "$REQUEST_FILE"
 
 RESPONSE_FILE="${RESPONSE_DIR}/${REQUEST_ID}.json"
