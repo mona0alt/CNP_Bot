@@ -70,6 +70,7 @@ if [ "$1" == "--docker" ]; then
         docker run -d \
           -p 3000:3000 \
           --name cnp-bot \
+          -e JUMPSERVER_DEBUG=1 \
           --env-file .env \
           cnp-bot
     else
@@ -77,6 +78,7 @@ if [ "$1" == "--docker" ]; then
         docker run -d \
           -p 3000:3000 \
           --name cnp-bot \
+          -e JUMPSERVER_DEBUG=1 \
           cnp-bot
     fi
 

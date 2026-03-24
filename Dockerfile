@@ -1,4 +1,4 @@
-FROM m.daocloud.io/docker.io/debian:latest
+FROM registry.gwm.cn/debian:latest
 
 # Set proxy for build
 

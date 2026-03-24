@@ -285,6 +285,106 @@ describe('jumpserver shell scripts', () => {
     );
   });
 
+  it('默认不开 debug 时 shell 脚本不输出 JUMP_DEBUG', () => {
+    const { scriptDir, env, socketDir } = setupHarness();
+    const scriptPath = copyRunRemoteScript(scriptDir);
+    writeConnectStub(scriptDir, socketDir);
+    fs.writeFileSync(path.join(socketDir, 'current_target'), '10.246.104.234');
+
+    const result = spawnSync(
+      'bash',
+      [scriptPath, 'uname -a', '1', '10.246.104.234'],
+      {
+        env: {
+          ...env,
+          MOCK_TMUX_HAS_SESSION: '1',
+          MOCK_CAPTURE_MODE: 'same-target-prompt-without-ip',
+        },
+        encoding: 'utf8',
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).not.toContain('JUMP_DEBUG');
+  });
+
+  it('connect-and-enter-target.sh 开启 debug 后输出阶段日志', () => {
+    const { scriptDir, env } = setupHarness();
+    const scriptPath = copyConnectScript(scriptDir);
+
+    const result = spawnSync('bash', [scriptPath, '10.246.104.234'], {
+      env: {
+        ...env,
+        JUMPSERVER_DEBUG: '1',
+        MOCK_TMUX_HAS_SESSION: '1',
+        MOCK_TMUX_PANE_COMMAND: 'ssh',
+        MOCK_CAPTURE_MODE: 'connect-flow',
+        MOCK_TARGET_IP: '10.246.104.234',
+      },
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(
+      'JUMP_DEBUG script=connect-and-enter-target phase=script_start',
+    );
+    expect(result.stderr).toContain('phase=wait_target_prompt_start');
+    expect(result.stderr).toContain('phase=wait_target_prompt_done');
+  });
+
+  it('run-remote-command.sh 开启 debug 后输出远端执行阶段日志', () => {
+    const { scriptDir, env, socketDir } = setupHarness();
+    const scriptPath = copyRunRemoteScript(scriptDir);
+    writeConnectStub(scriptDir, socketDir);
+    fs.writeFileSync(path.join(socketDir, 'current_target'), '10.246.104.234');
+
+    const result = spawnSync(
+      'bash',
+      [scriptPath, 'uname -a', '1', '10.246.104.234'],
+      {
+        env: {
+          ...env,
+          JUMPSERVER_DEBUG: '1',
+          MOCK_TMUX_HAS_SESSION: '1',
+          MOCK_CAPTURE_MODE: 'same-target-prompt-without-ip',
+        },
+        encoding: 'utf8',
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(
+      'JUMP_DEBUG script=run-remote-command phase=check_current_target',
+    );
+    expect(result.stderr).toContain('phase=remote_command_send');
+    expect(result.stderr).toContain('phase=wait_remote_prompt_done');
+  });
+
+  it('直接执行失败并重试时输出 retry_after_failure', () => {
+    const { scriptDir, env, socketDir } = setupHarness();
+    const scriptPath = copyRunRemoteScript(scriptDir);
+    writeConnectStub(scriptDir, socketDir);
+    fs.writeFileSync(path.join(socketDir, 'current_target'), '10.246.104.234');
+
+    const result = spawnSync(
+      'bash',
+      [scriptPath, 'uname -a', '1', '10.246.104.234'],
+      {
+        env: {
+          ...env,
+          JUMPSERVER_DEBUG: '1',
+          MOCK_TMUX_HAS_SESSION: '1',
+          MOCK_CAPTURE_MODE: 'remote-fail-once',
+          MOCK_REMOTE_CMD_MATCH: 'uname -a',
+        },
+        encoding: 'utf8',
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain('phase=retry_after_failure');
+  });
+
   it('JumpServer skill 文档中的 run-remote-command.sh 示例必须显式携带目标 IP', () => {
     const doc = fs.readFileSync(
       path.resolve(process.cwd(), 'container/skills/jumpserver/SKILL.md'),

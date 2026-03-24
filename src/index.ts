@@ -67,9 +67,21 @@ import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 import {
   createJumpServerStreamAggregator,
+  extractConnectAndEnterTargetIp,
+  extractRunRemoteCommand,
+  extractRunRemoteTargetIp,
+  isConnectAndEnterTargetCommand,
+  isJumpServerConnectCommand,
+  isRunRemoteCommandCall,
   type JumpServerBlock,
   type JumpServerExecution,
 } from './jumpserver-stream-aggregator.js';
+import {
+  logJumpServerExecutionSummary,
+  logJumpServerStageDebug,
+  logJumpServerToolDone,
+  logJumpServerToolStart,
+} from './jumpserver-diagnostic-logging.js';
 import {
   executeSlashCommand,
   isSlashCommand,
@@ -435,6 +447,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
   const jumpServerAggregator = createJumpServerStreamAggregator();
   let latestJumpServerBlock: JumpServerBlock | null = null;
+  const jumpServerToolMeta = new Map<
+    string,
+    { startedAt: number; command?: string; targetHost?: string; kind: string }
+  >();
   const executionMap = (block: JumpServerBlock | null | undefined) =>
     new Map((block?.executions ?? []).map((execution) => [execution.id, execution]));
   const durationMs = (
@@ -450,6 +466,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const logJumpServerDelta = (
     previous: JumpServerBlock | null,
     next: JumpServerBlock,
+    context?: { toolUseId?: string; toolElapsedMs?: number },
   ) => {
     if (!previous || previous.stage !== next.stage) {
       logger.info(
@@ -462,6 +479,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         },
         'JumpServer stage updated',
       );
+      logJumpServerStageDebug(logger, {
+        group: group.name,
+        chatJid,
+        previousStage: previous?.stage,
+        stage: next.stage,
+        targetHost: next.target_host,
+        executionCount: next.executions?.length ?? 0,
+      });
     }
 
     const prevExecutions = executionMap(previous);
@@ -482,6 +507,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       }
 
       if (prevExecution.status !== execution.status) {
+        const executionDurationMs = durationMs(
+          execution.started_at ?? prevExecution.started_at,
+          execution.finished_at ?? prevExecution.finished_at,
+        );
         logger.info(
           {
             group: group.name,
@@ -489,13 +518,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             executionId: execution.id,
             command: execution.command,
             status: execution.status,
-            durationMs: durationMs(
-              execution.started_at ?? prevExecution.started_at,
-              execution.finished_at ?? prevExecution.finished_at,
-            ),
+            durationMs: executionDurationMs,
           },
           'JumpServer remote command status updated',
         );
+        if (execution.status !== 'running') {
+          logJumpServerExecutionSummary(logger, {
+            group: group.name,
+            chatJid,
+            executionId: execution.id,
+            command: execution.command,
+            targetHost: next.target_host,
+            status: execution.status,
+            executionDurationMs,
+            toolUseId: context?.toolUseId,
+            toolElapsedMs: context?.toolElapsedMs,
+          });
+        }
       } else if (
         prevExecution.output !== execution.output &&
         execution.status === 'running'
@@ -513,9 +552,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       }
     }
   };
-  const emitJumpServerBlock = async (block: JumpServerBlock | undefined) => {
+  const emitJumpServerBlock = async (
+    block: JumpServerBlock | undefined,
+    context?: { toolUseId?: string; toolElapsedMs?: number },
+  ) => {
     if (!block) return;
-    logJumpServerDelta(latestJumpServerBlock, block);
+    logJumpServerDelta(latestJumpServerBlock, block, context);
     latestJumpServerBlock = block;
     if (channel.streamEvent) {
       await channel.streamEvent(chatJid, {
@@ -619,6 +661,48 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           if (pending) {
             let input: unknown = {};
             try { input = JSON.parse(pending.inputJson); } catch { /* use empty */ }
+            const command =
+              typeof input === 'object' && input !== null && 'command' in input
+                ? (input as { command?: unknown }).command
+                : undefined;
+            const commandText =
+              typeof command === 'string' ? command : undefined;
+            const isJumpServerToolUse =
+              pending.name === 'Bash' &&
+              !!commandText &&
+              (
+                isRunRemoteCommandCall(commandText) ||
+                isConnectAndEnterTargetCommand(commandText) ||
+                isJumpServerConnectCommand(commandText)
+              );
+            if (pending.id && isJumpServerToolUse) {
+              const targetHost = isRunRemoteCommandCall(commandText)
+                ? extractRunRemoteTargetIp(commandText)
+                : isConnectAndEnterTargetCommand(commandText)
+                  ? extractConnectAndEnterTargetIp(commandText)
+                  : undefined;
+              jumpServerToolMeta.set(pending.id, {
+                startedAt: Date.now(),
+                command: isRunRemoteCommandCall(commandText)
+                  ? extractRunRemoteCommand(commandText) ?? commandText
+                  : commandText,
+                targetHost,
+                kind: isRunRemoteCommandCall(commandText)
+                  ? 'run_remote'
+                  : isConnectAndEnterTargetCommand(commandText)
+                    ? 'connect_and_enter'
+                    : 'connect',
+              });
+              logJumpServerToolStart(logger, {
+                group: group.name,
+                chatJid,
+                toolUseId: pending.id,
+                toolName: pending.name,
+                command: jumpServerToolMeta.get(pending.id)?.command,
+                targetHost,
+                kind: jumpServerToolMeta.get(pending.id)?.kind,
+              });
+            }
             const jumpServerResult = jumpServerAggregator.consume({
               type: 'tool_use',
               name: pending.name,
@@ -653,6 +737,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             shouldForwardRawEvent = false;
           }
         } else if (event.type === 'tool_result') {
+          const toolMeta = event.tool_use_id
+            ? jumpServerToolMeta.get(event.tool_use_id)
+            : undefined;
+          const toolElapsedMs = toolMeta
+            ? Date.now() - toolMeta.startedAt
+            : undefined;
           const jumpServerResult = jumpServerAggregator.consume({
             type: 'tool_result',
             toolUseId: event.tool_use_id,
@@ -660,10 +750,28 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             isError: event.is_error,
           });
           if (jumpServerResult.block) {
-            await emitJumpServerBlock(jumpServerResult.block);
+            await emitJumpServerBlock(jumpServerResult.block, {
+              toolUseId: event.tool_use_id,
+              toolElapsedMs,
+            });
           }
           if (jumpServerResult.hiddenOriginalEvent) {
             shouldForwardRawEvent = false;
+          }
+          if (toolMeta) {
+            logJumpServerToolDone(logger, {
+              group: group.name,
+              chatJid,
+              toolUseId: event.tool_use_id,
+              command: toolMeta.command,
+              targetHost: toolMeta.targetHost,
+              kind: toolMeta.kind,
+              elapsedMs: toolElapsedMs,
+              result: event.is_error ? 'error' : 'success',
+            });
+            if (event.tool_use_id) {
+              jumpServerToolMeta.delete(event.tool_use_id);
+            }
           }
           updateCompletedToolResult(
             event.tool_use_id,
