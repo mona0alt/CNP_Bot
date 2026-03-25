@@ -22,6 +22,15 @@ export const USE_LOCAL_AGENT =
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
+export type AgentType = 'claude' | 'deepagent';
+export const DEFAULT_AGENT_TYPE: AgentType =
+  (process.env.DEFAULT_AGENT_TYPE as AgentType) || 'deepagent';
+export const DEEP_AGENT_MODEL = process.env.DEEP_AGENT_MODEL || 'claude-sonnet-4-6';
+export const DEEP_AGENT_RUNNER_PATH = process.env.DEEP_AGENT_RUNNER_PATH ||
+  'container/deep-agent-runner/src/main.py';
+export const DEEP_AGENT_PYTHON = process.env.DEEP_AGENT_PYTHON ||
+  '/opt/deepagent-venv/bin/python';
+
 // Absolute paths needed for container mounts
 const PROJECT_ROOT = process.cwd();
 const HOME_DIR = process.env.HOME || os.homedir();
