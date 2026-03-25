@@ -78,6 +78,7 @@ import {
   type JumpServerBlock,
   type JumpServerExecution,
 } from './jumpserver-stream-aggregator.js';
+import { adaptDeepAgentToolEvent } from './deepagent-stream-event-adapter.js';
 import {
   logJumpServerExecutionSummary,
   logJumpServerStageDebug,
@@ -641,7 +642,90 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         // Deep Agent emits its own event format (text_delta, tool_use_start, tool_use_end).
         // Forward directly without Anthropic-specific processing.
         if (agentType === 'deepagent') {
-          if (channel.streamEvent) {
+          const deepAgentToolEvent = adaptDeepAgentToolEvent(event);
+          let shouldForwardRawEvent = true;
+
+          if (deepAgentToolEvent?.type === 'tool_use') {
+            const commandText = deepAgentToolEvent.input?.command;
+            const isJumpServerToolUse =
+              deepAgentToolEvent.name === 'Bash' &&
+              !!commandText &&
+              (
+                isRunRemoteCommandCall(commandText) ||
+                isConnectAndEnterTargetCommand(commandText) ||
+                isJumpServerConnectCommand(commandText)
+              );
+
+            if (deepAgentToolEvent.toolUseId && isJumpServerToolUse) {
+              const targetHost = isRunRemoteCommandCall(commandText)
+                ? extractRunRemoteTargetIp(commandText)
+                : isConnectAndEnterTargetCommand(commandText)
+                  ? extractConnectAndEnterTargetIp(commandText)
+                  : undefined;
+
+              jumpServerToolMeta.set(deepAgentToolEvent.toolUseId, {
+                startedAt: Date.now(),
+                command: isRunRemoteCommandCall(commandText)
+                  ? extractRunRemoteCommand(commandText) ?? commandText
+                  : commandText,
+                targetHost,
+                kind: isRunRemoteCommandCall(commandText)
+                  ? 'run_remote'
+                  : isConnectAndEnterTargetCommand(commandText)
+                    ? 'connect_and_enter'
+                    : 'connect',
+              });
+
+              logJumpServerToolStart(logger, {
+                group: group.name,
+                chatJid,
+                toolUseId: deepAgentToolEvent.toolUseId,
+                toolName: deepAgentToolEvent.name,
+                command: jumpServerToolMeta.get(deepAgentToolEvent.toolUseId)?.command,
+                targetHost,
+                kind: jumpServerToolMeta.get(deepAgentToolEvent.toolUseId)?.kind,
+              });
+            }
+          }
+
+          if (deepAgentToolEvent) {
+            const toolMeta = deepAgentToolEvent.toolUseId
+              ? jumpServerToolMeta.get(deepAgentToolEvent.toolUseId)
+              : undefined;
+            const toolElapsedMs = toolMeta
+              ? Date.now() - toolMeta.startedAt
+              : undefined;
+            const jumpServerResult = jumpServerAggregator.consume(deepAgentToolEvent);
+
+            if (jumpServerResult.block) {
+              await emitJumpServerBlock(jumpServerResult.block, {
+                toolUseId: deepAgentToolEvent.toolUseId,
+                toolElapsedMs,
+              });
+            }
+
+            if (jumpServerResult.hiddenOriginalEvent) {
+              shouldForwardRawEvent = false;
+            }
+
+            if (toolMeta && deepAgentToolEvent.type === 'tool_result') {
+              logJumpServerToolDone(logger, {
+                group: group.name,
+                chatJid,
+                toolUseId: deepAgentToolEvent.toolUseId,
+                command: toolMeta.command,
+                targetHost: toolMeta.targetHost,
+                kind: toolMeta.kind,
+                elapsedMs: toolElapsedMs,
+                result: deepAgentToolEvent.isError ? 'error' : 'success',
+              });
+              if (deepAgentToolEvent.toolUseId) {
+                jumpServerToolMeta.delete(deepAgentToolEvent.toolUseId);
+              }
+            }
+          }
+
+          if (shouldForwardRawEvent && channel.streamEvent) {
             await channel.streamEvent(chatJid, event);
             resetIdleTimer();
           }
@@ -1317,7 +1401,7 @@ async function main(): Promise<void> {
       logger.info({ jid }, 'Received stop request');
       queue.stopGroup(jid);
     },
-    onCreateChat: (jid, _userId) => {
+    onCreateChat: (jid, _userId, agentType) => {
       if (!jid.startsWith('web:') || registeredGroups[jid]) return;
       logger.info({ jid }, 'Pre-registering new web chat session');
       const folder = getWebChatFolder(jid);
@@ -1328,6 +1412,8 @@ async function main(): Promise<void> {
         added_at: new Date().toISOString(),
         requiresTrigger: false,
       });
+      sessions[folder] = { sessionId: '', agentType };
+      setSession(folder, '', agentType);
     },
     isGroupActive: (jid) => queue.isGroupBusy(jid),
     getGroupFolder: (jid) => registeredGroups[jid]?.folder,

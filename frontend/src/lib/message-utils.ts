@@ -2,6 +2,7 @@ import type { ContentBlock } from "./types";
 
 interface StreamEvent {
   type: string;
+  text?: string;
   content_block?: {
     type: string;
     text?: string;
@@ -136,7 +137,7 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): 
 
   // Deep agent event formats: text_delta, tool_use_start, tool_use_end
   if (event.type === 'text_delta') {
-    const text = event.delta?.text ?? '';
+    const text = event.text ?? event.delta?.text ?? '';
     if (newBlocks.length > 0 && newBlocks[newBlocks.length - 1].type === 'text') {
       const lastBlock = { ...newBlocks[newBlocks.length - 1] };
       lastBlock.text = (lastBlock.text || '') + text;

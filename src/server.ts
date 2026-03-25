@@ -148,7 +148,11 @@ export interface ServerOpts {
   getGroupStats?: (
     jid: string,
   ) => { usage?: { input_tokens: number; output_tokens: number } } | undefined;
-  onCreateChat?: (jid: string, userId: string) => void;
+  onCreateChat?: (
+    jid: string,
+    userId: string,
+    agentType: AgentType,
+  ) => void;
   isGroupActive?: (jid: string) => boolean;
   /** Returns the group folder for a given JID, used to write ask/confirm responses */
   getGroupFolder?: (jid: string) => string | undefined;
@@ -258,7 +262,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         agentType,
       );
       if (opts.onCreateChat) {
-        opts.onCreateChat(jid, authReq.user!.userId);
+        opts.onCreateChat(jid, authReq.user!.userId, agentType);
       }
       res.status(201).json({
         jid,
