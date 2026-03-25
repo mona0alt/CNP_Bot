@@ -31,6 +31,7 @@ export function Chat() {
   const [generatingJids, setGeneratingJids] = useState<Set<string>>(new Set());
   const [newMessage, setNewMessage] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [newChatAgentType, setNewChatAgentType] = useState<'claude' | 'deepagent'>('deepagent');
 
   // Derived: is the currently selected session generating?
   const isGenerating = selectedJid ? generatingJids.has(selectedJid) : false;
@@ -186,12 +187,13 @@ export function Chat() {
     });
   };
 
-  const createChatSession = useCallback(async (): Promise<Chat | null> => {
+  const createChatSession = useCallback(async (agentType?: 'claude' | 'deepagent'): Promise<Chat | null> => {
     try {
       if (!token) return null;
       const res = await fetch(`${apiBase}/api/chats`, {
         method: 'POST',
-        headers: authHeaders,
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentType: agentType ?? newChatAgentType }),
       });
       if (res.status === 401 || res.status === 403) {
         await handleUnauthorized();
@@ -207,10 +209,10 @@ export function Chat() {
       console.error('Failed to create chat', error);
       return null;
     }
-  }, [apiBase, authHeaders, token, handleUnauthorized]);
+  }, [apiBase, authHeaders, token, handleUnauthorized, newChatAgentType]);
 
-  const handleCreateChat = useCallback(async () => {
-    const newChat = await createChatSession();
+  const handleCreateChat = useCallback(async (agentType?: 'claude' | 'deepagent') => {
+    const newChat = await createChatSession(agentType);
     if (newChat) {
       setSelectedJid(newChat.jid);
     }
@@ -555,6 +557,8 @@ export function Chat() {
         onDeleteChat={handleDeleteChat}
         collapsed={isSidebarCollapsed}
         onToggleCollapsed={() => setIsSidebarCollapsed((prev) => !prev)}
+        agentType={newChatAgentType}
+        onAgentTypeChange={setNewChatAgentType}
       />
 
       <div className="flex-1 flex flex-col bg-background h-full overflow-hidden">

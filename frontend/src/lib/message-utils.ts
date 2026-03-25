@@ -134,5 +134,40 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): 
     }
   }
 
+  // Deep agent event formats: text_delta, tool_use_start, tool_use_end
+  if (event.type === 'text_delta') {
+    const text = event.delta?.text ?? '';
+    if (newBlocks.length > 0 && newBlocks[newBlocks.length - 1].type === 'text') {
+      const lastBlock = { ...newBlocks[newBlocks.length - 1] };
+      lastBlock.text = (lastBlock.text || '') + text;
+      newBlocks[newBlocks.length - 1] = lastBlock;
+    } else {
+      newBlocks.push({ type: 'text', text });
+    }
+    return newBlocks;
+  }
+
+  if (event.type === 'tool_use_start') {
+    newBlocks.push({
+      type: 'tool_use',
+      id: event.content_block?.id,
+      name: event.content_block?.name,
+      input: event.content_block?.input,
+      status: 'calling',
+    } as ContentBlock);
+    return newBlocks;
+  }
+
+  if (event.type === 'tool_use_end') {
+    // Mark the last tool_use block as executed
+    for (let index = newBlocks.length - 1; index >= 0; index -= 1) {
+      if (newBlocks[index].type === 'tool_use' && newBlocks[index].status === 'calling') {
+        newBlocks[index] = { ...newBlocks[index], status: 'executed' };
+        break;
+      }
+    }
+    return newBlocks;
+  }
+
   return newBlocks;
 }

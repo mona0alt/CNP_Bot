@@ -8,10 +8,12 @@ interface ChatSidebarProps {
   chats: Chat[];
   selectedJid: string | null;
   onSelectChat: (jid: string) => void;
-  onCreateChat: () => void;
+  onCreateChat: (agentType?: 'claude' | 'deepagent') => void;
   onDeleteChat: (jid: string) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  agentType: 'claude' | 'deepagent';
+  onAgentTypeChange: (type: 'claude' | 'deepagent') => void;
 }
 
 export function ChatSidebar({
@@ -22,6 +24,8 @@ export function ChatSidebar({
   onDeleteChat,
   collapsed,
   onToggleCollapsed,
+  agentType,
+  onAgentTypeChange,
 }: ChatSidebarProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
@@ -61,7 +65,7 @@ export function ChatSidebar({
               <ChevronRight size={18} />
             </button>
             <button
-              onClick={onCreateChat}
+              onClick={() => onCreateChat(agentType)}
               className="h-9 w-9 inline-flex items-center justify-center rounded-xl bg-primary/12 text-primary hover:bg-primary/18 transition-colors"
               title="新建会话"
               aria-label="新建会话"
@@ -85,14 +89,42 @@ export function ChatSidebar({
                 <p className="text-xs text-muted-foreground mt-1">{chats.length} 个会话</p>
               </div>
             </div>
-            <button
-              onClick={onCreateChat}
-              className="h-9 px-3 inline-flex items-center gap-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/92 shadow-sm transition-colors"
-              title="新建会话"
-            >
-              <Plus size={16} />
-              <span className="text-sm font-medium">新建</span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <div className="flex rounded-lg border border-border/70 overflow-hidden text-xs">
+                <button
+                  onClick={() => onAgentTypeChange('deepagent')}
+                  className={cn(
+                    "px-2 py-1 transition-colors font-medium",
+                    agentType === 'deepagent'
+                      ? "bg-purple-600 text-white"
+                      : "bg-background text-muted-foreground hover:bg-muted/70"
+                  )}
+                  title="Deep Agent"
+                >
+                  Deep
+                </button>
+                <button
+                  onClick={() => onAgentTypeChange('claude')}
+                  className={cn(
+                    "px-2 py-1 transition-colors font-medium",
+                    agentType === 'claude'
+                      ? "bg-blue-600 text-white"
+                      : "bg-background text-muted-foreground hover:bg-muted/70"
+                  )}
+                  title="Claude Agent"
+                >
+                  Claude
+                </button>
+              </div>
+              <button
+                onClick={() => onCreateChat(agentType)}
+                className="h-9 px-3 inline-flex items-center gap-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/92 shadow-sm transition-colors"
+                title="新建会话"
+              >
+                <Plus size={16} />
+                <span className="text-sm font-medium">新建</span>
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -124,8 +156,17 @@ export function ChatSidebar({
               </div>
             ) : (
               <>
-                <div className="font-medium truncate pr-10 text-sm text-foreground">
-                  {chat.last_user_message || chat.name || chat.jid}
+                <div className="font-medium truncate pr-10 text-sm text-foreground flex items-center gap-1.5">
+                  <span className="truncate">{chat.last_user_message || chat.name || chat.jid}</span>
+                  {chat.agent_type && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                      chat.agent_type === 'deepagent'
+                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                    }`}>
+                      {chat.agent_type === 'deepagent' ? 'Deep' : 'Claude'}
+                    </span>
+                  )}
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-1.5">
                   {new Date(chat.last_message_time).toLocaleString()}

@@ -5,6 +5,7 @@ export interface Chat {
   last_message: string;
   last_user_message: string;
   is_group: number;
+  agent_type?: 'claude' | 'deepagent';
 }
 
 export interface Message {
