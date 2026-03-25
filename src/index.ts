@@ -928,9 +928,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         'Detected possible session corruption/loss. Invalidating session and forcing full history reload.',
       );
 
-      // Clear session
+      // Clear session but preserve agent type
+      const previousAgentType = sessions[group.folder]?.agentType ?? DEFAULT_AGENT_TYPE;
       delete sessions[group.folder];
-      setSession(group.folder, '');
+      setSession(group.folder, '', previousAgentType);
 
       // Reset timestamp to re-fetch FULL history on next retry
       lastAgentTimestamp[chatJid] = '';
