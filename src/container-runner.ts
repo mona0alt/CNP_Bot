@@ -8,10 +8,13 @@ import os from 'os';
 import path from 'path';
 
 import {
+  AgentType,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
   DATA_DIR,
+  DEEP_AGENT_MODEL,
+  DEEP_AGENT_PYTHON,
   GROUPS_DIR,
   IDLE_TIMEOUT,
   TIMEZONE,
@@ -40,6 +43,7 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  agentType?: AgentType;
   secrets?: Record<string, string>;
 }
 
@@ -328,10 +332,15 @@ export async function runContainerAgent(
     };
 
     if (USE_LOCAL_AGENT) {
-      spawnCmd = 'node';
-      spawnArgs = [
-        path.resolve(process.cwd(), 'container/agent-runner/dist/index.js'),
-      ];
+      if (input.agentType === 'deepagent') {
+        spawnCmd = DEEP_AGENT_PYTHON;
+        spawnArgs = ['-m', 'src.main'];
+      } else {
+        spawnCmd = 'node';
+        spawnArgs = [
+          path.resolve(process.cwd(), 'container/agent-runner/dist/index.js'),
+        ];
+      }
 
       // Use a stable workspace path for local mode to ensure resume works correctly
       // (Claude CLI might rely on absolute paths in its session state)
@@ -389,6 +398,12 @@ export async function runContainerAgent(
         CNP_ASK_BIN: path.resolve(process.cwd(), 'container/scripts/cnp-ask'),
         TZ: TIMEZONE,
       };
+
+      if (input.agentType === 'deepagent') {
+        spawnOptions.cwd = path.resolve(process.cwd(), 'container/deep-agent-runner');
+        spawnOptions.env!.DEEP_AGENT_MODEL = DEEP_AGENT_MODEL;
+        spawnOptions.env!.DEEPAGENT_CHECKPOINT_DB = path.join(DATA_DIR, 'store', 'deepagent-checkpoints.db');
+      }
     }
 
     const container = spawn(spawnCmd, spawnArgs, spawnOptions);
