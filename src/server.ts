@@ -34,7 +34,7 @@ import {
   type UserWithoutPassword,
 } from './db.js';
 import { logger } from './logger.js';
-import { ASSISTANT_NAME, JWT_SECRET, JWT_EXPIRES_IN } from './config.js';
+import { ASSISTANT_NAME, JWT_SECRET, JWT_EXPIRES_IN, AgentType, DEFAULT_AGENT_TYPE } from './config.js';
 import { getSlashCommands } from './slash-commands.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -246,6 +246,8 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       const authReq = req as AuthRequest;
       const jid = 'web:' + randomUUID();
       const timestamp = new Date().toISOString();
+      const agentType: AgentType =
+        (req.body?.agentType as AgentType) || DEFAULT_AGENT_TYPE;
       storeChatMetadata(
         jid,
         timestamp,
@@ -253,6 +255,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         'web',
         false,
         authReq.user!.userId,
+        agentType,
       );
       if (opts.onCreateChat) {
         opts.onCreateChat(jid, authReq.user!.userId);
@@ -263,6 +266,7 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         last_message_time: timestamp,
         channel: 'web',
         is_group: 0,
+        agent_type: agentType,
       });
     } catch (err) {
       logger.error({ err }, 'Failed to create chat');

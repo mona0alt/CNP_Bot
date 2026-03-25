@@ -259,6 +259,7 @@ export interface ChatInfo {
   last_user_message: string;
   channel: string;
   is_group: number;
+  agent_type: string | null;
 }
 
 function queryChats(whereClause?: string, params: unknown[] = []): ChatInfo[] {
@@ -272,6 +273,7 @@ function queryChats(whereClause?: string, params: unknown[] = []): ChatInfo[] {
       c.last_message_time,
       c.channel,
       c.is_group,
+      c.agent_type,
       (
         SELECT SUBSTR(m.content, 1, 100)
         FROM messages m
