@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { ASSISTANT_NAME, DATA_DIR, STORE_DIR } from './config.js';
+import type { AgentType } from './config.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import {
@@ -22,7 +23,8 @@ function createSchema(database: Database.Database): void {
       last_message_time TEXT,
       channel TEXT,
       is_group INTEGER DEFAULT 0,
-      user_id TEXT
+      user_id TEXT,
+      agent_type TEXT DEFAULT 'deepagent'
     );
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT,
@@ -73,7 +75,8 @@ function createSchema(database: Database.Database): void {
     );
     CREATE TABLE IF NOT EXISTS sessions (
       group_folder TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL
+      session_id TEXT NOT NULL,
+      agent_type TEXT NOT NULL DEFAULT 'deepagent'
     );
     CREATE TABLE IF NOT EXISTS registered_groups (
       jid TEXT PRIMARY KEY,
@@ -153,6 +156,20 @@ function createSchema(database: Database.Database): void {
   database.exec(
     `CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id)`,
   );
+
+  // Add agent_type column to sessions (migration for existing DBs)
+  try {
+    database.exec(`ALTER TABLE sessions ADD COLUMN agent_type TEXT NOT NULL DEFAULT 'deepagent'`);
+  } catch {
+    /* column already exists */
+  }
+
+  // Add agent_type column to chats (migration for existing DBs)
+  try {
+    database.exec(`ALTER TABLE chats ADD COLUMN agent_type TEXT DEFAULT 'deepagent'`);
+  } catch {
+    /* column already exists */
+  }
 }
 
 export function initDatabase(): void {
@@ -183,36 +200,40 @@ export function storeChatMetadata(
   channel?: string,
   isGroup?: boolean,
   userId?: string,
+  agentType?: AgentType,
 ): void {
   const ch = channel ?? null;
   const group = isGroup === undefined ? null : isGroup ? 1 : 0;
   const ownerId = userId ?? null;
+  const at = agentType ?? null;
 
   if (name) {
     // Update with name, preserving existing timestamp if newer
     db.prepare(
       `
-      INSERT INTO chats (jid, name, last_message_time, channel, is_group, user_id) VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO chats (jid, name, last_message_time, channel, is_group, user_id, agent_type) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(jid) DO UPDATE SET
         name = excluded.name,
         last_message_time = MAX(last_message_time, excluded.last_message_time),
         channel = COALESCE(excluded.channel, channel),
         is_group = COALESCE(excluded.is_group, is_group),
-        user_id = COALESCE(excluded.user_id, user_id)
+        user_id = COALESCE(excluded.user_id, user_id),
+        agent_type = COALESCE(excluded.agent_type, agent_type)
     `,
-    ).run(chatJid, name, timestamp, ch, group, ownerId);
+    ).run(chatJid, name, timestamp, ch, group, ownerId, at);
   } else {
     // Update timestamp only, preserve existing name if any
     db.prepare(
       `
-      INSERT INTO chats (jid, name, last_message_time, channel, is_group, user_id) VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO chats (jid, name, last_message_time, channel, is_group, user_id, agent_type) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(jid) DO UPDATE SET
         last_message_time = MAX(last_message_time, excluded.last_message_time),
         channel = COALESCE(excluded.channel, channel),
         is_group = COALESCE(excluded.is_group, is_group),
-        user_id = COALESCE(excluded.user_id, user_id)
+        user_id = COALESCE(excluded.user_id, user_id),
+        agent_type = COALESCE(excluded.agent_type, agent_type)
     `,
-    ).run(chatJid, chatJid, timestamp, ch, group, ownerId);
+    ).run(chatJid, chatJid, timestamp, ch, group, ownerId, at);
   }
 }
 
@@ -702,30 +723,39 @@ export function setRouterState(key: string, value: string): void {
 
 // --- Session accessors ---
 
-export function getSession(groupFolder: string): string | undefined {
-  const row = db
-    .prepare('SELECT session_id FROM sessions WHERE group_folder = ?')
-    .get(groupFolder) as { session_id: string } | undefined;
-  return row?.session_id;
+export interface SessionInfo {
+  sessionId: string;
+  agentType: AgentType;
 }
 
-export function setSession(groupFolder: string, sessionId: string): void {
+export function getSession(groupFolder: string): SessionInfo | null {
+  const row = db
+    .prepare('SELECT session_id, agent_type FROM sessions WHERE group_folder = ?')
+    .get(groupFolder) as { session_id: string; agent_type: string } | undefined;
+  if (!row) return null;
+  return { sessionId: row.session_id, agentType: (row.agent_type || 'deepagent') as AgentType };
+}
+
+export function setSession(groupFolder: string, sessionId: string, agentType: AgentType = 'deepagent'): void {
   db.prepare(
-    'INSERT OR REPLACE INTO sessions (group_folder, session_id) VALUES (?, ?)',
-  ).run(groupFolder, sessionId);
+    'INSERT OR REPLACE INTO sessions (group_folder, session_id, agent_type) VALUES (?, ?, ?)',
+  ).run(groupFolder, sessionId, agentType);
 }
 
 export function deleteSession(groupFolder: string): void {
   db.prepare('DELETE FROM sessions WHERE group_folder = ?').run(groupFolder);
 }
 
-export function getAllSessions(): Record<string, string> {
+export function getAllSessions(): Record<string, SessionInfo> {
   const rows = db
-    .prepare('SELECT group_folder, session_id FROM sessions')
-    .all() as Array<{ group_folder: string; session_id: string }>;
-  const result: Record<string, string> = {};
+    .prepare('SELECT group_folder, session_id, agent_type FROM sessions')
+    .all() as Array<{ group_folder: string; session_id: string; agent_type: string }>;
+  const result: Record<string, SessionInfo> = {};
   for (const row of rows) {
-    result[row.group_folder] = row.session_id;
+    result[row.group_folder] = {
+      sessionId: row.session_id,
+      agentType: (row.agent_type || 'deepagent') as AgentType,
+    };
   }
   return result;
 }

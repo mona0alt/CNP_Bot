@@ -378,32 +378,45 @@ describe('task CRUD', () => {
 // --- sessions ---
 
 describe('sessions', () => {
-  it('returns undefined for missing session', () => {
-    expect(getSession('nonexistent')).toBeUndefined();
+  it('returns null for missing session', () => {
+    expect(getSession('nonexistent')).toBeNull();
   });
 
-  it('stores and retrieves a session', () => {
+  it('stores and retrieves a session (default agentType)', () => {
     setSession('main', 'sess-abc-123');
-    expect(getSession('main')).toBe('sess-abc-123');
+    expect(getSession('main')).toEqual({ sessionId: 'sess-abc-123', agentType: 'deepagent' });
   });
 
   it('overwrites on re-set', () => {
     setSession('main', 'old-id');
     setSession('main', 'new-id');
-    expect(getSession('main')).toBe('new-id');
+    expect(getSession('main')).toEqual({ sessionId: 'new-id', agentType: 'deepagent' });
   });
 
   it('returns all sessions as a map', () => {
     setSession('main', 'sess-1');
-    setSession('other', 'sess-2');
+    setSession('other', 'sess-2', 'claude');
     const all = getAllSessions();
-    expect(all).toEqual({ main: 'sess-1', other: 'sess-2' });
+    expect(all).toEqual({
+      main: { sessionId: 'sess-1', agentType: 'deepagent' },
+      other: { sessionId: 'sess-2', agentType: 'claude' },
+    });
   });
 
   it('deletes a session', () => {
     setSession('main', 'sess-del');
     deleteSession('main');
-    expect(getSession('main')).toBeUndefined();
+    expect(getSession('main')).toBeNull();
+  });
+
+  it('stores deepagent type explicitly', () => {
+    setSession('g1', 's1', 'deepagent');
+    expect(getSession('g1')).toEqual({ sessionId: 's1', agentType: 'deepagent' });
+  });
+
+  it('stores claude type', () => {
+    setSession('g2', 's2', 'claude');
+    expect(getSession('g2')).toEqual({ sessionId: 's2', agentType: 'claude' });
   });
 });
 

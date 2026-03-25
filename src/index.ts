@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt';
 
 import {
   ASSISTANT_NAME,
+  DEFAULT_AGENT_TYPE,
   IDLE_TIMEOUT,
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
@@ -44,6 +45,7 @@ import {
   deleteRegisteredGroup,
   deleteTasksForChatJid,
   type MessageCursor,
+  type SessionInfo,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -114,7 +116,7 @@ async function ensureDefaultAdmin(): Promise<void> {
 }
 
 let lastCursor: MessageCursor = { timestamp: '', rowid: 0 };
-let sessions: Record<string, string> = {};
+let sessions: Record<string, SessionInfo> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 export const groupStats: Record<
@@ -958,7 +960,9 @@ async function runAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<{ status: 'success' | 'error'; error?: string }> {
   const isMain = group.folder === MAIN_GROUP_FOLDER;
-  const sessionId = sessions[group.folder];
+  const session = sessions[group.folder];
+  const sessionId = session?.sessionId;
+  const agentType = session?.agentType ?? DEFAULT_AGENT_TYPE;
 
   // Update tasks snapshot for container to read (filtered by group)
   const tasks = getAllTasks();
@@ -989,8 +993,8 @@ async function runAgent(
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
         if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
+          sessions[group.folder] = { sessionId: output.newSessionId, agentType };
+          setSession(group.folder, output.newSessionId, agentType);
         }
         // Update slash commands cache when received from SDK
         if (output.slashCommands && output.slashCommands.length > 0) {
@@ -1017,8 +1021,8 @@ async function runAgent(
     );
 
     if (output.newSessionId) {
-      sessions[group.folder] = output.newSessionId;
-      setSession(group.folder, output.newSessionId);
+      sessions[group.folder] = { sessionId: output.newSessionId, agentType };
+      setSession(group.folder, output.newSessionId, agentType);
     }
 
     if (output.status === 'error') {
