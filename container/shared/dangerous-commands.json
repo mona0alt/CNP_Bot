@@ -1,0 +1,114 @@
+[
+  {
+    "pattern": "rm\\s+-[rRfF]*[rR][fF]*\\s+\\/(?!\\s*tmp\\/)",
+    "severity": "high",
+    "reason": "递归删除根目录路径"
+  },
+  {
+    "pattern": "rm\\s+-[rRfF]*[rR][fF]* ",
+    "severity": "high",
+    "reason": "递归强制删除文件"
+  },
+  {
+    "pattern": "\\bfind\\b[\\s\\S]*\\s-delete\\b",
+    "severity": "high",
+    "reason": "删除文件/目录（find -delete）"
+  },
+  {
+    "pattern": "(?:^|[;&|]\\s*)unlink\\s+(?!-h\\b|--help\\b|--version\\b)[^\\s].*",
+    "severity": "high",
+    "reason": "删除文件（unlink）"
+  },
+  {
+    "pattern": "git\\s+clean\\s+-[a-zA-Z]*f",
+    "severity": "high",
+    "reason": "删除 Git 未跟踪文件"
+  },
+  {
+    "pattern": "\\bpython(?:\\d+(?:\\.\\d+)?)?\\b[\\s\\S]*(?:os\\.(?:remove|unlink|rmdir)\\(|shutil\\.rmtree\\(|pathlib\\.Path\\([^)]*\\)\\.(?:unlink|rmdir)\\()",
+    "severity": "high",
+    "reason": "通过 Python 删除文件/目录"
+  },
+  {
+    "pattern": "\\bnode\\b[\\s\\S]*\\.(?:unlinkSync|unlink|rmSync|rm|rmdirSync|rmdir)\\(",
+    "severity": "high",
+    "reason": "通过 Node.js 删除文件/目录"
+  },
+  {
+    "pattern": "\\bdd\\b.*\\bof=\\/dev\\/",
+    "severity": "high",
+    "reason": "写入磁盘设备"
+  },
+  {
+    "pattern": "\\bmkfs\\b",
+    "severity": "high",
+    "reason": "格式化文件系统"
+  },
+  {
+    "pattern": ">[\\s]*\\/etc\\/(passwd|shadow|sudoers)",
+    "severity": "high",
+    "reason": "覆盖系统敏感文件"
+  },
+  {
+    "pattern": "curl\\s+.*\\|\\s*(ba)?sh",
+    "severity": "high",
+    "reason": "远程代码执行（curl | sh）"
+  },
+  {
+    "pattern": "wget\\s+.*\\|\\s*(ba)?sh",
+    "severity": "high",
+    "reason": "远程代码执行（wget | sh）"
+  },
+  {
+    "pattern": "\\b(shutdown|reboot|halt|poweroff)\\b",
+    "severity": "high",
+    "reason": "系统关机/重启"
+  },
+  {
+    "pattern": "git\\s+push\\s+.*--force",
+    "severity": "high",
+    "reason": "强制推送（可能覆盖远程历史）"
+  },
+  {
+    "pattern": "\\bdrop\\s+(database|table)\\b",
+    "severity": "high",
+    "reason": "删除数据库/表",
+    "flags": "i"
+  },
+  {
+    "pattern": "truncate\\s+table\\b",
+    "severity": "high",
+    "reason": "清空数据表",
+    "flags": "i"
+  },
+  {
+    "pattern": "\\b(shred|wipe)\\b.*\\s+\\/",
+    "severity": "high",
+    "reason": "安全擦除文件/分区"
+  },
+  {
+    "pattern": "chmod\\s+[0-7]*7[0-7][0-7]\\s+\\/(?!\\s*tmp)",
+    "severity": "high",
+    "reason": "对根路径设置宽泛权限"
+  },
+  {
+    "pattern": "iptables\\s+-F\\b",
+    "severity": "high",
+    "reason": "清空防火墙规则（iptables -F）"
+  },
+  {
+    "pattern": "(?:^|[;&|]\\s*)rm(?:\\s+-[-\\w]+)*\\s+(?:--\\s+)?(?!(?:-h|--help|--version)\\b)[^\\s].*",
+    "severity": "high",
+    "reason": "删除文件/目录"
+  },
+  {
+    "pattern": "git\\s+reset\\s+--hard",
+    "severity": "medium",
+    "reason": "强制重置 Git 历史（可能丢失本地提交）"
+  },
+  {
+    "pattern": "(?:^|[;&|]\\s*)rmdir(?:\\s+-[-\\w]+)*\\s+(?!-h\\b|--help\\b|--version\\b)[^\\s].*",
+    "severity": "medium",
+    "reason": "删除目录（rmdir）"
+  }
+]
