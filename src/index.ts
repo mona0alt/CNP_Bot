@@ -630,11 +630,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     resetJumpServerTurnState();
   };
 
+  // Resolve agentType in the callback closure so stream event handling can branch on it.
+  const agentType = sessions[group.folder]?.agentType ?? DEFAULT_AGENT_TYPE;
+
   const agentResult = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.streamEvent) {
       const event = result.streamEvent.event;
       if (event) {
+        // Deep Agent emits its own event format (text_delta, tool_use_start, tool_use_end).
+        // Forward directly without Anthropic-specific processing.
+        if (agentType === 'deepagent') {
+          if (channel.streamEvent) {
+            await channel.streamEvent(chatJid, event);
+            resetIdleTimer();
+          }
+        } else {
+        // --- Anthropic / Claude event processing ---
         let shouldForwardRawEvent = true;
 
         if (
@@ -807,6 +819,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             resetIdleTimer();
           }
         }
+        } // end of else (Anthropic / Claude event processing)
       }
     }
 
