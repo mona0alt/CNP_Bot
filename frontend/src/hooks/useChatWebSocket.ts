@@ -49,6 +49,51 @@ interface UseChatWebSocketOptions {
   onConfirmBashAck?: (requestId: string, ok: boolean) => void;
 }
 
+function mergeStreamBlocksIntoFinalMessage(
+  streamBlocks: ContentBlock[],
+  finalBlocks: ContentBlock[],
+): ContentBlock[] | null {
+  const streamNonTextBlocks = streamBlocks.filter((block) => block.type !== 'text');
+  if (streamNonTextBlocks.length === 0) {
+    return null;
+  }
+
+  const finalHasNonTextBlocks = finalBlocks.some((block) => block.type !== 'text');
+  if (finalHasNonTextBlocks) {
+    return finalBlocks.map((finalBlock) => {
+      if (finalBlock.type !== 'jumpserver_session') {
+        return finalBlock;
+      }
+
+      const streamBlock = streamNonTextBlocks.find(
+        (block) =>
+          block.type === 'jumpserver_session' &&
+          (!finalBlock.id || block.id === finalBlock.id),
+      );
+
+      if (!streamBlock || streamBlock.type !== 'jumpserver_session') {
+        return finalBlock;
+      }
+
+      const finalExecutions = finalBlock.executions ?? [];
+      const streamExecutions = streamBlock.executions ?? [];
+
+      return {
+        ...streamBlock,
+        ...finalBlock,
+        executions:
+          finalExecutions.length > 0
+            ? finalExecutions
+            : streamExecutions,
+        latest_output: finalBlock.latest_output ?? streamBlock.latest_output,
+      };
+    });
+  }
+
+  const finalTextBlocks = finalBlocks.filter((block) => block.type === 'text');
+  return [...streamNonTextBlocks, ...finalTextBlocks];
+}
+
 export function useChatWebSocket({
   jid,
   apiBase,
@@ -418,13 +463,13 @@ export function useChatWebSocket({
 
                 const streamMessage = prev[activeStreamIndex];
                 const streamBlocks = parseMessageContent(streamMessage.content);
-                const nonTextBlocks = streamBlocks.filter(b => b.type !== 'text');
-                if (nonTextBlocks.length > 0) {
-                  // Always prefer stream's tool blocks: they carry live status/result from
-                  // tool_result events. Take text from the DB message (authoritative, clean).
-                  const finalBlocks = parseMessageContent(msg.content);
-                  const textBlocks = finalBlocks.filter(b => b.type === 'text');
-                  msg.content = JSON.stringify([...nonTextBlocks, ...textBlocks]);
+                const finalBlocks = parseMessageContent(msg.content);
+                const mergedBlocks = mergeStreamBlocksIntoFinalMessage(
+                  streamBlocks,
+                  finalBlocks,
+                );
+                if (mergedBlocks) {
+                  msg.content = JSON.stringify(mergedBlocks);
                 }
                 messageIdsRef.current.add(msg.id);
                 activeStreamIdRef.current = null;

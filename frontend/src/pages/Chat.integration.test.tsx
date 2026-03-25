@@ -674,7 +674,210 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
     const mergedText = mergedItems[0]?.textContent ?? '';
     expect(mergedText).toContain('jumpserver_session');
     expect(mergedText).toContain('journalctl -n 50');
+    expect(mergedText).toContain('"stage":"completed"');
+    expect(mergedText).toContain('"status":"completed"');
+    expect(mergedText).not.toContain('"stage":"running_remote_command"');
+    expect(mergedText).not.toContain('"status":"running"');
     expect(mergedText).toContain('最终文本回复');
     expect(mergedItems[0]?.getAttribute('data-messageid')).toBe('final-jump-1');
+  });
+
+  it('最终消息里的 thinking 与 jumpserver 完成态 block 不应被旧 stream 非文本块覆盖', async () => {
+    await act(async () => {
+      root.render(
+        <AuthContext.Provider value={authValue}>
+          <StreamingMessagesProvider>
+            <Chat />
+          </StreamingMessagesProvider>
+        </AuthContext.Provider>,
+      );
+    });
+
+    await flush();
+
+    const selectA = container.querySelector(
+      '[data-testid="select-web\\:a"]',
+    ) as HTMLButtonElement | null;
+    expect(selectA).not.toBeNull();
+
+    await act(async () => {
+      selectA!.click();
+    });
+    await flush();
+
+    const socketA = getLatestSocketForJid('web:a');
+
+    await act(async () => {
+      socketA.emitMessage({
+        type: 'stream_event',
+        chat_jid: 'web:a',
+        event: {
+          type: 'jumpserver_session',
+          block: {
+            type: 'jumpserver_session',
+            id: 'jump-2',
+            stage: 'running_remote_command',
+            status: 'calling',
+            target_host: '10.246.104.235',
+            executions: [
+              {
+                id: 'exec-2',
+                command: 'hostname',
+                status: 'running',
+              },
+            ],
+          },
+        },
+      });
+    });
+    await flush();
+
+    await act(async () => {
+      socketA.emitMessage({
+        type: 'message',
+        data: {
+          id: 'final-jump-2',
+          chat_jid: 'web:a',
+          sender_name: 'CNP-Bot',
+          content: JSON.stringify([
+            {
+              type: 'jumpserver_session',
+              id: 'jump-2',
+              stage: 'completed',
+              status: 'executed',
+              target_host: '10.246.104.235',
+              executions: [
+                {
+                  id: 'exec-2',
+                  command: 'hostname',
+                  status: 'completed',
+                },
+              ],
+            },
+            {
+              type: 'thinking',
+              text: '先确认远端命令已经执行完成。',
+            },
+            {
+              type: 'text',
+              text: '主机名已经拿到。',
+            },
+          ]),
+          timestamp: '2099-03-18T08:02:00.000Z',
+          is_from_me: false,
+          is_bot_message: true,
+        },
+      });
+    });
+    await flush();
+
+    const messageItems = container.querySelectorAll('[data-testid="message-item"]');
+    const mergedItems = Array.from(messageItems).filter((item) =>
+      (item.textContent ?? '').includes('final-jump-2') ||
+      (item.textContent ?? '').includes('jump-2'),
+    );
+    expect(mergedItems).toHaveLength(1);
+    const mergedText = mergedItems[0]?.textContent ?? '';
+    expect(mergedText).toContain('"stage":"completed"');
+    expect(mergedText).toContain('"status":"executed"');
+    expect(mergedText).toContain('"type":"thinking"');
+    expect(mergedText).toContain('先确认远端命令已经执行完成。');
+    expect(mergedText).toContain('主机名已经拿到。');
+    expect(mergedText).not.toContain('"stage":"running_remote_command"');
+    expect(mergedText).not.toContain('"status":"running"');
+    expect(mergedItems[0]?.getAttribute('data-messageid')).toBe('final-jump-2');
+  });
+
+  it('最终消息里的 jumpserver block 若缺少 executions，应回退复用 stream 中已有的执行记录', async () => {
+    await act(async () => {
+      root.render(
+        <AuthContext.Provider value={authValue}>
+          <StreamingMessagesProvider>
+            <Chat />
+          </StreamingMessagesProvider>
+        </AuthContext.Provider>,
+      );
+    });
+
+    await flush();
+
+    const selectA = container.querySelector(
+      '[data-testid="select-web\\:a"]',
+    ) as HTMLButtonElement | null;
+    expect(selectA).not.toBeNull();
+
+    await act(async () => {
+      selectA!.click();
+    });
+    await flush();
+
+    const socketA = getLatestSocketForJid('web:a');
+
+    await act(async () => {
+      socketA.emitMessage({
+        type: 'stream_event',
+        chat_jid: 'web:a',
+        event: {
+          type: 'jumpserver_session',
+          block: {
+            type: 'jumpserver_session',
+            id: 'jump-3',
+            stage: 'running_remote_command',
+            status: 'calling',
+            target_host: '10.246.104.236',
+            executions: [
+              {
+                id: 'exec-3',
+                command: 'journalctl -n 50',
+                status: 'running',
+              },
+            ],
+          },
+        },
+      });
+    });
+    await flush();
+
+    await act(async () => {
+      socketA.emitMessage({
+        type: 'message',
+        data: {
+          id: 'final-jump-3',
+          chat_jid: 'web:a',
+          sender_name: 'CNP-Bot',
+          content: JSON.stringify([
+            {
+              type: 'jumpserver_session',
+              id: 'jump-3',
+              stage: 'completed',
+              status: 'executed',
+              target_host: '10.246.104.236',
+              executions: [],
+            },
+            {
+              type: 'text',
+              text: '日志已经查看完毕。',
+            },
+          ]),
+          timestamp: '2099-03-18T08:03:00.000Z',
+          is_from_me: false,
+          is_bot_message: true,
+        },
+      });
+    });
+    await flush();
+
+    const messageItems = container.querySelectorAll('[data-testid="message-item"]');
+    const mergedItems = Array.from(messageItems).filter((item) =>
+      (item.textContent ?? '').includes('final-jump-3') ||
+      (item.textContent ?? '').includes('jump-3'),
+    );
+    expect(mergedItems).toHaveLength(1);
+    const mergedText = mergedItems[0]?.textContent ?? '';
+    expect(mergedText).toContain('"stage":"completed"');
+    expect(mergedText).toContain('"status":"executed"');
+    expect(mergedText).toContain('journalctl -n 50');
+    expect(mergedText).not.toContain('"executions":[]');
+    expect(mergedItems[0]?.getAttribute('data-messageid')).toBe('final-jump-3');
   });
 });

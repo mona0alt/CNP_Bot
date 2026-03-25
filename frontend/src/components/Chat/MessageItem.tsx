@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { User, Bot, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/lib/types";
@@ -7,7 +8,7 @@ import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { JumpServerSessionCard } from "@/components/JumpServerSessionCard";
 import { ToolCallCard } from "@/components/ToolCallCard";
 import { PrometheusChartCard } from '@/components/PrometheusChartCard';
-import type { JumpServerBlock, PrometheusChartBlock } from '@/lib/types';
+import type { ContentBlock, JumpServerBlock, PrometheusChartBlock } from '@/lib/types';
 import { ThoughtProcess } from "@/components/ThoughtProcess";
 import { useTheme } from "@/contexts/ThemeContext";
 import { shouldHideToolUseBlock } from "@/lib/tool-visibility";
@@ -53,18 +54,58 @@ export function MessageItem({ message: msg }: MessageItemProps) {
 
   const visibleBlocks = sortedBlocks.filter((block) => !shouldHideToolUseBlock(block));
 
-  const hasVisibleContent = visibleBlocks.some((block) => {
-    if (block.type === 'tool_use') return true;
-    if (block.type === 'jumpserver_session') return true;
-    if (block.type === 'prometheus_chart') return true;
-    if (block.type === 'thinking' || block.type === 'redacted_thinking') return true;
-    const segments = parseThoughts(block.text || "");
-    if (segments.length === 0) return false;
-    return segments.some((seg) => {
-      if (seg.type === 'text') return seg.content.trim().length > 0;
-      return !seg.isComplete || seg.content.trim().length > 0;
-    });
+  const thoughtContents: string[] = [];
+  let hasIncompleteThought = false;
+  const displayBlocks: Array<
+    | ContentBlock
+    | { type: 'text'; text: string; key: string }
+  > = [];
+
+  visibleBlocks.forEach((block, blockIndex) => {
+    if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+      const thoughtText =
+        block.text ||
+        (block.type === 'redacted_thinking' ? "Thinking process is redacted." : "");
+      if (thoughtText) {
+        thoughtContents.push(thoughtText);
+      }
+      return;
+    }
+
+    if (block.type === 'text') {
+      const segments = parseThoughts(block.text || "");
+      let textSegmentIndex = 0;
+      segments.forEach((seg) => {
+        if (seg.type === 'thought') {
+          if (seg.content.trim()) {
+            thoughtContents.push(seg.content);
+          }
+          if (!seg.isComplete) {
+            hasIncompleteThought = true;
+          }
+          return;
+        }
+
+        if (seg.content.trim()) {
+          displayBlocks.push({
+            type: 'text',
+            text: seg.content,
+            key: `text-${blockIndex}-${textSegmentIndex++}`,
+          });
+        }
+      });
+      return;
+    }
+
+    displayBlocks.push(block);
   });
+
+  const mergedThoughtContent = thoughtContents.join('\n\n').trim();
+
+  const hasVisibleContent =
+    mergedThoughtContent.length > 0 ||
+    hasIncompleteThought ||
+    displayBlocks.length > 0;
 
   if (!hasVisibleContent) return null;
 
@@ -92,7 +133,16 @@ export function MessageItem({ message: msg }: MessageItemProps) {
           </div>
         ) : null}
 
-        {visibleBlocks.map((block, bIdx) => {
+        {(mergedThoughtContent || hasIncompleteThought) ? (
+          <ThoughtProcess
+            key="thought-merged"
+            content={mergedThoughtContent}
+            isComplete={!hasIncompleteThought}
+            autoCollapse={true}
+          />
+        ) : null}
+
+        {displayBlocks.map((block, bIdx) => {
           if (block.type === 'tool_use') {
             let inputObj = block.input || {};
             const isEmptyObject = typeof inputObj === 'object' && inputObj !== null && Object.keys(inputObj).length === 0;
@@ -135,42 +185,17 @@ export function MessageItem({ message: msg }: MessageItemProps) {
             );
           }
 
-          if (block.type === 'thinking' || block.type === 'redacted_thinking') {
-            return (
-              <ThoughtProcess
-                key={`thought-block-${bIdx}`}
-                content={block.text || (block.type === 'redacted_thinking' ? "Thinking process is redacted." : "")}
-                isComplete={true}
-                autoCollapse={true}
-              />
-            );
-          }
-
-          const segments = parseThoughts(block.text || "");
-          const thoughtSegments = segments.filter(seg => seg.type === 'thought');
-          const textSegments = segments.filter(seg => seg.type === 'text');
-
           return (
-            <>
-              {thoughtSegments.map((seg, sIdx) => (
-                <ThoughtProcess
-                  key={`thought-${bIdx}-${sIdx}`}
-                  content={seg.content}
-                  isComplete={!!seg.isComplete}
-                  autoCollapse={true}
-                />
-              ))}
-              {textSegments.map((seg, sIdx) => (
-                <MarkdownRenderer
-                  key={`text-${bIdx}-${sIdx}`}
-                  content={seg.content}
-                  className={cn(
-                    "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-                    outgoing ? "prose-invert" : ""
-                  )}
-                />
-              ))}
-            </>
+            <Fragment key={'key' in block ? block.key : `text-block-${bIdx}`}>
+              <MarkdownRenderer
+                key={`text-${bIdx}`}
+                content={block.text || ''}
+                className={cn(
+                  "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                  outgoing ? "prose-invert" : ""
+                )}
+              />
+            </Fragment>
           );
         })}
 
