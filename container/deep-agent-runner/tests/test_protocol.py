@@ -50,5 +50,5 @@ def test_emit_stream_event(capsys):
     start = captured.out.index("---CNP_BOT_OUTPUT_START---") + len("---CNP_BOT_OUTPUT_START---\n")
     end = captured.out.index("---CNP_BOT_OUTPUT_END---")
     data = json.loads(captured.out[start:end].strip())
-    assert data["streamEvent"]["type"] == "text_delta"
-    assert data["streamEvent"]["text"] == "hi"
+    assert data["streamEvent"]["event"]["type"] == "text_delta"
+    assert data["streamEvent"]["event"]["text"] == "hi"

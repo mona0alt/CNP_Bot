@@ -37,4 +37,4 @@ def emit_output(data: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 def emit_stream_event(event: dict[str, Any]) -> None:
-    emit_output({"status": "success", "result": None, "streamEvent": event})
+    emit_output({"status": "success", "result": None, "streamEvent": {"event": event}})

@@ -6,6 +6,7 @@ Invoked by host as: python -m src.main (from container/deep-agent-runner/)
 from __future__ import annotations
 
 import asyncio
+from contextlib import AsyncExitStack
 import json
 import os
 import sys
@@ -13,7 +14,7 @@ import uuid
 
 from src.protocol import parse_container_input, emit_output, emit_stream_event
 from src.ipc_tools import create_ipc_tools
-from src.hooks import load_dangerous_rules, create_execute_tool
+from src.hooks import load_dangerous_rules, create_confirming_backend
 
 
 def main():
@@ -28,8 +29,6 @@ async def async_main():
     # 1. Startup validation — late imports
     try:
         from deepagents import create_deep_agent
-        from deepagents.backends.filesystem import FilesystemBackend
-        from langchain_core.messages import HumanMessage
     except ImportError as e:
         emit_output({"status": "error", "result": None, "error": f"Failed to import deepagents: {e}"})
         sys.exit(1)
@@ -60,46 +59,41 @@ async def async_main():
     )
     confirm_bin = os.environ.get("CNP_CONFIRM_BIN")
     rules = load_dangerous_rules(shared_rules_path) if os.path.exists(shared_rules_path) else []
-    execute_tool = create_execute_tool(
-        os.path.join(workspace_root, "group"), rules, confirm_bin
+    backend = create_confirming_backend(
+        os.path.join(workspace_root, "group"),
+        rules,
+        confirm_bin,
     )
 
     # 8. Build agent
-    # Use FilesystemBackend (not LocalShellBackend/SandboxBackendProtocol)
-    # to avoid duplicate execute tool — our custom execute_tool replaces the default.
-    backend = FilesystemBackend(root_dir=os.path.join(workspace_root, "group"))
-
-    checkpoint_db = os.environ.get("DEEPAGENT_CHECKPOINT_DB", "")
-    checkpointer = None
-    if checkpoint_db:
-        os.makedirs(os.path.dirname(checkpoint_db), exist_ok=True)
-        from langgraph.checkpoint.sqlite import SqliteSaver
-        checkpointer = SqliteSaver.from_conn_string(checkpoint_db)
-
     model = os.environ.get("DEEP_AGENT_MODEL", "claude-sonnet-4-6")
+    checkpoint_db = os.environ.get("DEEPAGENT_CHECKPOINT_DB", "")
 
-    agent = create_deep_agent(
-        model=model,
-        backend=backend,
-        tools=[*ipc_tools, execute_tool],
-        system_prompt=system_prompt,
-        checkpointer=checkpointer,
-    )
+    async with AsyncExitStack() as exit_stack:
+        checkpointer = await _open_checkpointer_async(checkpoint_db, exit_stack)
 
-    config = {"configurable": {"thread_id": thread_id}}
+        agent = create_deep_agent(
+            model=model,
+            backend=backend,
+            tools=ipc_tools,
+            system_prompt=system_prompt,
+            checkpointer=checkpointer,
+        )
 
-    # 9. Run first query
-    await _run_query(agent, container_input.prompt, config, thread_id)
+        config = {"configurable": {"thread_id": thread_id}}
 
-    # 10. Multi-turn loop
-    input_dir = os.path.join(ipc_dir, "input")
-    os.makedirs(input_dir, exist_ok=True)
+        # 9. Run first query
+        await _run_query(agent, container_input.prompt, config, thread_id)
 
-    while True:
-        msg = await _poll_ipc_input(input_dir)
-        if msg is None:
-            break
-        await _run_query(agent, msg, config, thread_id)
+        # 10. Multi-turn loop
+        input_dir = os.path.join(ipc_dir, "input")
+        os.makedirs(input_dir, exist_ok=True)
+
+        while True:
+            msg = await _poll_ipc_input(input_dir)
+            if msg is None:
+                break
+            await _run_query(agent, msg, config, thread_id)
 
 
 async def _run_query(agent, prompt, config, thread_id):
@@ -108,6 +102,9 @@ async def _run_query(agent, prompt, config, thread_id):
 
     result_text = ""
     usage_info = {}
+    active_thinking_indexes = set()
+    thinking_index_map = {}
+    next_block_index = 0
 
     try:
         async for event in agent.astream_events(
@@ -119,26 +116,70 @@ async def _run_query(agent, prompt, config, thread_id):
 
             if kind == "on_chat_model_stream":
                 chunk = event.get("data", {}).get("chunk")
-                if chunk and hasattr(chunk, "content") and isinstance(chunk.content, str) and chunk.content:
-                    emit_stream_event({"type": "text_delta", "text": chunk.content})
-                    result_text += chunk.content
+                content = getattr(chunk, "content", None)
+                if isinstance(content, list):
+                    for item in content:
+                        if not isinstance(item, dict):
+                            continue
+                        item_type = item.get("type")
+                        item_index = item.get("index", 0)
+                        if item_type == "thinking":
+                            frontend_index = thinking_index_map.get(item_index)
+                            if frontend_index is None:
+                                frontend_index = next_block_index
+                                next_block_index += 1
+                                thinking_index_map[item_index] = frontend_index
+                            if frontend_index not in active_thinking_indexes:
+                                emit_stream_event({
+                                    "type": "content_block_start",
+                                    "index": frontend_index,
+                                    "content_block": {"type": "thinking", "text": ""},
+                                })
+                                active_thinking_indexes.add(frontend_index)
+                            thinking_text = item.get("thinking")
+                            if isinstance(thinking_text, str) and thinking_text:
+                                emit_stream_event({
+                                    "type": "content_block_delta",
+                                    "index": frontend_index,
+                                    "delta": {"type": "thinking_delta", "thinking": thinking_text},
+                                })
+                text = _extract_text_content(getattr(chunk, "content", None))
+                if text:
+                    emit_stream_event({"type": "text_delta", "text": text})
+                    result_text += text
 
             elif kind == "on_tool_start":
+                tool_id = event.get("run_id") or event.get("name", "")
+                tool_index = next_block_index
+                next_block_index += 1
                 emit_stream_event({
-                    "type": "tool_use_start",
-                    "name": event.get("name", ""),
-                    "input": event.get("data", {}).get("input", {}),
+                    "type": "content_block_start",
+                    "index": tool_index,
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": tool_id,
+                        "name": _normalize_tool_name(event.get("name", "")),
+                        "input": _normalize_tool_input(event.get("name", ""), event.get("data", {}).get("input", {})),
+                    },
                 })
 
             elif kind == "on_tool_end":
+                tool_id = event.get("run_id") or event.get("name", "")
                 emit_stream_event({
-                    "type": "tool_use_end",
-                    "name": event.get("name", ""),
-                    "output": str(event.get("data", {}).get("output", "")),
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": _extract_tool_output(event.get("data", {}).get("output")),
+                    "is_error": False,
                 })
 
             elif kind == "on_chat_model_end":
+                for item_index in sorted(active_thinking_indexes):
+                    emit_stream_event({"type": "content_block_stop", "index": item_index})
+                active_thinking_indexes.clear()
+                thinking_index_map.clear()
                 output_data = event.get("data", {}).get("output")
+                if output_data and not result_text:
+                    result_text = _extract_text_content(getattr(output_data, "content", None))
                 if output_data and hasattr(output_data, "response_metadata"):
                     rm = output_data.response_metadata or {}
                     u = rm.get("usage", {})
@@ -194,6 +235,67 @@ async def _poll_ipc_input(input_dir: str) -> str | None:
                     pass
 
         await asyncio.sleep(0.5)
+
+
+async def _open_checkpointer_async(checkpoint_db: str, exit_stack: AsyncExitStack, saver_factory=None):
+    """Open async sqlite checkpointer context and return the actual saver instance."""
+    if not checkpoint_db:
+        return None
+
+    os.makedirs(os.path.dirname(checkpoint_db), exist_ok=True)
+
+    if saver_factory is None:
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        saver_factory = AsyncSqliteSaver.from_conn_string
+
+    return await exit_stack.enter_async_context(saver_factory(checkpoint_db))
+
+
+def _extract_text_content(content) -> str:
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text" and isinstance(item.get("text"), str):
+                parts.append(item["text"])
+        return "".join(parts)
+
+    return ""
+
+
+def _normalize_tool_name(tool_name: str) -> str:
+    if tool_name == "execute":
+        return "Bash"
+    return tool_name
+
+
+def _normalize_tool_input(tool_name: str, tool_input):
+    if tool_name == "execute" and isinstance(tool_input, dict):
+        normalized = {}
+        if "command" in tool_input:
+            normalized["command"] = tool_input["command"]
+        if "timeout" in tool_input:
+            normalized["timeout"] = tool_input["timeout"]
+        return normalized or tool_input
+    return tool_input
+
+
+def _extract_tool_output(output) -> str:
+    if isinstance(output, str):
+        return output
+
+    content = getattr(output, "content", None)
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        return _extract_text_content(content) or str(content)
+
+    return str(output)
 
 
 def _load_system_prompt(workspace_root: str) -> str:

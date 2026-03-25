@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y \
     git \
     build-essential \
     python3 \
+    python3-pip \
+    python3-venv \
     sqlite3 \
     tmux \
     sshpass \
@@ -69,6 +71,15 @@ COPY --chown=node:node container/skills/prometheus /home/node/.claude/skills/pro
 # Build Agent Runner
 RUN cd container/agent-runner && npm run build
 
+# Setup Deep Agent Python environment
+USER root
+RUN python3 -m venv /opt/deepagent-venv \
+    && /opt/deepagent-venv/bin/pip install --no-cache-dir \
+       -e /app/container/deepagent/deepagents/libs/deepagents \
+       -e /app/container/deep-agent-runner \
+    && chown -R node:node /opt/deepagent-venv
+USER node
+
 # Build Frontend
 RUN cd frontend && npm run build
 
@@ -81,6 +92,7 @@ ENV USE_LOCAL_AGENT=true
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ENV HOME=/home/node
+ENV DEEP_AGENT_PYTHON=/opt/deepagent-venv/bin/python
 
 # Expose port
 EXPOSE 3000

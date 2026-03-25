@@ -20,6 +20,47 @@ def check_dangerous(command: str, rules: list[dict]) -> dict | None:
             return {"severity": rule["severity"], "reason": rule["reason"]}
     return None
 
+
+def create_confirming_backend(workspace_root: str, rules: list[dict], confirm_bin: str | None = None):
+    """Create a LocalShellBackend variant that asks for confirmation on dangerous commands."""
+    from deepagents.backends import LocalShellBackend
+    from deepagents.backends.protocol import ExecuteResponse
+
+    class ConfirmingLocalShellBackend(LocalShellBackend):
+        def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
+            danger = check_dangerous(command, rules)
+            if danger and danger["severity"] == "high" and confirm_bin:
+                try:
+                    result = subprocess.run(
+                        [confirm_bin, command, danger["reason"]],
+                        timeout=300,
+                        capture_output=True,
+                        text=True,
+                    )
+                    if result.returncode == 2:
+                        return ExecuteResponse(
+                            output=f"Command denied by user: {danger['reason']}",
+                            exit_code=2,
+                            truncated=False,
+                        )
+                except subprocess.TimeoutExpired:
+                    return ExecuteResponse(
+                        output="Command confirmation timed out.",
+                        exit_code=124,
+                        truncated=False,
+                    )
+                except FileNotFoundError:
+                    pass
+
+            return super().execute(command, timeout=timeout)
+
+    return ConfirmingLocalShellBackend(
+        root_dir=workspace_root,
+        virtual_mode=False,
+        inherit_env=True,
+    )
+
+
 def create_execute_tool(workspace_root: str, rules: list[dict], confirm_bin: str | None = None):
     """Create a custom execute tool with dangerous command checking."""
     try:
