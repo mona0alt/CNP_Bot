@@ -63,6 +63,12 @@ def test_load_system_prompt_empty():
         assert result == ""
 
 
+def test_build_agent_config_sets_high_recursion_limit():
+    config = main_mod._build_agent_config("thread-xyz")
+    assert config["configurable"]["thread_id"] == "thread-xyz"
+    assert config["recursion_limit"] == 1000
+
+
 def test_poll_ipc_input_close():
     async def _test():
         with tempfile.TemporaryDirectory() as d:

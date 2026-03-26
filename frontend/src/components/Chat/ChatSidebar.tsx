@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ChevronLeft, ChevronRight, MessageSquareText, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -28,6 +28,27 @@ export function ChatSidebar({
   onAgentTypeChange,
 }: ChatSidebarProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [showAgentDropdown, setShowAgentDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowAgentDropdown(false);
+      }
+    };
+    if (showAgentDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showAgentDropdown]);
+
+  const handleAgentSelect = (type: 'claude' | 'deepagent') => {
+    onAgentTypeChange(type);
+    onCreateChat(type);
+    setShowAgentDropdown(false);
+  };
 
   const handleDeleteClick = (e: React.MouseEvent, jid: string) => {
     e.stopPropagation();
@@ -64,14 +85,53 @@ export function ChatSidebar({
             >
               <ChevronRight size={18} />
             </button>
-            <button
-              onClick={() => onCreateChat(agentType)}
-              className="h-9 w-9 inline-flex items-center justify-center rounded-xl bg-primary/12 text-primary hover:bg-primary/18 transition-colors"
-              title="新建会话"
-              aria-label="新建会话"
-            >
-              <Plus size={18} />
-            </button>
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setShowAgentDropdown(!showAgentDropdown)}
+                className="h-9 w-9 inline-flex items-center justify-center rounded-xl bg-primary/12 text-primary hover:bg-primary/18 transition-colors"
+                title="新建会话"
+                aria-label="新建会话"
+              >
+                <Plus size={18} />
+              </button>
+              {showAgentDropdown && (
+                <div className="absolute left-full top-0 ml-2 w-48 rounded-xl border border-border/70 bg-popover shadow-lg overflow-hidden z-50 animate-in fade-in-0 zoom-in-95 duration-100">
+                  <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border/50">
+                    选择 Agent 类型
+                  </div>
+                  <button
+                    onClick={() => handleAgentSelect('deepagent')}
+                    className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-muted/70 transition-colors text-left"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center text-white text-xs font-bold">
+                      D
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium">Deep Agent</div>
+                      <div className="text-xs text-muted-foreground">深度推理能力</div>
+                    </div>
+                    {agentType === 'deepagent' && (
+                      <div className="ml-auto w-2 h-2 rounded-full bg-purple-600" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleAgentSelect('claude')}
+                    className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-muted/70 transition-colors text-left"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
+                      C
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium">Claude Agent</div>
+                      <div className="text-xs text-muted-foreground">通用对话能力</div>
+                    </div>
+                    {agentType === 'claude' && (
+                      <div className="ml-auto w-2 h-2 rounded-full bg-blue-600" />
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
           </>
         ) : (
           <>
@@ -116,14 +176,53 @@ export function ChatSidebar({
                   Claude
                 </button>
               </div>
-              <button
-                onClick={() => onCreateChat(agentType)}
-                className="h-9 px-3 inline-flex items-center gap-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/92 shadow-sm transition-colors"
-                title="新建会话"
-              >
-                <Plus size={16} />
-                <span className="text-sm font-medium">新建</span>
-              </button>
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setShowAgentDropdown(!showAgentDropdown)}
+                  className="h-9 w-9 inline-flex items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/92 shadow-sm transition-colors"
+                  title="新建会话"
+                  aria-label="新建会话"
+                >
+                  <Plus size={18} />
+                </button>
+                {showAgentDropdown && (
+                  <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-border/70 bg-popover shadow-lg overflow-hidden z-50 animate-in fade-in-0 zoom-in-95 duration-100">
+                    <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border/50">
+                      选择 Agent 类型
+                    </div>
+                    <button
+                      onClick={() => handleAgentSelect('deepagent')}
+                      className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-muted/70 transition-colors text-left"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center text-white text-xs font-bold">
+                        D
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium">Deep Agent</div>
+                        <div className="text-xs text-muted-foreground">深度推理能力</div>
+                      </div>
+                      {agentType === 'deepagent' && (
+                        <div className="ml-auto w-2 h-2 rounded-full bg-purple-600" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleAgentSelect('claude')}
+                      className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-muted/70 transition-colors text-left"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
+                        C
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium">Claude Agent</div>
+                        <div className="text-xs text-muted-foreground">通用对话能力</div>
+                      </div>
+                      {agentType === 'claude' && (
+                        <div className="ml-auto w-2 h-2 rounded-full bg-blue-600" />
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </>
         )}

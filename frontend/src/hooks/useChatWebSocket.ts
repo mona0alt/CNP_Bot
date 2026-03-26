@@ -60,7 +60,16 @@ function mergeStreamBlocksIntoFinalMessage(
 
   const finalHasNonTextBlocks = finalBlocks.some((block) => block.type !== 'text');
   if (finalHasNonTextBlocks) {
-    return finalBlocks.map((finalBlock) => {
+    const finalHasThinkingBlocks = finalBlocks.some(
+      (block) => block.type === 'thinking' || block.type === 'redacted_thinking',
+    );
+    const preservedThinkingBlocks = finalHasThinkingBlocks
+      ? []
+      : streamNonTextBlocks.filter(
+          (block) => block.type === 'thinking' || block.type === 'redacted_thinking',
+        );
+
+    const mergedFinalBlocks = finalBlocks.map((finalBlock) => {
       if (finalBlock.type !== 'jumpserver_session') {
         return finalBlock;
       }
@@ -88,6 +97,8 @@ function mergeStreamBlocksIntoFinalMessage(
         latest_output: finalBlock.latest_output ?? streamBlock.latest_output,
       };
     });
+
+    return [...preservedThinkingBlocks, ...mergedFinalBlocks];
   }
 
   const finalTextBlocks = finalBlocks.filter((block) => block.type === 'text');

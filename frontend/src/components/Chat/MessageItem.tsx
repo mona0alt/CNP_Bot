@@ -186,7 +186,7 @@ export function MessageItem({ message: msg }: MessageItemProps) {
           }
 
           return (
-            <Fragment key={'key' in block ? block.key : `text-block-${bIdx}`}>
+            <Fragment key={'key' in block ? String(block.key) : `text-block-${bIdx}`}>
               <MarkdownRenderer
                 key={`text-${bIdx}`}
                 content={block.text || ''}

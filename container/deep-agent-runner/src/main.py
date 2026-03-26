@@ -17,6 +17,13 @@ from src.ipc_tools import create_ipc_tools
 from src.hooks import load_dangerous_rules, create_confirming_backend
 
 
+def _build_agent_config(thread_id: str) -> dict:
+    return {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": int(os.environ.get("DEEPAGENT_RECURSION_LIMIT", "1000")),
+    }
+
+
 def main():
     try:
         asyncio.run(async_main())
@@ -80,7 +87,7 @@ async def async_main():
             checkpointer=checkpointer,
         )
 
-        config = {"configurable": {"thread_id": thread_id}}
+        config = _build_agent_config(thread_id)
 
         # 9. Run first query
         await _run_query(agent, container_input.prompt, config, thread_id)

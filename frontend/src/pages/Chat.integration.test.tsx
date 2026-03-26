@@ -880,4 +880,120 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
     expect(mergedText).not.toContain('"executions":[]');
     expect(mergedItems[0]?.getAttribute('data-messageid')).toBe('final-jump-3');
   });
+
+  it('最终消息若没有 thinking block，应保留 stream 阶段已有的 thinking 卡片', async () => {
+    await act(async () => {
+      root.render(
+        <AuthContext.Provider value={authValue}>
+          <StreamingMessagesProvider>
+            <Chat />
+          </StreamingMessagesProvider>
+        </AuthContext.Provider>,
+      );
+    });
+
+    await flush();
+
+    const selectA = container.querySelector(
+      '[data-testid="select-web\\:a"]',
+    ) as HTMLButtonElement | null;
+    expect(selectA).not.toBeNull();
+
+    await act(async () => {
+      selectA!.click();
+    });
+    await flush();
+
+    const socketA = getLatestSocketForJid('web:a');
+
+    await act(async () => {
+      socketA.emitMessage({
+        type: 'stream_event',
+        chat_jid: 'web:a',
+        event: {
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'thinking',
+            text: '',
+          },
+        },
+      });
+      socketA.emitMessage({
+        type: 'stream_event',
+        chat_jid: 'web:a',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: {
+            type: 'thinking_delta',
+            thinking: '先分析日志来源。',
+          },
+        },
+      });
+      socketA.emitMessage({
+        type: 'stream_event',
+        chat_jid: 'web:a',
+        event: {
+          type: 'jumpserver_session',
+          block: {
+            type: 'jumpserver_session',
+            id: 'jump-4',
+            stage: 'running_remote_command',
+            status: 'calling',
+            target_host: '10.246.104.237',
+            executions: [
+              {
+                id: 'exec-4',
+                command: 'dmesg | tail',
+                status: 'running',
+              },
+            ],
+          },
+        },
+      });
+    });
+    await flush();
+
+    await act(async () => {
+      socketA.emitMessage({
+        type: 'message',
+        data: {
+          id: 'final-jump-4',
+          chat_jid: 'web:a',
+          sender_name: 'CNP-Bot',
+          content: JSON.stringify([
+            {
+              type: 'jumpserver_session',
+              id: 'jump-4',
+              stage: 'completed',
+              status: 'executed',
+              target_host: '10.246.104.237',
+              executions: [],
+            },
+            {
+              type: 'text',
+              text: '日志已获取。',
+            },
+          ]),
+          timestamp: '2099-03-18T08:04:00.000Z',
+          is_from_me: false,
+          is_bot_message: true,
+        },
+      });
+    });
+    await flush();
+
+    const messageItems = container.querySelectorAll('[data-testid="message-item"]');
+    const mergedItems = Array.from(messageItems).filter((item) =>
+      (item.textContent ?? '').includes('final-jump-4') ||
+      (item.textContent ?? '').includes('jump-4'),
+    );
+    expect(mergedItems).toHaveLength(1);
+    const mergedText = mergedItems[0]?.textContent ?? '';
+    expect(mergedText).toContain('"type":"thinking"');
+    expect(mergedText).toContain('先分析日志来源。');
+    expect(mergedText).toContain('"stage":"completed"');
+    expect(mergedText).toContain('日志已获取。');
+  });
 });
