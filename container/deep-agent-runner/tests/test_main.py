@@ -69,6 +69,45 @@ def test_build_agent_config_sets_high_recursion_limit():
     assert config["recursion_limit"] == 1000
 
 
+def test_build_model_enables_thinking_for_anthropic_specs(monkeypatch):
+    calls = []
+
+    def fake_init_chat_model(model_name, **kwargs):
+        calls.append((model_name, kwargs))
+        return {
+            "model_name": model_name,
+            "thinking": kwargs.get("thinking"),
+            "provider": kwargs.get("model_provider"),
+        }
+
+    fake_chat_models_mod = types.ModuleType("langchain.chat_models")
+    fake_chat_models_mod.init_chat_model = fake_init_chat_model
+    monkeypatch.setitem(sys.modules, "langchain.chat_models", fake_chat_models_mod)
+    monkeypatch.delenv("DEEP_AGENT_THINKING_TYPE", raising=False)
+    monkeypatch.delenv("DEEP_AGENT_THINKING_BUDGET_TOKENS", raising=False)
+
+    model = main_mod._build_model("claude-sonnet-4-6")
+
+    assert model == {
+        "model_name": "claude-sonnet-4-6",
+        "thinking": {"type": "enabled", "budget_tokens": 2048},
+        "provider": "anthropic",
+    }
+    assert calls == [
+        (
+            "claude-sonnet-4-6",
+            {
+                "model_provider": "anthropic",
+                "thinking": {"type": "enabled", "budget_tokens": 2048},
+            },
+        )
+    ]
+
+
+def test_build_model_preserves_non_anthropic_specs():
+    assert main_mod._build_model("openai:gpt-5") == "openai:gpt-5"
+
+
 def test_poll_ipc_input_close():
     async def _test():
         with tempfile.TemporaryDirectory() as d:
@@ -243,6 +282,80 @@ def test_run_query_emits_thinking_as_compatible_content_block_events(monkeypatch
         {"type": "content_block_stop", "index": 0},
     ]
     assert outputs[-1]["result"] == "你好！"
+
+
+def test_run_query_emits_reasoning_as_compatible_thinking_events(monkeypatch):
+    stream_events = []
+    outputs = []
+
+    fake_messages_mod = types.ModuleType("langchain_core.messages")
+
+    class FakeHumanMessage:
+        def __init__(self, content):
+            self.content = content
+
+    fake_messages_mod.HumanMessage = FakeHumanMessage
+    monkeypatch.setitem(sys.modules, "langchain_core.messages", fake_messages_mod)
+
+    class FakeChunk:
+        def __init__(self, content):
+            self.content = content
+
+    class FakeOutput:
+        def __init__(self):
+            self.response_metadata = {"usage": {"input_tokens": 1, "output_tokens": 2}}
+
+    class FakeAgent:
+        async def astream_events(self, *_args, **_kwargs):
+            yield {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": FakeChunk([
+                        {"type": "reasoning", "reasoning": "先分析"},
+                        {"type": "text", "text": "结果"},
+                    ])
+                },
+            }
+            yield {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": FakeChunk([
+                        {"type": "reasoning", "reasoning": "再确认"},
+                        {"type": "text", "text": "如下"},
+                    ])
+                },
+            }
+            yield {
+                "event": "on_chat_model_end",
+                "data": {"output": FakeOutput()},
+            }
+
+    monkeypatch.setattr(main_mod, "emit_stream_event", lambda event: stream_events.append(event))
+    monkeypatch.setattr(main_mod, "emit_output", lambda output: outputs.append(output))
+
+    asyncio.run(main_mod._run_query(FakeAgent(), "你好", {}, "thread-reasoning"))
+
+    assert stream_events == [
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "text": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": "先分析"},
+        },
+        {"type": "text_delta", "text": "结果"},
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": "再确认"},
+        },
+        {"type": "text_delta", "text": "如下"},
+        {"type": "content_block_stop", "index": 0},
+    ]
+    assert outputs[-1]["result"] == "结果如下"
 
 
 def test_run_query_emits_tool_events_as_frontend_compatible_blocks(monkeypatch):

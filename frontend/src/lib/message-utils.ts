@@ -1,5 +1,11 @@
 import type { ContentBlock } from "./types";
 
+const STREAM_INDEX_KEY = '__streamIndex';
+
+type InternalContentBlock = ContentBlock & {
+  [STREAM_INDEX_KEY]?: number;
+};
+
 interface StreamEvent {
   type: string;
   text?: string;
@@ -25,6 +31,18 @@ interface StreamEvent {
 
 interface ToolContent {
   text?: string;
+}
+
+function findBlockPositionByStreamIndex(
+  blocks: ContentBlock[],
+  streamIndex: number,
+): number {
+  const mappedIndex = blocks.findIndex(
+    (block) => (block as InternalContentBlock)[STREAM_INDEX_KEY] === streamIndex,
+  );
+
+  if (mappedIndex !== -1) return mappedIndex;
+  return streamIndex < blocks.length ? streamIndex : -1;
 }
 
 export function finalizePendingToolCalls(
@@ -78,16 +96,38 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): 
   }
 
   if (event.type === 'content_block_start' && event.content_block) {
-    newBlocks.push({
+    const nextBlock: InternalContentBlock = {
       type: event.content_block.type as ContentBlock['type'],
-      text: event.content_block.text || '',
-      id: event.content_block.id,
-      name: event.content_block.name,
-      input: event.content_block.input,
-      status: event.content_block.type === 'tool_use' ? 'calling' : undefined
-    } as ContentBlock);
+    } as InternalContentBlock;
+
+    if (event.index !== undefined) {
+      nextBlock[STREAM_INDEX_KEY] = event.index;
+    }
+    if (typeof event.content_block.text === 'string') {
+      nextBlock.text = event.content_block.text;
+    }
+    if (
+      event.content_block.type === 'thinking' ||
+      event.content_block.type === 'redacted_thinking'
+    ) {
+      nextBlock.isComplete = false;
+    }
+    if (event.content_block.id !== undefined) {
+      nextBlock.id = event.content_block.id;
+    }
+    if (event.content_block.name !== undefined) {
+      nextBlock.name = event.content_block.name;
+    }
+    if (event.content_block.input !== undefined) {
+      nextBlock.input = event.content_block.input;
+    }
+    if (event.content_block.type === 'tool_use') {
+      nextBlock.status = 'calling';
+    }
+
+    newBlocks.push(nextBlock);
   } else if (event.type === 'content_block_delta' && event.delta && event.index !== undefined) {
-    const index = event.index;
+    const index = findBlockPositionByStreamIndex(newBlocks, event.index);
     if (newBlocks[index]) {
       const block = { ...newBlocks[index] };
       if (event.delta.type === 'text_delta') {
@@ -100,7 +140,7 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): 
       newBlocks[index] = block;
     }
   } else if (event.type === 'content_block_stop' && event.index !== undefined) {
-    const index = event.index;
+    const index = findBlockPositionByStreamIndex(newBlocks, event.index);
     if (newBlocks[index]) {
       const block = { ...newBlocks[index] };
       if (block.type === 'tool_use') {
@@ -112,6 +152,8 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: StreamEvent): 
             block.input = block.partial_json;
           }
         }
+      } else if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+        block.isComplete = true;
       }
       newBlocks[index] = block;
     }

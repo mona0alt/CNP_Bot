@@ -76,7 +76,12 @@ export type ContentBlock =
       result?: string | object;
       [key: string]: unknown;
     }
-  | { type: 'thinking' | 'redacted_thinking'; text?: string; [key: string]: unknown }
+  | {
+      type: 'thinking' | 'redacted_thinking';
+      text?: string;
+      isComplete?: boolean;
+      [key: string]: unknown;
+    }
   | JumpServerBlock
   | PrometheusChartBlock;
 

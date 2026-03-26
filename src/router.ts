@@ -30,11 +30,16 @@ export function shouldPreserveInternalTagsForJid(jid: string): boolean {
   return jid.startsWith('web:');
 }
 
-export function formatOutboundForJid(jid: string, rawText: string): string {
+export function formatOutboundForJid(
+  jid: string,
+  rawText: string,
+): string {
+  const normalized = rawText.trim();
+
   if (shouldPreserveInternalTagsForJid(jid)) {
-    return rawText.trim();
+    return normalized.trim();
   }
-  return formatOutbound(rawText);
+  return formatOutbound(normalized);
 }
 
 export function routeOutbound(

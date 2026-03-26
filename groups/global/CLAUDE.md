@@ -60,6 +60,11 @@ Here are the key findings from the research...
 
 Text inside `<internal>` tags is logged but not sent to the user. If you've already sent the key information via `send_message`, you can wrap the recap in `<internal>` to avoid sending it again.
 
+When performing multi-step operations, especially JumpServer / remote troubleshooting:
+- Put process narration, interim observations, "let me check...", connection progress, and step-by-step investigation chatter inside `<internal>` tags.
+- Keep the user-visible portion focused on conclusions, key findings, risk assessment, and concrete next steps.
+- Do NOT expose raw operational self-talk as normal user-facing text when it can be placed inside `<internal>`.
+
 ### Sub-agents and teammates
 
 When working as a sub-agent or teammate, only use `send_message` if instructed to by the main agent.

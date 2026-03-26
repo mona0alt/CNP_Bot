@@ -78,6 +78,10 @@ import {
   type JumpServerBlock,
   type JumpServerExecution,
 } from './jumpserver-stream-aggregator.js';
+import {
+  mergeThinkingBlocksIntoFinalBlocks,
+  type ThinkingContentBlock,
+} from './final-content.js';
 import { adaptDeepAgentToolEvent } from './deepagent-stream-event-adapter.js';
 import {
   logJumpServerExecutionSummary,
@@ -450,6 +454,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
   const jumpServerAggregator = createJumpServerStreamAggregator();
   let latestJumpServerBlock: JumpServerBlock | null = null;
+  const latestThinkingBlocks: ThinkingContentBlock[] = [];
+  const thinkingIndexMap = new Map<number, number>();
   const jumpServerToolMeta = new Map<
     string,
     { startedAt: number; command?: string; targetHost?: string; kind: string }
@@ -592,16 +598,78 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     latestJumpServerBlock = null;
     jumpServerAggregator.reset();
   };
+  const resetThinkingTurnState = () => {
+    latestThinkingBlocks.length = 0;
+    thinkingIndexMap.clear();
+  };
+  const appendThinkingBlock = (
+    index: number,
+    type: 'thinking' | 'redacted_thinking',
+    text: string,
+  ) => {
+    const existingIndex = thinkingIndexMap.get(index);
+    if (existingIndex === undefined) {
+      thinkingIndexMap.set(index, latestThinkingBlocks.length);
+      latestThinkingBlocks.push({ type, text });
+      return;
+    }
+
+    const existing = latestThinkingBlocks[existingIndex];
+    if (!existing) return;
+    latestThinkingBlocks[existingIndex] = {
+      ...existing,
+      type,
+      text: (existing.text || '') + text,
+    };
+  };
+  const consumeThinkingStreamEvent = (event: {
+    type?: string;
+    index?: number;
+    content_block?: { type?: string; text?: string };
+    delta?: { type?: string; thinking?: string };
+  }) => {
+    if (
+      event.type === 'content_block_start' &&
+      event.index !== undefined &&
+      (event.content_block?.type === 'thinking' ||
+        event.content_block?.type === 'redacted_thinking')
+    ) {
+      const type = event.content_block.type;
+      appendThinkingBlock(
+        event.index,
+        type,
+        event.content_block.text ||
+          (type === 'redacted_thinking' ? 'Thinking process is redacted.' : ''),
+      );
+      return;
+    }
+
+    if (
+      event.type === 'content_block_delta' &&
+      event.index !== undefined &&
+      event.delta?.type === 'thinking_delta'
+    ) {
+      appendThinkingBlock(
+        event.index,
+        'thinking',
+        event.delta.thinking || '',
+      );
+    }
+  };
   const buildFinalContent = (rawText?: string | null): string => {
-    const cleanText = rawText ? formatOutboundForJid(chatJid, rawText) : '';
     const finalizedJumpServerBlock = latestJumpServerBlock ?? jumpServerAggregator.getBlock();
+    const cleanText = rawText
+      ? formatOutboundForJid(chatJid, rawText)
+      : '';
+    const mergeWithThinking = (blocks: unknown[]) =>
+      mergeThinkingBlocksIntoFinalBlocks(blocks, latestThinkingBlocks);
 
     if (finalizedJumpServerBlock) {
       latestJumpServerBlock = finalizedJumpServerBlock;
       const blocks: unknown[] = [finalizedJumpServerBlock];
       if (cleanText) blocks.push({ type: 'text', text: cleanText });
       completedStreamTools.length = 0;
-      return JSON.stringify(blocks);
+      return JSON.stringify(mergeWithThinking(blocks));
     }
 
     for (const tool of completedStreamTools) {
@@ -613,6 +681,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const blocks: unknown[] = [...completedStreamTools];
       if (cleanText) blocks.push({ type: 'text', text: cleanText });
       completedStreamTools.length = 0;
+      return JSON.stringify(mergeWithThinking(blocks));
+    }
+
+    if (latestThinkingBlocks.length > 0) {
+      const blocks: unknown[] = [...latestThinkingBlocks];
+      if (cleanText) blocks.push({ type: 'text', text: cleanText });
       return JSON.stringify(blocks);
     }
 
@@ -629,6 +703,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     await channel.sendMessage(chatJid, finalContent);
     outputSentToUser = true;
     resetJumpServerTurnState();
+    resetThinkingTurnState();
   };
 
   // Resolve agentType in the callback closure so stream event handling can branch on it.
@@ -639,6 +714,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (result.streamEvent) {
       const event = result.streamEvent.event;
       if (event) {
+        consumeThinkingStreamEvent(event);
         // Deep Agent emits its own event format (text_delta, tool_use_start, tool_use_end).
         // Forward directly without Anthropic-specific processing.
         if (agentType === 'deepagent') {
@@ -921,9 +997,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const isAlreadyArray = raw.trim().startsWith('[') && raw.trim().endsWith(']');
       if (isAlreadyArray) {
         const parsedBlocks = JSON.parse(raw) as unknown[];
+        const blocksWithThinking = mergeThinkingBlocksIntoFinalBlocks(
+          parsedBlocks,
+          latestThinkingBlocks,
+        );
         if (latestJumpServerBlock) {
           finalizeJumpServerBlock('completed');
-          const filteredBlocks = parsedBlocks.filter((block) => {
+          const filteredBlocks = blocksWithThinking.filter((block) => {
             if (!block || typeof block !== 'object') return true;
             const blockType = (block as { type?: unknown }).type;
             if (blockType === 'jumpserver_session') return false;
@@ -940,7 +1020,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           finalContent = JSON.stringify([latestJumpServerBlock, ...filteredBlocks]);
         } else {
           // Container already serialized blocks (including any tool_use blocks)
-          finalContent = raw;
+          finalContent = JSON.stringify(blocksWithThinking);
         }
         completedStreamTools.length = 0;
       } else {
@@ -955,6 +1035,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         await channel.sendMessage(chatJid, finalContent);
         outputSentToUser = true;
         resetJumpServerTurnState();
+        resetThinkingTurnState();
       }
       // A non-null result means the current query has completed and the agent
       // is about to transition into idle-waiting for the next IPC message.

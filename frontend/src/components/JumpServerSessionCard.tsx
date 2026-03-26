@@ -91,7 +91,7 @@ export function JumpServerSessionCard({ block }: { block: JumpServerBlock }) {
       )}
     >
       <div
-        className="flex items-start gap-3 p-4 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+        className="flex items-center gap-3 p-4 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         <div className={cn('rounded-xl border p-2', iconWrapClass)}>
@@ -101,44 +101,43 @@ export function JumpServerSessionCard({ block }: { block: JumpServerBlock }) {
             <MonitorCog size={16} className="text-sky-300" />
           )}
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold tracking-wide flex items-center gap-2">
-            JumpServer 远程会话
-            {expanded ? (
-              <ChevronDown size={14} className="text-muted-foreground" />
-            ) : (
-              <ChevronRight size={14} className="text-muted-foreground" />
-            )}
-          </div>
-          <div className={cn('mt-0.5 text-xs', isLight ? 'text-slate-500' : 'text-slate-400')}>
+        <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-semibold tracking-wide">JumpServer 远程会话</span>
+          {block.target_host ? (
+            <span className={cn('flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-normal', badgeClass)}>
+              <Server size={12} className="text-emerald-300" />
+              <span>{block.target_host}</span>
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className={cn('text-xs', isLight ? 'text-slate-500' : 'text-slate-400')}>
             {stageLabel(block.stage, block.target_host)}
           </div>
+          {expanded ? (
+            <ChevronDown size={14} className="text-muted-foreground" />
+          ) : (
+            <ChevronRight size={14} className="text-muted-foreground" />
+          )}
         </div>
       </div>
 
       {expanded && (
         <>
-          {block.target_host ? (
-            <div className={cn('flex items-center gap-2 rounded-xl border px-3 py-2 text-xs mx-4', badgeClass)}>
-              <Server size={14} className="text-emerald-300" />
-              <span>目标主机：{block.target_host}</span>
-            </div>
-          ) : null}
-
           {executions.length > 0 ? (
             <div className="space-y-2 px-4 pb-4">
               <div className={cn('text-xs font-medium uppercase tracking-[0.18em]', sectionTitleClass)}>
                 执行记录
               </div>
               <div className="space-y-2">
-                {executions.map((execution, index) => (
+                {executions.map((execution) => (
                   <ToolCallCard
                     key={execution.id}
                     toolName="Bash"
                     input={{ command: redact(execution.command) ?? execution.command }}
                     status={mapExecutionStatus(execution.status)}
                     result={redact(execution.output) ?? execution.error_message ?? null}
-                    defaultExpanded={index === executions.length - 1}
+                    defaultExpanded={false}
                     showInputInTitle={true}
                     className={toolCardClass}
                   />

@@ -69,9 +69,40 @@ describe('JumpServerSessionCard', () => {
     expect(text).toContain('10.246.104.234');
     expect(text).toContain('journalctl -n 50');
     expect(text).toContain('Bash');
-    expect(text).toContain('Result');
+    expect(text).not.toContain('Result');
     expect(text).not.toContain('最近输出');
     expect(text).not.toContain('jumpserver.example.internal');
+  });
+
+  it('renders nested bash cards collapsed by default', async () => {
+    await act(async () => {
+      root.render(
+        <ThemeProvider>
+          <JumpServerSessionCard
+            block={{
+              type: 'jumpserver_session',
+              id: 'jump-1',
+              stage: 'completed',
+              target_host: '10.246.104.234',
+              executions: [
+                {
+                  id: 'exec-1',
+                  command: 'uname -a',
+                  status: 'completed',
+                  output: 'Linux myhost',
+                },
+              ],
+            }}
+          />
+        </ThemeProvider>,
+      );
+    });
+
+    const text = container.textContent ?? '';
+    expect(text).toContain('Bash');
+    expect(text).toContain('uname -a');
+    expect(text).not.toContain('Linux myhost');
+    expect(text).not.toContain('Result');
   });
 
   it('adapts jumpserver card styling in light mode', async () => {

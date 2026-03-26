@@ -13,6 +13,8 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "setup": "tsx setup/index.ts",
     "test": "vitest run",
+    "test:py": "python3 -m pytest container/deep-agent-runner/tests -q",
+    "test:all": "npm run test && npm run test:py",
     "test:watch": "vitest"
   },
   "dependencies": {

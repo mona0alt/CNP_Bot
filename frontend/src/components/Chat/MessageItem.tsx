@@ -17,6 +17,9 @@ interface MessageItemProps {
   message: Message;
 }
 
+type RenderableEntry =
+  | { kind: 'block'; block: ContentBlock | { type: 'text'; text: string; key: string }; key: string };
+
 export function MessageItem({ message: msg }: MessageItemProps) {
   const { theme } = useTheme();
 
@@ -34,41 +37,33 @@ export function MessageItem({ message: msg }: MessageItemProps) {
         ? (theme === "light" ? "bg-muted" : "bg-blue-600")
         : "bg-muted");
 
-  // Sort blocks: thinking first, then thought-tagged text, then tool_use, then rest
-  const sortedBlocks = [...blocks].sort((a, b) => {
-    const aIsThoughtBlock = a.type === 'thinking' || a.type === 'redacted_thinking';
-    const bIsThoughtBlock = b.type === 'thinking' || b.type === 'redacted_thinking';
-    if (aIsThoughtBlock && !bIsThoughtBlock) return -1;
-    if (!aIsThoughtBlock && bIsThoughtBlock) return 1;
+  const visibleBlocks = blocks.filter((block) => !shouldHideToolUseBlock(block));
 
-    const aHasThought = a.type === 'text' && /<(commentary|thinking|think|internal)>/.test(a.text || '');
-    const bHasThought = b.type === 'text' && /<(commentary|thinking|think|internal)>/.test(b.text || '');
-    if (aHasThought && !bHasThought) return -1;
-    if (!aHasThought && bHasThought) return 1;
+  const renderEntries: RenderableEntry[] = [];
+  const aggregatedThought = {
+    content: [] as string[],
+    isComplete: true,
+  };
 
-    if (a.type === 'tool_use' && b.type !== 'tool_use') return -1;
-    if (a.type !== 'tool_use' && b.type === 'tool_use') return 1;
+  const appendThought = (content: string, isComplete: boolean) => {
+    const trimmed = content.trim();
+    if (!trimmed && isComplete) return;
 
-    return 0;
-  });
-
-  const visibleBlocks = sortedBlocks.filter((block) => !shouldHideToolUseBlock(block));
-
-  const thoughtContents: string[] = [];
-  let hasIncompleteThought = false;
-  const displayBlocks: Array<
-    | ContentBlock
-    | { type: 'text'; text: string; key: string }
-  > = [];
+    if (trimmed) {
+      aggregatedThought.content.push(trimmed);
+    }
+    aggregatedThought.isComplete = aggregatedThought.isComplete && isComplete;
+  };
 
   visibleBlocks.forEach((block, blockIndex) => {
     if (block.type === 'thinking' || block.type === 'redacted_thinking') {
       const thoughtText =
         block.text ||
         (block.type === 'redacted_thinking' ? "Thinking process is redacted." : "");
-      if (thoughtText) {
-        thoughtContents.push(thoughtText);
-      }
+      appendThought(
+        thoughtText,
+        block.isComplete !== false,
+      );
       return;
     }
 
@@ -77,35 +72,37 @@ export function MessageItem({ message: msg }: MessageItemProps) {
       let textSegmentIndex = 0;
       segments.forEach((seg) => {
         if (seg.type === 'thought') {
-          if (seg.content.trim()) {
-            thoughtContents.push(seg.content);
-          }
-          if (!seg.isComplete) {
-            hasIncompleteThought = true;
-          }
+          appendThought(seg.content, !!seg.isComplete);
           return;
         }
 
         if (seg.content.trim()) {
-          displayBlocks.push({
-            type: 'text',
-            text: seg.content,
-            key: `text-${blockIndex}-${textSegmentIndex++}`,
+          renderEntries.push({
+            kind: 'block',
+            key: `text-${blockIndex}-${textSegmentIndex}`,
+            block: {
+              type: 'text',
+              text: seg.content,
+              key: `text-${blockIndex}-${textSegmentIndex}`,
+            },
           });
         }
+        textSegmentIndex += 1;
       });
       return;
     }
 
-    displayBlocks.push(block);
+    renderEntries.push({
+      kind: 'block',
+      key: `block-${block.id || blockIndex}`,
+      block,
+    });
   });
 
-  const mergedThoughtContent = thoughtContents.join('\n\n').trim();
+  const thoughtContent = aggregatedThought.content.join('\n\n').trim();
+  const hasThoughtCard = !!thoughtContent || !aggregatedThought.isComplete;
 
-  const hasVisibleContent =
-    mergedThoughtContent.length > 0 ||
-    hasIncompleteThought ||
-    displayBlocks.length > 0;
+  const hasVisibleContent = hasThoughtCard || renderEntries.length > 0;
 
   if (!hasVisibleContent) return null;
 
@@ -133,16 +130,17 @@ export function MessageItem({ message: msg }: MessageItemProps) {
           </div>
         ) : null}
 
-        {(mergedThoughtContent || hasIncompleteThought) ? (
+        {hasThoughtCard ? (
           <ThoughtProcess
-            key="thought-merged"
-            content={mergedThoughtContent}
-            isComplete={!hasIncompleteThought}
+            key="aggregated-thought"
+            content={thoughtContent}
+            isComplete={aggregatedThought.isComplete}
             autoCollapse={true}
           />
         ) : null}
 
-        {displayBlocks.map((block, bIdx) => {
+        {renderEntries.map((entry, bIdx) => {
+          const block = entry.block;
           if (block.type === 'tool_use') {
             let inputObj = block.input || {};
             const isEmptyObject = typeof inputObj === 'object' && inputObj !== null && Object.keys(inputObj).length === 0;
@@ -170,7 +168,7 @@ export function MessageItem({ message: msg }: MessageItemProps) {
           if (block.type === 'prometheus_chart') {
             return (
               <PrometheusChartCard
-                key={`chart-${bIdx}`}
+                key={entry.key}
                 block={block as PrometheusChartBlock}
               />
             );
@@ -179,17 +177,17 @@ export function MessageItem({ message: msg }: MessageItemProps) {
           if (block.type === 'jumpserver_session') {
             return (
               <JumpServerSessionCard
-                key={`jumpserver-${block.id || bIdx}`}
+                key={entry.key}
                 block={block as JumpServerBlock}
               />
             );
           }
 
           return (
-            <Fragment key={'key' in block ? String(block.key) : `text-block-${bIdx}`}>
+            <Fragment key={'key' in block ? String(block.key) : entry.key}>
               <MarkdownRenderer
                 key={`text-${bIdx}`}
-                content={block.text || ''}
+                content={typeof block.text === 'string' ? block.text : ''}
                 className={cn(
                   "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
                   outgoing ? "prose-invert" : ""

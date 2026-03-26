@@ -200,6 +200,18 @@ describe('formatOutboundForJid', () => {
       ),
     ).toBe('The answer is 42');
   });
+
+  it('不再基于正文启发式自动包裹 JumpServer 过程性叙述', () => {
+    const raw = [
+      '已连接到 JumpServer，现在连接目标服务器 10.245.17.1：',
+      '让我检查系统日志。',
+      '已检查完 10.245.17.1 的系统日志，以下是检查结果：',
+      '• systemd 持续报 /dev/char/10:200 缺失',
+    ].join('\n\n');
+
+    expect(formatOutboundForJid('web:test', raw)).toBe(raw);
+    expect(formatOutboundForJid('group@g.us', raw)).toBe(raw);
+  });
 });
 
 // --- Trigger gating with requiresTrigger flag ---

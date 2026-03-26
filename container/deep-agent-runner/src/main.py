@@ -17,6 +17,31 @@ from src.ipc_tools import create_ipc_tools
 from src.hooks import load_dangerous_rules, create_confirming_backend
 
 
+def _build_model(model_spec: str):
+    if not _is_anthropic_model(model_spec):
+        return model_spec
+
+    from langchain.chat_models import init_chat_model
+
+    thinking_type = os.environ.get("DEEP_AGENT_THINKING_TYPE", "enabled")
+    thinking_config: dict[str, object] = {"type": thinking_type}
+
+    if thinking_type == "enabled":
+        budget_tokens = int(os.environ.get("DEEP_AGENT_THINKING_BUDGET_TOKENS", "2048"))
+        thinking_config["budget_tokens"] = budget_tokens
+
+    normalized_model = model_spec.removeprefix("anthropic:")
+    return init_chat_model(
+        normalized_model,
+        model_provider="anthropic",
+        thinking=thinking_config,
+    )
+
+
+def _is_anthropic_model(model_spec: str) -> bool:
+    return model_spec.startswith("anthropic:") or model_spec.startswith("claude-")
+
+
 def _build_agent_config(thread_id: str) -> dict:
     return {
         "configurable": {"thread_id": thread_id},
@@ -73,7 +98,8 @@ async def async_main():
     )
 
     # 8. Build agent
-    model = os.environ.get("DEEP_AGENT_MODEL", "claude-sonnet-4-6")
+    model_spec = os.environ.get("DEEP_AGENT_MODEL", "claude-sonnet-4-6")
+    model = _build_model(model_spec)
     checkpoint_db = os.environ.get("DEEPAGENT_CHECKPOINT_DB", "")
 
     async with AsyncExitStack() as exit_stack:
@@ -130,7 +156,7 @@ async def _run_query(agent, prompt, config, thread_id):
                             continue
                         item_type = item.get("type")
                         item_index = item.get("index", 0)
-                        if item_type == "thinking":
+                        if item_type in {"thinking", "reasoning"}:
                             frontend_index = thinking_index_map.get(item_index)
                             if frontend_index is None:
                                 frontend_index = next_block_index
@@ -143,7 +169,7 @@ async def _run_query(agent, prompt, config, thread_id):
                                     "content_block": {"type": "thinking", "text": ""},
                                 })
                                 active_thinking_indexes.add(frontend_index)
-                            thinking_text = item.get("thinking")
+                            thinking_text = _extract_reasoning_text(item)
                             if isinstance(thinking_text, str) and thinking_text:
                                 emit_stream_event({
                                     "type": "content_block_delta",
@@ -270,6 +296,21 @@ def _extract_text_content(content) -> str:
             if item.get("type") == "text" and isinstance(item.get("text"), str):
                 parts.append(item["text"])
         return "".join(parts)
+
+    return ""
+
+
+def _extract_reasoning_text(item) -> str:
+    if not isinstance(item, dict):
+        return ""
+
+    thinking_text = item.get("thinking")
+    if isinstance(thinking_text, str) and thinking_text:
+        return thinking_text
+
+    reasoning_text = item.get("reasoning")
+    if isinstance(reasoning_text, str) and reasoning_text:
+        return reasoning_text
 
     return ""
 
