@@ -1,179 +1,247 @@
-<p align="center">
-  <img src="assets/cnp-bot-logo.png" alt="CNP-Bot" width="400">
-</p>
+# CNP-Bot
+
+> Intelligent DevOps Agent — runs Claude agents securely in Docker containers, with a Web Chat frontend for real-time interaction.
 
 <p align="center">
-  An AI assistant that runs agents securely in their own containers. Lightweight, built to be easily understood and completely customized for your needs.
+  <a href="README_zh.md">中文</a>
 </p>
 
-<p align="center">
-  <a href="https://cnp-bot.dev">cnp-bot.dev</a>&nbsp; • &nbsp;
-  <a href="README_zh.md">中文</a>&nbsp; • &nbsp;
-  <a href="https://discord.gg/VDdww8qS42"><img src="https://img.shields.io/discord/1470188214710046894?label=Discord&logo=discord&v=2" alt="Discord" valign="middle"></a>&nbsp; • &nbsp;
-  <a href="repo-tokens"><img src="repo-tokens/badge.svg" alt="34.9k tokens, 17% of context window" valign="middle"></a>
-</p>
+Lightweight, secure, customizable. Single Node.js process, React frontend, dual agent backend (Claude Agent SDK + Deep Agent), per-group container isolation.
 
-Using Claude Code, CNP-Bot can dynamically rewrite its code to customize its feature set for your needs.
+## Features
 
-**New:** First AI assistant to support [Agent Swarms](https://code.claude.com/docs/en/agent-teams). Spin up teams of agents that collaborate in your chat.
-
-## Why I Built CNP-Bot
-
-[OpenClaw](https://github.com/openclaw/openclaw) is an impressive project, but I wouldn't have been able to sleep if I had given complex software I didn't understand full access to my life. OpenClaw has nearly half a million lines of code, 53 config files, and 70+ dependencies. Its security is at the application level (allowlists, pairing codes) rather than true OS-level isolation. Everything runs in one Node process with shared memory.
-
-CNP-Bot provides that same core functionality, but in a codebase small enough to understand: one process and a handful of files. Claude agents run in their own Linux containers with filesystem isolation, not merely behind permission checks.
+- **Web Chat UI** — React SPA with real-time streaming, thinking blocks, tool cards, and multi-user auth (JWT)
+- **Dual Agent Backend** — Claude Agent SDK (Node.js) and Deep Agent (Python/LangGraph), switchable per chat
+- **Container Isolation** — Every conversation group runs in its own Docker container with independent filesystem
+- **DevOps Skills** — Built-in JumpServer SSH, Prometheus monitoring, browser automation, tmux control
+- **Dangerous Command Protection** — Rules engine blocks destructive Bash commands; requires explicit user approval via UI
+- **Scheduled Tasks** — Cron / interval / one-time tasks that run as full agents
+- **Per-group Memory** — Each group has its own `CLAUDE.md`, session state, and file workspace
+- **Agent Swarms** — Experimental support for teams of agents collaborating on complex tasks
 
 ## Quick Start
 
+### Docker (recommended)
+
 ```bash
-git clone https://github.com/qwibitai/CNP-Bot.git
-cd CNP-Bot
+git clone https://github.com/mona0alt/CNP_Bot.git
+cd CNP_Bot
+
+# Configure
+cp .env.example .env
+# Edit .env: set JWT_SECRET, ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN
+
+# Build and run
+./start_with_ip.sh --docker
+```
+
+### Manual
+
+```bash
+git clone https://github.com/mona0alt/CNP_Bot.git
+cd CNP_Bot
+npm install
+cd frontend && npm install && cd ..
+npm run build
+npm start
+```
+
+### With Claude Code
+
+```bash
+git clone https://github.com/mona0alt/CNP_Bot.git
+cd CNP_Bot
 claude
 ```
 
-Then run `/setup`. Claude Code handles everything: dependencies, authentication, container setup and service configuration.
-
-## Philosophy
-
-**Small enough to understand.** One process, a few source files and no microservices. If you want to understand the full CNP-Bot codebase, just ask Claude Code to walk you through it.
-
-**Secure by isolation.** Agents run in Linux containers (Apple Container on macOS, or Docker) and they can only see what's explicitly mounted. Bash access is safe because commands run inside the container, not on your host.
-
-**Built for the individual user.** CNP-Bot isn't a monolithic framework; it's software that fits each user's exact needs. Instead of becoming bloatware, CNP-Bot is designed to be bespoke. You make your own fork and have Claude Code modify it to match your needs.
-
-**Customization = code changes.** No configuration sprawl. Want different behavior? Modify the code. The codebase is small enough that it's safe to make changes.
-
-**AI-native.**
-- No installation wizard; Claude Code guides setup.
-- No monitoring dashboard; ask Claude what's happening.
-- No debugging tools; describe the problem and Claude fixes it.
-
-**Skills over features.** Instead of adding features (e.g. support for Telegram) to the codebase, contributors submit [claude code skills](https://code.claude.com/docs/en/skills) like `/add-telegram` that transform your fork. You end up with clean code that does exactly what you need.
-
-**Best harness, best model.** CNP-Bot runs on the Claude Agent SDK, which means you're running Claude Code directly. Claude Code is highly capable and its coding and problem-solving capabilities allow it to modify and expand CNP-Bot and tailor it to each user.
-
-## What It Supports
-
-- **Messenger I/O** - Message CNP-Bot from your phone. Supports WhatsApp, Telegram, Discord, Slack, Signal and headless operation.
-- **Isolated group context** - Each group has its own `CLAUDE.md` memory, isolated filesystem, and runs in its own container sandbox with only that filesystem mounted to it.
-- **Main channel** - Your private channel (self-chat) for admin control; every group is completely isolated
-- **Scheduled tasks** - Recurring jobs that run Claude and can message you back
-- **Web access** - Search and fetch content from the Web
-- **Container isolation** - Agents are sandboxed in Apple Container (macOS) or Docker (macOS/Linux)
-- **Agent Swarms** - Spin up teams of specialized agents that collaborate on complex tasks. CNP-Bot is the first personal AI assistant to support agent swarms.
-- **Optional integrations** - Add Gmail (`/add-gmail`) and more via skills
-
-## Usage
-
-Talk to your assistant with the trigger word (default: `@Andy`):
-
-```
-@Andy send an overview of the sales pipeline every weekday morning at 9am (has access to my Obsidian vault folder)
-@Andy review the git history for the past week each Friday and update the README if there's drift
-@Andy every Monday at 8am, compile news on AI developments from Hacker News and TechCrunch and message me a briefing
-```
-
-From the main channel (your self-chat), you can manage groups and tasks:
-```
-@Andy list all scheduled tasks across groups
-@Andy pause the Monday briefing task
-@Andy join the Family Chat group
-```
-
-## Customizing
-
-CNP-Bot doesn't use configuration files. To make changes, just tell Claude Code what you want:
-
-- "Change the trigger word to @Bob"
-- "Remember in the future to make responses shorter and more direct"
-- "Add a custom greeting when I say good morning"
-- "Store conversation summaries weekly"
-
-Or run `/customize` for guided changes.
-
-The codebase is small enough that Claude can safely modify it.
-
-## Contributing
-
-**Don't add features. Add skills.**
-
-If you want to add Telegram support, don't create a PR that adds Telegram alongside WhatsApp. Instead, contribute a skill file (`.claude/skills/add-telegram/SKILL.md`) that teaches Claude Code how to transform a CNP-Bot installation to use Telegram.
-
-Users then run `/add-telegram` on their fork and get clean code that does exactly what they need, not a bloated system trying to support every use case.
-
-### RFS (Request for Skills)
-
-Skills we'd like to see:
-
-**Communication Channels**
-- `/add-slack` - Add Slack
-
-**Session Management**
-- `/clear` - Add a `/clear` command that compacts the conversation (summarizes context while preserving critical information in the same session). Requires figuring out how to trigger compaction programmatically via the Claude Agent SDK.
-
-## Requirements
-
-- macOS or Linux
-- Node.js 20+
-- [Claude Code](https://claude.ai/download)
-- [Apple Container](https://github.com/apple/container) (macOS) or [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
+Then run `/setup`. Claude Code handles dependencies, authentication, container setup, and service configuration.
 
 ## Architecture
 
 ```
-WhatsApp (baileys) --> SQLite --> Polling loop --> Container (Claude Agent SDK) --> Response
+Web Browser ──WebSocket──▶ Express + WS Server ──▶ SQLite ──▶ Message Loop
+                                │                                   │
+                                │                            GroupQueue (max 5)
+                                │                                   │
+                                ▼                                   ▼
+                          React SPA                     Docker Container
+                      (Chat, Dashboard,            ┌─────────────────────┐
+                       Users, Login)               │  Agent Runner       │
+                                                   │  (Claude SDK or     │
+                                                   │   Deep Agent)       │
+                                                   │                     │
+                                                   │  Skills:            │
+                                                   │  - JumpServer SSH   │
+                                                   │  - Prometheus       │
+                                                   │  - Browser          │
+                                                   │  - Tmux             │
+                                                   └─────────────────────┘
+                                                     ▲           │
+                                                     │  IPC      │ Stream
+                                                     │ (fs-based)│ Events
+                                                     ▼           ▼
+                                                   ask/confirm ──▶ WebSocket ──▶ Frontend
 ```
 
-Single Node.js process. Agents execute in isolated Linux containers with filesystem isolation. Only mounted directories are accessible. Per-group message queue with concurrency control. IPC via filesystem.
+Single Node.js process. Agents execute in isolated Docker containers. Only mounted directories are accessible. Per-group message queue with concurrency control. File-based IPC for ask/confirm workflows.
 
-Key files:
-- `src/index.ts` - Orchestrator: state, message loop, agent invocation
-- `src/channels/whatsapp.ts` - WhatsApp connection, auth, send/receive
-- `src/ipc.ts` - IPC watcher and task processing
-- `src/router.ts` - Message formatting and outbound routing
-- `src/group-queue.ts` - Per-group queue with global concurrency limit
-- `src/container-runner.ts` - Spawns streaming agent containers
-- `src/task-scheduler.ts` - Runs scheduled tasks
-- `src/db.ts` - SQLite operations (messages, groups, sessions, state)
-- `groups/*/CLAUDE.md` - Per-group memory
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/index.ts` | Orchestrator: state, message loop, agent invocation |
+| `src/server.ts` | Express HTTP + WebSocket server, JWT auth, REST API |
+| `src/channels/web.ts` | Web Chat channel (WebSocket broadcast) |
+| `src/container-runner.ts` | Spawns agent containers with volume mounts |
+| `src/ipc.ts` | IPC watcher: ask/confirm requests, audit logging |
+| `src/db.ts` | SQLite operations (messages, groups, sessions, users, audit) |
+| `src/task-scheduler.ts` | Scheduled task execution |
+| `src/group-queue.ts` | Per-group queue with global concurrency limit |
+| `container/agent-runner/` | Claude Agent SDK runner (Node.js, runs inside container) |
+| `container/deep-agent-runner/` | Deep Agent runner (Python/LangGraph, runs inside container) |
+| `container/skills/` | Agent skills: jumpserver, prometheus, browser, tmux |
+| `groups/*/CLAUDE.md` | Per-group memory |
+| `frontend/` | React 19 + Tailwind CSS SPA |
+
+## Usage
+
+Talk to the assistant via Web Chat (default trigger: `@Assistant`):
+
+```
+@Assistant check CPU usage on prod-3 via Prometheus
+@Assistant SSH into 10.245.17.1 and check disk space
+@Assistant review the git history for the past week and summarize changes
+@Assistant every Monday at 9am, compile a monitoring report and send it here
+```
+
+From the main channel, manage groups and tasks:
+
+```
+@Assistant list all scheduled tasks
+@Assistant pause the Monday report task
+@Assistant add group "Ops Team"
+```
+
+### Slash Commands
+
+Type `/` in the chat input for autocomplete:
+
+| Command | Effect |
+|---------|--------|
+| `/clear` | Clear conversation and start fresh session |
+| `/compact` | Summarize and compact the session |
+
+## Configuration
+
+Key environment variables (`.env`):
+
+```bash
+JWT_SECRET=<required>               # JWT signing key
+ASSISTANT_NAME=Assistant            # Trigger word (@Assistant)
+DEFAULT_AGENT_TYPE=deepagent        # 'claude' or 'deepagent'
+ANTHROPIC_API_KEY=sk-ant-api03-...  # Or CLAUDE_CODE_OAUTH_TOKEN
+CONTAINER_IMAGE=cnp-bot-agent:latest
+MAX_CONCURRENT_CONTAINERS=5
+```
+
+See [`docs/SPEC.md`](docs/SPEC.md) for full configuration reference.
+
+## Security
+
+- **Container isolation** — Agents run in Docker containers, not on the host. Bash commands execute inside the container.
+- **Mount security** — External allowlist (`~/.config/cnp-bot/mount-allowlist.json`) controls which host directories can be mounted. Sensitive paths (`.ssh`, `.gnupg`) are always blocked.
+- **Dangerous command protection** — Rules engine detects destructive commands (`rm -rf`, `shred`, `iptables -F`, etc.) and requires explicit approval via the UI before execution.
+- **Audit trail** — Every dangerous command decision is logged to `command_audit_log` in SQLite.
+- **Authentication** — JWT + bcrypt with role-based access (admin/user) and login rate limiting.
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Backend | Node.js 20+, Express 5, WebSocket (ws), TypeScript |
+| Frontend | React 19, Vite, Tailwind CSS, React Router 7 |
+| Database | SQLite (better-sqlite3) |
+| Agent (Node.js) | @anthropic-ai/claude-agent-sdk |
+| Agent (Python) | LangChain + LangGraph + Anthropic |
+| Container | Docker |
+| Auth | JWT + bcrypt |
+| Testing | Vitest + pytest |
+
+## Testing
+
+```bash
+npm test           # TypeScript tests (55 test files)
+npm run test:py    # Python deep-agent tests (4 test files)
+npm run test:all   # Both
+```
+
+## Customizing
+
+Tell Claude Code what you want:
+
+- "Change the trigger word to @Bot"
+- "Add a custom greeting when users say good morning"
+- "Store conversation summaries weekly"
+
+Or run `/customize` for guided changes. The codebase is small enough that Claude can safely modify it.
+
+### Skills
+
+Instead of adding features to the codebase, use [Claude Code skills](https://code.claude.com/docs/en/skills). Skills in `.claude/skills/` teach Claude Code how to transform the installation.
+
+Container-side skills in `container/skills/`:
+- **jumpserver** — SSH to servers via JumpServer bastion host
+- **prometheus** — Query Prometheus metrics, render charts in chat
+- **agent-browser** — Browser automation via Chromium
+- **tmux** — Control tmux sessions for interactive CLIs
+
+## Requirements
+
+- Linux or macOS
+- Node.js 20+
+- Docker
+- Python 3 (for Deep Agent runner)
+
+## Deployment
+
+| Method | Command |
+|--------|---------|
+| Docker | `./start_with_ip.sh --docker` |
+| Kubernetes | `kubectl apply -f k8s/` |
+| Manual | `npm run build && npm start` |
+| Development | `npm run dev` |
+
+## Project Structure
+
+```
+cnp-bot/
+├── src/                    # Backend (TypeScript)
+├── frontend/               # React SPA
+├── container/
+│   ├── agent-runner/       # Claude Agent SDK runner
+│   ├── deep-agent-runner/  # Python/LangGraph runner
+│   ├── skills/             # Agent skills (jumpserver, prometheus, etc.)
+│   └── shared/             # Shared config (dangerous command rules)
+├── skills-engine/          # Skill installer/updater
+├── setup/                  # First-time setup CLI
+├── k8s/                    # Kubernetes manifests
+├── groups/                 # Per-group memory & workspace
+├── store/                  # SQLite database
+└── data/                   # Sessions, IPC namespaces
+```
+
+See [`docs/SPEC.md`](docs/SPEC.md) for the full specification.
 
 ## FAQ
 
 **Why Docker?**
-
-Docker provides cross-platform support (macOS, Linux and even Windows via WSL2) and a mature ecosystem. On macOS, you can optionally switch to Apple Container via `/convert-to-apple-container` for a lighter-weight native runtime.
-
-**Can I run this on Linux?**
-
-Yes. Docker is the default runtime and works on both macOS and Linux. Just run `/setup`.
+Docker provides cross-platform support and a mature ecosystem. Containers give OS-level isolation, not just application-level permission checks.
 
 **Is this secure?**
-
-Agents run in containers, not behind application-level permission checks. They can only access explicitly mounted directories. You should still review what you're running, but the codebase is small enough that you actually can. See [docs/SECURITY.md](docs/SECURITY.md) for the full security model.
-
-**Why no configuration files?**
-
-We don't want configuration sprawl. Every user should customize CNP-Bot so that the code does exactly what they want, rather than configuring a generic system. If you prefer having config files, you can tell Claude to add them.
+Agents run in containers with filesystem isolation. Destructive commands require explicit approval. All decisions are audit-logged. The codebase is small enough to review entirely.
 
 **How do I debug issues?**
-
-Ask Claude Code. "Why isn't the scheduler running?" "What's in the recent logs?" "Why did this message not get a response?" That's the AI-native approach that underlies CNP-Bot.
-
-**Why isn't the setup working for me?**
-
-If you have issues, during setup, Claude will try to dynamically fix them. If that doesn't work, run `claude`, then run `/debug`. If Claude finds an issue that is likely affecting other users, open a PR to modify the setup SKILL.md.
-
-**What changes will be accepted into the codebase?**
-
-Only security fixes, bug fixes, and clear improvements will be accepted to the base configuration. That's all.
-
-Everything else (new capabilities, OS compatibility, hardware support, enhancements) should be contributed as skills.
-
-This keeps the base system minimal and lets every user customize their installation without inheriting features they don't want.
-
-## Community
-
-Questions? Ideas? [Join the Discord](https://discord.gg/VDdww8qS42).
+Run `npm run dev` for verbose output, or ask Claude Code: "Why isn't the scheduler running?" "What's in the recent logs?"
 
 ## License
 

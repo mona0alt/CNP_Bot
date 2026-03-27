@@ -1,84 +1,127 @@
 # CNP-Bot Specification
 
-A personal Claude assistant accessible via WhatsApp, with persistent memory per conversation, scheduled tasks, and email integration.
+Intelligent DevOps Agent. Single Node.js process with Web Chat frontend, routing messages to Claude agents running in isolated Docker containers. Each conversation group has independent filesystem and memory.
 
 ---
 
 ## Table of Contents
 
 1. [Architecture](#architecture)
-2. [Folder Structure](#folder-structure)
-3. [Configuration](#configuration)
-4. [Memory System](#memory-system)
-5. [Session Management](#session-management)
-6. [Message Flow](#message-flow)
-7. [Commands](#commands)
-8. [Scheduled Tasks](#scheduled-tasks)
-9. [MCP Servers](#mcp-servers)
-10. [Deployment](#deployment)
-11. [Security Considerations](#security-considerations)
+2. [Technology Stack](#technology-stack)
+3. [Folder Structure](#folder-structure)
+4. [Configuration](#configuration)
+5. [Memory System](#memory-system)
+6. [Session Management](#session-management)
+7. [Message Flow](#message-flow)
+8. [Agent System](#agent-system)
+9. [Container System](#container-system)
+10. [IPC System](#ipc-system)
+11. [Dangerous Command Mechanism](#dangerous-command-mechanism)
+12. [Scheduled Tasks](#scheduled-tasks)
+13. [Slash Commands](#slash-commands)
+14. [Skills Engine](#skills-engine)
+15. [Frontend](#frontend)
+16. [Deployment](#deployment)
+17. [Security Model](#security-model)
+18. [Testing](#testing)
+19. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        HOST (macOS)                                  │
-│                   (Main Node.js Process)                             │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌──────────────┐                     ┌────────────────────┐        │
-│  │  WhatsApp    │────────────────────▶│   SQLite Database  │        │
-│  │  (baileys)   │◀────────────────────│   (messages.db)    │        │
-│  └──────────────┘   store/send        └─────────┬──────────┘        │
-│                                                  │                   │
-│         ┌────────────────────────────────────────┘                   │
-│         │                                                            │
-│         ▼                                                            │
-│  ┌──────────────────┐    ┌──────────────────┐    ┌───────────────┐  │
-│  │  Message Loop    │    │  Scheduler Loop  │    │  IPC Watcher  │  │
-│  │  (polls SQLite)  │    │  (checks tasks)  │    │  (file-based) │  │
-│  └────────┬─────────┘    └────────┬─────────┘    └───────────────┘  │
-│           │                       │                                  │
-│           └───────────┬───────────┘                                  │
-│                       │ spawns container                             │
-│                       ▼                                              │
-├─────────────────────────────────────────────────────────────────────┤
-│                     CONTAINER (Linux VM)                              │
-├─────────────────────────────────────────────────────────────────────┤
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                    AGENT RUNNER                               │   │
-│  │                                                                │   │
-│  │  Working directory: /workspace/group (mounted from host)       │   │
-│  │  Volume mounts:                                                │   │
-│  │    • groups/{name}/ → /workspace/group                         │   │
-│  │    • groups/global/ → /workspace/global/ (non-main only)        │   │
-│  │    • data/sessions/{group}/.claude/ → /home/node/.claude/      │   │
-│  │    • Additional dirs → /workspace/extra/*                      │   │
-│  │                                                                │   │
-│  │  Tools (all groups):                                           │   │
-│  │    • Bash (safe - sandboxed in container!)                     │   │
-│  │    • Read, Write, Edit, Glob, Grep (file operations)           │   │
-│  │    • WebSearch, WebFetch (internet access)                     │   │
-│  │    • agent-browser (browser automation)                        │   │
-│  │    • mcp__cnp-bot__* (scheduler tools via IPC)                │   │
-│  │                                                                │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          HOST (Node.js Process)                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌──────────────────┐     ┌────────────────────┐     ┌───────────────┐  │
+│  │  Express + WS    │     │  SQLite Database   │     │  React SPA    │  │
+│  │  (HTTP + WebSocket)────│  (messages.db)     │     │  (frontend/)  │  │
+│  └────────┬─────────┘     └─────────┬──────────┘     └───────────────┘  │
+│           │                         │                                    │
+│  ┌────────┴─────────┐              │                                    │
+│  │  Web Channel     │              │                                    │
+│  │  (channels/web)  │──────────────┘                                    │
+│  └────────┬─────────┘                                                   │
+│           │                                                              │
+│  ┌────────┴─────────┐  ┌──────────────────┐  ┌───────────────────────┐  │
+│  │  Message Loop    │  │  Scheduler Loop  │  │  IPC Watcher          │  │
+│  │  (polls SQLite)  │  │  (checks tasks)  │  │  (ask/confirm/chart)  │  │
+│  └────────┬─────────┘  └────────┬─────────┘  └───────────────────────┘  │
+│           │                     │                                        │
+│           └─────────┬───────────┘                                        │
+│                     │ spawns container                                   │
+│                     ▼                                                    │
+├──────────────────────────────────────────────────────────────────────────┤
+│                      DOCKER CONTAINER                                    │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  AGENT RUNNER (Claude Agent SDK / Deep Agent)                   │    │
+│  │                                                                   │    │
+│  │  Volume mounts:                                                   │    │
+│  │    groups/{name}/              → /workspace/group                  │    │
+│  │    groups/global/              → /workspace/global (non-main)     │    │
+│  │    data/sessions/{group}/.claude/ → /home/node/.claude/           │    │
+│  │    data/ipc/{group}/           → /workspace/ipc                   │    │
+│  │    Additional dirs             → /workspace/extra/*               │    │
+│  │                                                                   │    │
+│  │  Tools:                                                           │    │
+│  │    Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch      │    │
+│  │    agent-browser (Chromium), mcp__cnp-bot__* (scheduler via IPC) │    │
+│  │                                                                   │    │
+│  │  Skills:                                                          │    │
+│  │    jumpserver (SSH), prometheus (monitoring), tmux (terminal)     │    │
+│  │                                                                   │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+│  ┌────────────────────��─────────┐  ┌────────────────────────────────┐   │
+│  │  cnp-confirm / cnp-ask       │  │  dangerous-commands.json       │   │
+│  │  (Bash IPC scripts)          │  │  (shared rules engine)         │   │
+│  └──────────────────────────────┘  └────────────────────────────────┘   │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Technology Stack
+---
+
+## Technology Stack
+
+### Backend
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| WhatsApp Connection | Node.js (@whiskeysockets/baileys) | Connect to WhatsApp, send/receive messages |
-| Message Storage | SQLite (better-sqlite3) | Store messages for polling |
-| Container Runtime | Containers (Linux VMs) | Isolated environments for agent execution |
-| Agent | @anthropic-ai/claude-agent-sdk (0.2.29) | Run Claude with tools and MCP servers |
-| Browser Automation | agent-browser + Chromium | Web interaction and screenshots |
-| Runtime | Node.js 20+ | Host process for routing and scheduling |
+| Runtime | Node.js 20+ (TypeScript) | Host process |
+| HTTP Server | Express.js 5.x | REST API |
+| WebSocket | ws 8.x | Real-time streaming |
+| Database | SQLite (better-sqlite3) | Messages, sessions, tasks, users |
+| Auth | JWT (jsonwebtoken) + bcrypt | User authentication |
+| Logging | Pino | Structured logging |
+| Validation | Zod | Schema validation |
+| Scheduling | cron-parser | Cron expression parsing |
+
+### Frontend
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| Framework | React 19 + React Router 7 | SPA |
+| Build | Vite | Development & bundling |
+| Styling | Tailwind CSS 3.4 | Utility-first CSS |
+| Markdown | react-markdown + remark-gfm | Message rendering |
+| Charts | Recharts | Prometheus metrics display |
+| Syntax | react-syntax-highlighter | Code block rendering |
+| Icons | Lucide React | UI icons |
+
+### Agent / Container
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| Claude Agent | @anthropic-ai/claude-agent-sdk | Node.js agent runner |
+| Deep Agent | LangChain + LangGraph (Python) | Python agent runner |
+| Container | Docker | Isolated execution |
+| Browser | agent-browser + Chromium | Web automation |
+| MCP | stdio-based transport | Host-container communication |
 
 ---
 
@@ -86,135 +129,210 @@ A personal Claude assistant accessible via WhatsApp, with persistent memory per 
 
 ```
 cnp-bot/
-├── CLAUDE.md                      # Project context for Claude Code
+├── CLAUDE.md                          # Project context for Claude Code
+├── package.json                       # Node.js dependencies
+├── tsconfig.json                      # TypeScript configuration
+├── vitest.config.ts                   # Test configuration
+├── Dockerfile                         # Main deployment image
+├── docker-compose.yml                 # Docker Compose orchestration
+├── start_with_ip.sh                   # Docker startup script
+├── setup.sh                           # Installation script
+├── .mcp.json                          # MCP server configuration (reference)
+│
 ├── docs/
-│   ├── SPEC.md                    # This specification document
-│   ├── REQUIREMENTS.md            # Architecture decisions
-│   └── SECURITY.md                # Security model
-├── README.md                      # User documentation
-├── package.json                   # Node.js dependencies
-├── tsconfig.json                  # TypeScript configuration
-├── .mcp.json                      # MCP server configuration (reference)
-├── .gitignore
+│   └── SPEC.md                        # This specification document
 │
-├── src/
-│   ├── index.ts                   # Orchestrator: state, message loop, agent invocation
+├── src/                               # Backend source
+│   ├── index.ts                       # Orchestrator: state, message loop, agent invocation
+│   ├── server.ts                      # Express HTTP + WebSocket server, JWT auth, REST API
 │   ├── channels/
-│   │   └── whatsapp.ts            # WhatsApp connection, auth, send/receive
-│   ├── ipc.ts                     # IPC watcher and task processing
-│   ├── router.ts                  # Message formatting and outbound routing
-│   ├── config.ts                  # Configuration constants
-│   ├── types.ts                   # TypeScript interfaces (includes Channel)
-│   ├── logger.ts                  # Pino logger setup
-│   ├── db.ts                      # SQLite database initialization and queries
-│   ├── group-queue.ts             # Per-group queue with global concurrency limit
-│   ├── mount-security.ts          # Mount allowlist validation for containers
-│   ├── whatsapp-auth.ts           # Standalone WhatsApp authentication
-│   ├── task-scheduler.ts          # Runs scheduled tasks when due
-│   └── container-runner.ts        # Spawns agents in containers
+│   │   └── web.ts                     # Web Chat channel (WebSocket broadcast)
+│   ├── router.ts                      # Message formatting and outbound routing
+│   ├── config.ts                      # Configuration constants and env reading
+│   ├── types.ts                       # TypeScript interfaces (Channel, RegisteredGroup, etc.)
+│   ├── db.ts                          # SQLite schema, migrations, CRUD operations
+│   ├── env.ts                         # .env file reader
+│   ├── logger.ts                      # Pino logger setup
+│   ├── group-queue.ts                 # Per-group queue with global concurrency limit
+│   ├── group-folder.ts                # Group folder path validation
+│   ├── container-runner.ts            # Spawns agents in Docker containers
+│   ├── container-runtime.ts           # Docker runtime abstraction
+│   ├── ipc.ts                         # IPC watcher: ask/confirm requests, audit logging
+│   ├── mount-security.ts              # Mount allowlist validation
+│   ├── task-scheduler.ts              # Runs scheduled tasks when due
+│   ├── slash-commands.ts              # Built-in slash commands (/clear, /compact, etc.)
+│   ├── final-content.ts              # Merge streaming thinking blocks into final content
+│   ├── deepagent-stream-event-adapter.ts  # Normalize Deep Agent events to SDK format
+│   ├── jumpserver-stream-aggregator.ts    # Aggregate JumpServer SSH session events
+│   ├── jumpserver-diagnostic-logging.ts   # JumpServer debug logging
+│   └── *.test.ts                      # Vitest test files (co-located)
 │
-├── container/
-│   ├── Dockerfile                 # Container image (runs as 'node' user, includes Claude Code CLI)
-│   ├── build.sh                   # Build script for container image
-│   ├── agent-runner/              # Code that runs inside the container
+├── frontend/                          # React SPA
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tailwind.config.js
+│   └── src/
+│       ├── App.tsx                    # Router: ProtectedRoute, AdminRoute
+│       ├── main.tsx                   # React entry point
+│       ├── pages/
+│       │   ├── Chat.tsx               # Main chat UI with streaming
+│       │   ├── Dashboard.tsx          # Groups, tasks, stats overview
+│       │   ├── Login.tsx              # JWT login
+│       │   └── Users.tsx              # Admin user management
+│       ├── components/
+│       │   ├── Chat/MessageItem.test.tsx
+│       │   ├── ConfirmBashCard.tsx     # Dangerous command approval UI
+│       │   ├── AskUserCard.tsx         # Agent-to-user question dialog
+│       │   ├── ToolCallCard.tsx        # Generic tool use display
+│       │   ├── JumpServerSessionCard.tsx  # SSH session state display
+│       │   ├── PrometheusChartCard.tsx    # Metrics chart rendering
+│       │   ├── ThoughtProcess.tsx      # Thinking block display
+│       │   ├── MarkdownRenderer.tsx    # Rich markdown with syntax highlight
+│       │   ├── SlashCommandPopup.tsx   # Slash command autocomplete
+│       │   ├── Layout.tsx / Sidebar.tsx / StatusSidebar.tsx
+│       │   └── ConfirmDialog.tsx
+│       ├── contexts/
+│       │   ├── AuthContext.tsx         # JWT auth state & role checking
+│       │   ├── StreamingMessagesContext.tsx  # WebSocket + message merging
+│       │   └── ThemeContext.tsx        # Light/dark theme
+│       ├── hooks/
+│       │   └── useChatWebSocket.ts    # WebSocket connection hook
+│       └── lib/
+│           ├── types.ts               # Frontend type definitions
+│           ├── message-parser.ts      # Parse tool cards from messages
+│           ├── message-utils.ts       # Message formatting helpers
+│           ├── thought-parser.ts      # Extract thinking blocks
+│           ├── tool-redaction.ts      # Hide sensitive tool output
+│           ├── tool-visibility.ts     # Filter which tools to display
+│           ├── interactive-events.ts  # Ask/confirm event handling
+│           └── utils.ts              # Generic utilities
+│
+├── container/                         # Container-side code
+│   ├── Dockerfile                     # Agent container image (based on nanobot)
+│   ├── build.sh                       # Build script
+│   ├── agent-runner/                  # Claude Agent SDK runner (Node.js)
 │   │   ├── package.json
 │   │   ├── tsconfig.json
 │   │   └── src/
-│   │       ├── index.ts           # Entry point (query loop, IPC polling, session resume)
-│   │       └── ipc-mcp-stdio.ts   # Stdio-based MCP server for host communication
-│   └── skills/
-│       └── agent-browser.md       # Browser automation skill
+│   │       ├── index.ts               # Entry: stdin JSON → agent loop → stdout markers
+│   │       ├── dangerous-commands.ts  # Dangerous command rules (source of truth)
+│   │       ├── jumpserver-dangerous-command.ts  # JumpServer-specific rules
+│   │       └── ipc-mcp-stdio.ts       # Stdio-based MCP server
+│   ├── deep-agent-runner/             # Deep Agent runner (Python)
+│   │   ├── pyproject.toml
+│   │   └── src/
+│   │       ├── main.py                # Entry: stdin JSON → LangGraph agent → stdout
+│   │       ├── protocol.py            # Container I/O serialization
+│   │       ├── ipc_tools.py           # IPC tool definitions
+│   │       └── hooks.py               # Dangerous command hook
+│   ├── shared/
+│   │   └── dangerous-commands.json    # Shared dangerous command rules
+│   ├── scripts/
+│   │   ├── cnp-confirm                # Bash script: IPC command confirmation
+│   │   └── cnp-ask                    # Bash script: IPC user question
+│   └── skills/                        # Agent skills (synced into containers)
+│       ├── agent-browser/SKILL.md     # Browser automation (Chromium)
+│       ├── jumpserver/                # SSH via JumpServer bastion
+│       │   ├── SKILL.md
+│       │   └── scripts/*.sh
+│       ├── prometheus/                # Prometheus monitoring queries
+│       │   ├── SKILL.md
+│       │   └── scripts/*.js
+│       └── tmux/                      # Tmux session control
+│           ├── SKILL.md
+│           └── scripts/*.sh
 │
-├── dist/                          # Compiled JavaScript (gitignored)
+├── skills-engine/                     # Skill installation/update engine
+│   ├── index.ts                       # CLI entry point
+│   ├── apply.ts / update.ts / uninstall.ts / rebase.ts
+│   ├── manifest.ts / lock.ts / backup.ts
+│   ├── types.ts / constants.ts
+│   └── __tests__/                     # 19 test files
 │
-├── .claude/
-│   └── skills/
-│       ├── setup/SKILL.md              # /setup - First-time installation
-│       ├── customize/SKILL.md          # /customize - Add capabilities
-│       ├── debug/SKILL.md              # /debug - Container debugging
-│       ├── add-telegram/SKILL.md       # /add-telegram - Telegram channel
-│       ├── add-gmail/SKILL.md          # /add-gmail - Gmail integration
-│       ├── add-voice-transcription/    # /add-voice-transcription - Whisper
-│       ├── x-integration/SKILL.md      # /x-integration - X/Twitter
-│       ├── convert-to-apple-container/  # /convert-to-apple-container - Apple Container runtime
-│       └── add-parallel/SKILL.md       # /add-parallel - Parallel agents
+├── setup/                             # First-time setup CLI
+│   ├── index.ts                       # Step-based setup wizard
+│   ├── environment.ts / platform.ts / container.ts
+│   ├── register.ts / mounts.ts / service.ts / verify.ts
+│   └── *.test.ts                      # Setup tests
 │
-├── groups/
-│   ├── CLAUDE.md                  # Global memory (all groups read this)
-│   ├── main/                      # Self-chat (main control channel)
-│   │   ├── CLAUDE.md              # Main channel memory
-│   │   └── logs/                  # Task execution logs
-│   └── {Group Name}/              # Per-group folders (created on registration)
-│       ├── CLAUDE.md              # Group-specific memory
-│       ├── logs/                  # Task logs for this group
-│       └── *.md                   # Files created by the agent
+├── k8s/                               # Kubernetes manifests
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   ├── configmap.yaml
+│   ├── secret.yaml
+│   └── pvc.yaml
 │
-├── store/                         # Local data (gitignored)
-│   ├── auth/                      # WhatsApp authentication state
-│   └── messages.db                # SQLite database (messages, chats, scheduled_tasks, task_run_logs, registered_groups, sessions, router_state)
+├── groups/                            # Group data (gitignored contents)
+│   ├── global/CLAUDE.md               # Global shared memory
+│   ├── main/                          # Main control channel
+│   │   ├── CLAUDE.md
+│   │   └── logs/
+│   └── {group-folder}/               # Per-group folders
+│       ├── CLAUDE.md                  # Group-specific memory
+│       ├── logs/                      # Container execution logs
+│       └── *.md                       # Files created by agent
 │
-├── data/                          # Application state (gitignored)
-│   ├── sessions/                  # Per-group session data (.claude/ dirs with JSONL transcripts)
-│   ├── env/env                    # Copy of .env for container mounting
-│   └── ipc/                       # Container IPC (messages/, tasks/)
+├── store/                             # Persistent storage (gitignored)
+│   └── messages.db                    # SQLite database
 │
-├── logs/                          # Runtime logs (gitignored)
-│   ├── cnp-bot.log               # Host stdout
-│   └── cnp-bot.error.log         # Host stderr
-│   # Note: Per-container logs are in groups/{folder}/logs/container-*.log
+├── data/                              # Runtime state (gitignored)
+│   ├── sessions/{group}/.claude/      # Per-group Claude session data
+│   ├── ipc/{group}/                   # Per-group IPC namespace
+│   │   ├── input/                     # Follow-up messages to container
+│   │   ├── ask_requests/ / ask_responses/
+│   │   ├── confirm_requests/ / confirm_responses/
+│   │   └── messages/ / tasks/
+│   └── {group}/agent-runner-src/      # Per-group customized agent runner
 │
-└── launchd/
-    └── com.cnp-bot.plist         # macOS service configuration
+├── logs/                              # Runtime logs (gitignored)
+│   ├── cnp-bot.log
+│   └── cnp-bot.error.log
+│
+└── .claude/
+    └── skills/                        # Claude Code skills for project management
 ```
 
 ---
 
 ## Configuration
 
-Configuration constants are in `src/config.ts`:
+### Environment Variables
 
-```typescript
-import path from 'path';
+All configuration is in `src/config.ts`, read from `.env` or process environment:
 
-export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || 'Andy';
-export const POLL_INTERVAL = 2000;
-export const SCHEDULER_POLL_INTERVAL = 60000;
-
-// Paths are absolute (required for container mounts)
-const PROJECT_ROOT = process.cwd();
-export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
-export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
-export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
-
-// Container configuration
-export const CONTAINER_IMAGE = process.env.CONTAINER_IMAGE || 'cnp-bot-agent:latest';
-export const CONTAINER_TIMEOUT = parseInt(process.env.CONTAINER_TIMEOUT || '1800000', 10); // 30min default
-export const IPC_POLL_INTERVAL = 1000;
-export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min — keep container alive after last result
-export const MAX_CONCURRENT_CONTAINERS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5);
-
-export const TRIGGER_PATTERN = new RegExp(`^@${ASSISTANT_NAME}\\b`, 'i');
-```
-
-**Note:** Paths must be absolute for container volume mounts to work correctly.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ASSISTANT_NAME` | `'Assistant'` | Trigger word (`@Assistant`) |
+| `ASSISTANT_HAS_OWN_NUMBER` | `false` | Whether bot has its own messaging identity |
+| `USE_LOCAL_AGENT` | `false` | Skip Docker, run agent locally |
+| `JWT_SECRET` | *(required)* | JWT signing key; fatal if missing |
+| `JWT_EXPIRES_IN` | `'7d'` | JWT token expiration |
+| `DEFAULT_AGENT_TYPE` | `'deepagent'` | `'claude'` or `'deepagent'` |
+| `DEEP_AGENT_MODEL` | `'claude-sonnet-4-6'` | Model for Deep Agent runner |
+| `DEEP_AGENT_RUNNER_PATH` | `'container/deep-agent-runner/src/main.py'` | Python runner path |
+| `DEEP_AGENT_PYTHON` | `'/opt/deepagent-venv/bin/python'` | Python interpreter path |
+| `CONTAINER_IMAGE` | `'cnp-bot-agent:latest'` | Docker image name |
+| `CONTAINER_TIMEOUT` | `1800000` (30min) | Max container execution time |
+| `CONTAINER_MAX_OUTPUT_SIZE` | `10485760` (10MB) | Max stdout from container |
+| `IDLE_TIMEOUT` | `900000` (15min) | Keep container alive after last result |
+| `MAX_CONCURRENT_CONTAINERS` | `5` | Global concurrency limit |
+| `POLL_INTERVAL` | `2000` | Message loop poll interval (ms) |
+| `SCHEDULER_POLL_INTERVAL` | `60000` | Task scheduler poll interval (ms) |
+| `TZ` | *system timezone* | Timezone for cron expressions |
 
 ### Container Configuration
 
-Groups can have additional directories mounted via `containerConfig` in the SQLite `registered_groups` table (stored as JSON in the `container_config` column). Example registration:
+Groups can have additional directories mounted via `containerConfig` in the SQLite `registered_groups` table:
 
 ```typescript
-registerGroup("1234567890@g.us", {
+registerGroup("web:default", {
   name: "Dev Team",
   folder: "dev-team",
-  trigger: "@Andy",
+  trigger: "@Assistant",
   added_at: new Date().toISOString(),
   containerConfig: {
     additionalMounts: [
-      {
-        hostPath: "~/projects/webapp",
-        containerPath: "webapp",
-        readonly: false,
-      },
+      { hostPath: "~/projects/webapp", containerPath: "webapp", readonly: false },
     ],
     timeout: 600000,
   },
@@ -223,89 +341,78 @@ registerGroup("1234567890@g.us", {
 
 Additional mounts appear at `/workspace/extra/{containerPath}` inside the container.
 
-**Mount syntax note:** Read-write mounts use `-v host:container`, but readonly mounts require `--mount "type=bind,source=...,target=...,readonly"` (the `:ro` suffix may not work on all runtimes).
-
 ### Claude Authentication
 
-Configure authentication in a `.env` file in the project root. Two options:
+Configure in `.env`:
 
-**Option 1: Claude Subscription (OAuth token)**
 ```bash
+# Option 1: OAuth token (Claude subscription)
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
-```
-The token can be extracted from `~/.claude/.credentials.json` if you're logged in to Claude Code.
 
-**Option 2: Pay-per-use API Key**
-```bash
+# Option 2: API Key (pay-per-use)
 ANTHROPIC_API_KEY=sk-ant-api03-...
+
+# Option 3: Custom endpoint (e.g., proxy)
+ANTHROPIC_BASE_URL=http://192.168.231.128:30080
+ANTHROPIC_MODEL=/model/MiniMax-M2___5
 ```
 
-Only the authentication variables (`CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY`) are extracted from `.env` and written to `data/env/env`, then mounted into the container at `/workspace/env-dir/env` and sourced by the entrypoint script. This ensures other environment variables in `.env` are not exposed to the agent. This workaround is needed because some container runtimes lose `-e` environment variables when using `-i` (interactive mode with piped stdin).
+Only auth variables are extracted from `.env` and mounted into containers at `/workspace/env-dir/env`.
 
-### Changing the Assistant Name
+### Mount Security
 
-Set the `ASSISTANT_NAME` environment variable:
+Allowlist stored at `~/.config/cnp-bot/mount-allowlist.json` (outside project root, tamper-proof from agents):
 
-```bash
-ASSISTANT_NAME=Bot npm start
+```json
+{
+  "allowedRoots": [
+    { "path": "~/projects", "allowReadWrite": true },
+    { "path": "/var/repos", "allowReadWrite": false }
+  ],
+  "blockedPatterns": [".ssh", ".gnupg"],
+  "nonMainReadOnly": true
+}
 ```
-
-Or edit the default in `src/config.ts`. This changes:
-- The trigger pattern (messages must start with `@YourName`)
-- The response prefix (`YourName:` added automatically)
-
-### Placeholder Values in launchd
-
-Files with `{{PLACEHOLDER}}` values need to be configured:
-- `{{PROJECT_ROOT}}` - Absolute path to your cnp-bot installation
-- `{{NODE_PATH}}` - Path to node binary (detected via `which node`)
-- `{{HOME}}` - User's home directory
 
 ---
 
 ## Memory System
 
-CNP-Bot uses a hierarchical memory system based on CLAUDE.md files.
+Hierarchical memory based on CLAUDE.md files, automatically loaded by Claude Agent SDK.
 
 ### Memory Hierarchy
 
 | Level | Location | Read By | Written By | Purpose |
 |-------|----------|---------|------------|---------|
-| **Global** | `groups/CLAUDE.md` | All groups | Main only | Preferences, facts, context shared across all conversations |
-| **Group** | `groups/{name}/CLAUDE.md` | That group | That group | Group-specific context, conversation memory |
-| **Files** | `groups/{name}/*.md` | That group | That group | Notes, research, documents created during conversation |
+| **Global** | `groups/global/CLAUDE.md` | All groups | Main only | Shared preferences and context |
+| **Group** | `groups/{name}/CLAUDE.md` | That group | That group | Group-specific memory |
+| **Files** | `groups/{name}/*.md` | That group | That group | Notes, research, documents |
 
 ### How Memory Works
 
-1. **Agent Context Loading**
-   - Agent runs with `cwd` set to `groups/{group-name}/`
-   - Claude Agent SDK with `settingSources: ['project']` automatically loads:
-     - `../CLAUDE.md` (parent directory = global memory)
-     - `./CLAUDE.md` (current directory = group memory)
+1. **Agent Context Loading**: Agent runs with `cwd` set to `groups/{group-name}/`. The Claude Agent SDK automatically loads `../CLAUDE.md` (global) and `./CLAUDE.md` (group).
 
-2. **Writing Memory**
-   - When user says "remember this", agent writes to `./CLAUDE.md`
-   - When user says "remember this globally" (main channel only), agent writes to `../CLAUDE.md`
-   - Agent can create files like `notes.md`, `research.md` in the group folder
+2. **Writing Memory**: When user says "remember this", agent writes to `./CLAUDE.md`. Main channel can write to global memory.
 
-3. **Main Channel Privileges**
-   - Only the "main" group (self-chat) can write to global memory
-   - Main can manage registered groups and schedule tasks for any group
-   - Main can configure additional directory mounts for any group
-   - All groups have Bash access (safe because it runs inside container)
+3. **Main Channel Privileges**: Only the "main" group can write global memory, manage groups, and schedule cross-group tasks.
 
 ---
 
 ## Session Management
 
-Sessions enable conversation continuity - Claude remembers what you talked about.
-
 ### How Sessions Work
 
-1. Each group has a session ID stored in SQLite (`sessions` table, keyed by `group_folder`)
-2. Session ID is passed to Claude Agent SDK's `resume` option
-3. Claude continues the conversation with full context
-4. Session transcripts are stored as JSONL files in `data/sessions/{group}/.claude/`
+1. Each group has a session ID in SQLite (`sessions` table, keyed by `group_folder`)
+2. The `sessions` table also tracks `agent_type` (`'claude'` or `'deepagent'`) per group
+3. Session ID is passed to the agent runner's `resume` option
+4. Session transcripts stored as JSONL in `data/sessions/{group}/.claude/`
+5. Deep Agent sessions use LangGraph SQLite checkpointing for thread persistence
+
+### Agent Type Selection
+
+- Default agent type set by `DEFAULT_AGENT_TYPE` env var
+- Per-chat override via `chats.agent_type` column in SQLite
+- Agent type persisted in `sessions.agent_type` for session continuity
 
 ---
 
@@ -314,286 +421,570 @@ Sessions enable conversation continuity - Claude remembers what you talked about
 ### Incoming Message Flow
 
 ```
-1. User sends WhatsApp message
+1. User sends message via Web Chat
    │
    ▼
-2. Baileys receives message via WhatsApp Web protocol
+2. Express server receives via REST API or WebSocket
    │
    ▼
-3. Message stored in SQLite (store/messages.db)
+3. Web Channel stores message in SQLite + broadcasts to WebSocket clients
    │
    ▼
 4. Message loop polls SQLite (every 2 seconds)
    │
    ▼
 5. Router checks:
-   ├── Is chat_jid in registered groups (SQLite)? → No: ignore
+   ├── Is chat_jid in registered groups? → No: auto-register (web chats)
    └── Does message match trigger pattern? → No: store but don't process
-   │
+   │     (Groups with requiresTrigger=false skip trigger check)
    ▼
-6. Router catches up conversation:
-   ├── Fetch all messages since last agent interaction
+6. GroupQueue enqueues processing:
+   ├── Fetch messages since last agent interaction
    ├── Format with timestamp and sender name
-   └── Build prompt with full conversation context
+   └── Build prompt with conversation context
    │
    ▼
-7. Router invokes Claude Agent SDK:
-   ├── cwd: groups/{group-name}/
-   ├── prompt: conversation history + current message
-   ├── resume: session_id (for continuity)
-   └── mcpServers: cnp-bot (scheduler)
+7. Container Runner spawns Docker container:
+   ├── Mount group folder, sessions, IPC namespace
+   ├── Pass input JSON via stdin
+   ��── Select agent runner (Claude SDK or Deep Agent)
    │
    ▼
-8. Claude processes message:
-   ├── Reads CLAUDE.md files for context
-   └── Uses tools as needed (search, email, etc.)
+8. Agent processes message:
+   ├── Reads CLAUDE.md files for memory
+   ├── Uses tools (Bash, WebSearch, browser, etc.)
+   ├── Streams events: text_delta, tool_use, thinking
+   └── Dangerous commands → IPC confirm flow
    │
    ▼
-9. Router prefixes response with assistant name and sends via WhatsApp
+9. Stream events broadcast to frontend via WebSocket in real time
    │
    ▼
-10. Router updates last agent timestamp and saves session ID
+10. Final response stored in SQLite + sent via channel
 ```
 
 ### Trigger Word Matching
 
-Messages must start with the trigger pattern (default: `@Andy`):
-- `@Andy what's the weather?` → ✅ Triggers Claude
-- `@andy help me` → ✅ Triggers (case insensitive)
-- `Hey @Andy` → ❌ Ignored (trigger not at start)
-- `What's up?` → ❌ Ignored (no trigger)
+Messages must start with the trigger pattern (default: `@Assistant`):
+- `@Assistant what's the status?` → Triggers agent
+- `@assistant help me` → Triggers (case insensitive)
+- `Hey @Assistant` → Ignored (trigger not at start)
+- Solo chats with `requiresTrigger=false` → Every message triggers
 
 ### Conversation Catch-Up
 
-When a triggered message arrives, the agent receives all messages since its last interaction in that chat. Each message is formatted with timestamp and sender name:
+When triggered, the agent receives all messages since its last interaction:
 
 ```
-[Jan 31 2:32 PM] John: hey everyone, should we do pizza tonight?
-[Jan 31 2:33 PM] Sarah: sounds good to me
-[Jan 31 2:35 PM] John: @Andy what toppings do you recommend?
+[Jan 31 2:32 PM] John: hey everyone, check the monitoring dashboard
+[Jan 31 2:33 PM] Sarah: CPU looks high on prod-3
+[Jan 31 2:35 PM] John: @Assistant can you check what's happening on prod-3?
 ```
-
-This allows the agent to understand the conversation context even if it wasn't mentioned in every message.
 
 ---
 
-## Commands
+## Agent System
 
-### Commands Available in Any Group
+CNP-Bot supports two agent backends, selectable per chat.
 
-| Command | Example | Effect |
-|---------|---------|--------|
-| `@Assistant [message]` | `@Andy what's the weather?` | Talk to Claude |
+### Claude Agent SDK (Node.js)
 
-### Commands Available in Main Channel Only
+- **Runner**: `container/agent-runner/src/index.ts`
+- **SDK**: `@anthropic-ai/claude-agent-sdk`
+- **Features**: Streaming, session resume, MCP tools, agent swarms (experimental)
+- **Protocol**: Read `ContainerInput` JSON from stdin → run queries → emit output markers to stdout
 
-| Command | Example | Effect |
-|---------|---------|--------|
-| `@Assistant add group "Name"` | `@Andy add group "Family Chat"` | Register a new group |
-| `@Assistant remove group "Name"` | `@Andy remove group "Work Team"` | Unregister a group |
-| `@Assistant list groups` | `@Andy list groups` | Show registered groups |
-| `@Assistant remember [fact]` | `@Andy remember I prefer dark mode` | Add to global memory |
+### Deep Agent (Python)
+
+- **Runner**: `container/deep-agent-runner/src/main.py`
+- **SDK**: LangChain + LangGraph with Anthropic integration
+- **Features**: Extended thinking (configurable budget), SQLite checkpointing, tool use streaming
+- **Model**: `claude-sonnet-4-6` (configurable via `DEEP_AGENT_MODEL`)
+- **Protocol**: Same stdin/stdout JSON protocol as Claude runner
+
+### Output Protocol
+
+Both runners emit results wrapped in markers:
+
+```
+---CNP_BOT_OUTPUT_START---
+{
+  "status": "success",
+  "result": "...",
+  "newSessionId": "...",
+  "usage": { "inputTokens": ..., "outputTokens": ... },
+  "streamEvent": { ... },
+  "slashCommands": [...]
+}
+---CNP_BOT_OUTPUT_END---
+```
+
+### Stream Event Adaptation
+
+`deepagent-stream-event-adapter.ts` normalizes Deep Agent events to Claude SDK format, enabling the frontend to use a single rendering pipeline for both agent types.
+
+---
+
+## Container System
+
+### Architecture
+
+- **Runtime**: Docker (abstracted in `container-runtime.ts`)
+- **Image**: `cnp-bot-agent:latest` (built from `container/Dockerfile`, based on `nanobot`)
+- **Max Concurrent**: 5 containers (configurable)
+- **Idle Timeout**: 15 minutes (keeps container alive for follow-up messages)
+- **Execution Timeout**: 30 minutes max
+
+### Volume Mounts
+
+Each container mounts:
+
+```
+/workspace/group         ← groups/{name}/              (read-write)
+/workspace/global        ← groups/global/              (read-only, non-main only)
+/workspace/extra/{name}  ← additional mounts            (per containerConfig)
+/home/node/.claude       ← data/sessions/{group}/.claude/ (read-write)
+/workspace/ipc           ← data/ipc/{group}/           (read-write)
+```
+
+### Container Lifecycle
+
+1. **Spawn**: `runContainerAgent()` creates Docker container with volume mounts
+2. **Input**: Initial prompt JSON piped via stdin
+3. **Processing**: Agent runner processes query, polls IPC for follow-ups
+4. **Streaming**: Events written to stdout, parsed by host
+5. **Follow-up**: Additional messages arrive via `/workspace/ipc/input/*.json`
+6. **Close**: `_close` sentinel file signals end of session
+7. **Idle**: Container stays alive for `IDLE_TIMEOUT` (15min) for follow-ups
+
+---
+
+## IPC System
+
+File-based JSON messaging between host and container, namespaced per group at `data/ipc/{group}/`.
+
+### Directory Layout
+
+```
+data/ipc/{group}/
+├── input/                # Host → Container: follow-up messages
+│   ├── {uuid}.json       # Message payload
+│   └── _close            # Sentinel to end session
+├── ask_requests/         # Container → Host: ask user a question
+├── ask_responses/        # Host → Container: user's answer
+├── confirm_requests/     # Container → Host: dangerous command approval
+├── confirm_responses/    # Host → Container: approve/deny
+├── messages/             # Shared message channel
+└── tasks/                # Task snapshots
+```
+
+### Ask Flow
+
+1. Container writes `ask_requests/{requestId}.json` with `{ type: "ask_user", question: "..." }`
+2. Host IPC watcher detects file, broadcasts to frontend via WebSocket
+3. Frontend shows `<AskUserCard />` dialog
+4. User responds → host writes `ask_responses/{requestId}.json`
+5. Container `cnp-ask` script reads response and exits
+
+### Confirm Flow
+
+1. Agent hook detects dangerous command
+2. Container writes `confirm_requests/{requestId}.json` with `{ type: "confirm_bash", command: "...", reason: "..." }`
+3. Host broadcasts to frontend → `<ConfirmBashCard />` shown
+4. User approves/denies → `confirm_responses/{requestId}.json` written
+5. Container `cnp-confirm` script reads response, hook allows/blocks execution
+6. Result logged to `command_audit_log` table
+
+### Orphan Cleanup
+
+Stale response files (unread for 10 minutes) are automatically cleaned by the IPC watcher.
+
+---
+
+## Dangerous Command Mechanism
+
+Prevents destructive operations from running without explicit user approval.
+
+### Rule Engine
+
+Rules defined in `container/agent-runner/src/dangerous-commands.ts` (source of truth), exported as `container/shared/dangerous-commands.json` for the Python runner.
+
+### Severity Levels
+
+| Severity | Behavior | Examples |
+|----------|----------|---------|
+| `high` | Always requires approval | `rm -rf /`, `shred`, `chmod 777 /`, `iptables -F` |
+| `medium` | Requires approval | `rmdir`, `git reset --hard` |
+
+### Hook Integration
+
+- **Claude SDK runner**: Pre-Bash hook via `spawnSync` (argument array, not shell string)
+- **Deep Agent runner**: Python hook in `hooks.py`
+- Both use the same shared rules engine
+
+### Audit Trail
+
+Every dangerous command decision is logged to `command_audit_log`:
+
+```sql
+CREATE TABLE command_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  group_folder TEXT NOT NULL,
+  command TEXT NOT NULL,
+  reason TEXT,
+  approved INTEGER NOT NULL,
+  timestamp TEXT NOT NULL
+);
+```
 
 ---
 
 ## Scheduled Tasks
 
-CNP-Bot has a built-in scheduler that runs tasks as full agents in their group's context.
-
-### How Scheduling Works
-
-1. **Group Context**: Tasks created in a group run with that group's working directory and memory
-2. **Full Agent Capabilities**: Scheduled tasks have access to all tools (WebSearch, file operations, etc.)
-3. **Optional Messaging**: Tasks can send messages to their group using the `send_message` tool, or complete silently
-4. **Main Channel Privileges**: The main channel can schedule tasks for any group and view all tasks
+Built-in scheduler runs tasks as full agents in their group's context.
 
 ### Schedule Types
 
 | Type | Value Format | Example |
 |------|--------------|---------|
-| `cron` | Cron expression | `0 9 * * 1` (Mondays at 9am) |
+| `cron` | Cron expression | `0 9 * * 1-5` (weekdays at 9am) |
 | `interval` | Milliseconds | `3600000` (every hour) |
-| `once` | ISO timestamp | `2024-12-25T09:00:00Z` |
+| `once` | ISO timestamp | `2025-03-27T10:00:00Z` |
 
-### Creating a Task
+### Context Modes
 
-```
-User: @Andy remind me every Monday at 9am to review the weekly metrics
+| Mode | Behavior |
+|------|----------|
+| `group` | Reuse the group's existing session state |
+| `isolated` | Fresh session per task run |
 
-Claude: [calls mcp__cnp-bot__schedule_task]
-        {
-          "prompt": "Send a reminder to review weekly metrics. Be encouraging!",
-          "schedule_type": "cron",
-          "schedule_value": "0 9 * * 1"
-        }
+### Task Lifecycle
 
-Claude: Done! I'll remind you every Monday at 9am.
-```
+1. Task created via MCP tool `schedule_task` or agent conversation
+2. Scheduler loop polls every 60 seconds for due tasks
+3. Task runs in separate container (no 15-min idle timeout — closes after result)
+4. Run result logged to `task_run_logs` table
+5. Task can send message back to chat via `send_message` IPC tool
 
-### One-Time Tasks
+### MCP Tools (available to agents via IPC)
 
-```
-User: @Andy at 5pm today, send me a summary of today's emails
-
-Claude: [calls mcp__cnp-bot__schedule_task]
-        {
-          "prompt": "Search for today's emails, summarize the important ones, and send the summary to the group.",
-          "schedule_type": "once",
-          "schedule_value": "2024-01-31T17:00:00Z"
-        }
-```
-
-### Managing Tasks
-
-From any group:
-- `@Andy list my scheduled tasks` - View tasks for this group
-- `@Andy pause task [id]` - Pause a task
-- `@Andy resume task [id]` - Resume a paused task
-- `@Andy cancel task [id]` - Delete a task
-
-From main channel:
-- `@Andy list all tasks` - View tasks from all groups
-- `@Andy schedule task for "Family Chat": [prompt]` - Schedule for another group
+| Tool | Purpose |
+|------|---------|
+| `schedule_task` | Create a recurring or one-time task |
+| `list_tasks` | Show tasks (group's own, or all if main) |
+| `get_task` | Get task details and run history |
+| `update_task` | Modify task prompt or schedule |
+| `pause_task` / `resume_task` | Toggle task status |
+| `cancel_task` | Delete a task |
+| `send_message` | Send message to the group's chat |
 
 ---
 
-## MCP Servers
+## Slash Commands
 
-### CNP-Bot MCP (built-in)
+Built-in commands processed by `src/slash-commands.ts` before reaching the agent.
 
-The `cnp-bot` MCP server is created dynamically per agent call with the current group's context.
+| Command | Effect |
+|---------|--------|
+| `/clear` | Clear conversation history and start fresh session |
+| `/compact` | Compact session (summarize and reset) |
+| Custom | Groups can register custom slash commands |
 
-**Available Tools:**
-| Tool | Purpose |
-|------|---------|
-| `schedule_task` | Schedule a recurring or one-time task |
-| `list_tasks` | Show tasks (group's tasks, or all if main) |
-| `get_task` | Get task details and run history |
-| `update_task` | Modify task prompt or schedule |
-| `pause_task` | Pause a task |
-| `resume_task` | Resume a paused task |
-| `cancel_task` | Delete a task |
-| `send_message` | Send a WhatsApp message to the group |
+The frontend provides autocomplete via `<SlashCommandPopup />`.
+
+---
+
+## Skills Engine
+
+Located at `skills-engine/`, manages agent skill installation and updates.
+
+### Mechanism
+
+1. Read skill manifest from `.claude/skills/{skillName}/SKILL.md`
+2. Apply transformations (patches, file copies) to the codebase
+3. Support rollback via backup system
+4. Lock file for reproducible installs
+
+### Container Skills
+
+Skills synced into each container at startup:
+
+| Skill | Purpose |
+|-------|---------|
+| `agent-browser` | Browser automation via Chromium/Playwright |
+| `jumpserver` | SSH to servers via JumpServer bastion host |
+| `prometheus` | Query Prometheus metrics, render charts |
+| `tmux` | Control tmux sessions for interactive CLIs |
+
+---
+
+## Frontend
+
+### Authentication
+
+- **Default admin**: `admin / admin123` (created on first startup, must change)
+- **JWT**: 7-day expiration, stored in localStorage
+- **Rate limiting**: 10 failed login attempts per 15 minutes per IP
+- **Roles**: `admin` (full access) and `user` (chat only)
+
+### Pages
+
+| Page | Route | Access | Purpose |
+|------|-------|--------|---------|
+| Login | `/login` | Public | JWT authentication |
+| Chat | `/chat/:jid?` | User+ | Main conversation interface |
+| Dashboard | `/` | User+ | Groups, tasks, stats overview |
+| Users | `/users` | Admin | User CRUD and password management |
+
+### Real-time Streaming
+
+`StreamingMessagesContext` manages WebSocket connection to `/ws`:
+
+1. Receives stream events (text_delta, tool_use, thinking blocks)
+2. Buffers and merges text deltas into messages
+3. Preserves thinking blocks across message chunks
+4. Renders specialized cards:
+   - `<ConfirmBashCard />` — dangerous command approval
+   - `<AskUserCard />` — agent question dialog
+   - `<ToolCallCard />` — generic tool invocation display
+   - `<JumpServerSessionCard />` — SSH session state
+   - `<PrometheusChartCard />` — metrics visualization
+   - `<ThoughtProcess />` — thinking block display
+
+### REST API
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/auth/login` | POST | Authenticate, get JWT |
+| `/api/chats` | POST | Create web chat session |
+| `/api/chats/:jid/messages` | GET | Fetch chat history |
+| `/api/chats/:jid/messages` | POST | Send message |
+| `/api/chats/:jid/stop` | POST | Stop agent generation |
+| `/api/chats/:jid` | DELETE | Delete chat |
+| `/api/groups` | GET | List registered groups |
+| `/api/users` | GET/POST | Admin: list/create users |
+| `/api/users/:id/password` | PUT | Change password |
+| `/ws` | WebSocket | Real-time streaming |
 
 ---
 
 ## Deployment
 
-CNP-Bot runs as a single macOS launchd service.
+### Docker Deployment (recommended)
+
+```bash
+# Build and start with Docker
+./start_with_ip.sh --docker
+```
+
+This script:
+1. Builds the Docker image (Node.js backend + React frontend + Python deep-agent env)
+2. Compiles TypeScript and Vite frontend
+3. Installs container skills into `.claude/`
+4. Starts the service
+
+### Development
+
+```bash
+npm run dev        # Watch mode (tsx watch + Vite dev server)
+npm run build      # Compile TypeScript + build frontend
+npm start          # Run compiled dist/index.js
+```
+
+### Kubernetes
+
+Manifests in `k8s/`:
+
+```bash
+kubectl apply -f k8s/
+```
+
+Includes: Deployment, Service, ConfigMap, Secret, PVC.
 
 ### Startup Sequence
 
-When CNP-Bot starts, it:
-1. **Ensures container runtime is running** - Automatically starts it if needed; kills orphaned CNP-Bot containers from previous runs
-2. Initializes the SQLite database (migrates from JSON files if they exist)
-3. Loads state from SQLite (registered groups, sessions, router state)
-4. Connects to WhatsApp (on `connection.open`):
-   - Starts the scheduler loop
-   - Starts the IPC watcher for container messages
-   - Sets up the per-group queue with `processGroupMessages`
-   - Recovers any unprocessed messages from before shutdown
-   - Starts the message polling loop
+1. Validate `JWT_SECRET` is configured (fatal if missing)
+2. Initialize SQLite database (create tables, run migrations)
+3. Load state from SQLite (registered groups, sessions, router state)
+4. Start Express HTTP server + WebSocket
+5. Connect channels (Web)
+6. Start scheduler loop and IPC watcher
+7. Set up per-group queue with `processGroupMessages`
+8. Recover unprocessed messages from before shutdown
+9. Start message polling loop
 
-### Service: com.cnp-bot
+### Setup CLI
 
-**launchd/com.cnp-bot.plist:**
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "...">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.cnp-bot</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{{NODE_PATH}}</string>
-        <string>{{PROJECT_ROOT}}/dist/index.js</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>{{PROJECT_ROOT}}</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>{{HOME}}/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
-        <key>HOME</key>
-        <string>{{HOME}}</string>
-        <key>ASSISTANT_NAME</key>
-        <string>Andy</string>
-    </dict>
-    <key>StandardOutPath</key>
-    <string>{{PROJECT_ROOT}}/logs/cnp-bot.log</string>
-    <key>StandardErrorPath</key>
-    <string>{{PROJECT_ROOT}}/logs/cnp-bot.error.log</string>
-</dict>
-</plist>
-```
-
-### Managing the Service
+First-time setup wizard:
 
 ```bash
-# Install service
-cp launchd/com.cnp-bot.plist ~/Library/LaunchAgents/
-
-# Start service
-launchctl load ~/Library/LaunchAgents/com.cnp-bot.plist
-
-# Stop service
-launchctl unload ~/Library/LaunchAgents/com.cnp-bot.plist
-
-# Check status
-launchctl list | grep cnp-bot
-
-# View logs
-tail -f logs/cnp-bot.log
+npm run setup
 ```
+
+Steps: environment validation → platform detection → container setup → group registration → mount configuration → service installation → verification.
 
 ---
 
-## Security Considerations
+## Security Model
 
 ### Container Isolation
 
-All agents run inside containers (lightweight Linux VMs), providing:
-- **Filesystem isolation**: Agents can only access mounted directories
-- **Safe Bash access**: Commands run inside the container, not on your Mac
-- **Network isolation**: Can be configured per-container if needed
-- **Process isolation**: Container processes can't affect the host
+All agents run inside Docker containers:
+- **Filesystem isolation**: Agents only access mounted directories
+- **Safe Bash access**: Commands run inside container, not on host
+- **Process isolation**: Container processes can't affect host
 - **Non-root user**: Container runs as unprivileged `node` user (uid 1000)
+- **Per-group IPC namespace**: Groups cannot read each other's IPC files
 
-### Prompt Injection Risk
+### Mount Security
 
-WhatsApp messages could contain malicious instructions attempting to manipulate Claude's behavior.
+- Allowlist stored at `~/.config/cnp-bot/mount-allowlist.json` (outside project, tamper-proof)
+- Blocked patterns (`.ssh`, `.gnupg`) always filtered
+- Non-main groups restricted to read-only unless explicitly allowed
+- `validateAdditionalMounts()` prevents privilege escalation
 
-**Mitigations:**
+### Dangerous Commands
+
+- Rules engine checks Bash commands before execution
+- High-severity commands require explicit user approval via IPC
+- All decisions logged to `command_audit_log` for audit trail
+
+### Authentication
+
+- JWT tokens for API access, bcrypt for password hashing
+- Login rate limiting prevents brute force
+- Admin role required for user management endpoints
+- Web JID verification: only `web:` prefixed chats accepted by web channel
+
+### Prompt Injection Mitigation
+
 - Container isolation limits blast radius
-- Only registered groups are processed
-- Trigger word required (reduces accidental processing)
-- Agents can only access their group's mounted directories
-- Main can configure additional directories per group
-- Claude's built-in safety training
-
-**Recommendations:**
-- Only register trusted groups
-- Review additional directory mounts carefully
-- Review scheduled tasks periodically
-- Monitor logs for unusual activity
+- Only registered groups processed
+- Trigger word reduces accidental processing
+- Per-group filesystem isolation
+- Dangerous command approval prevents destructive operations
 
 ### Credential Storage
 
-| Credential | Storage Location | Notes |
-|------------|------------------|-------|
-| Claude CLI Auth | data/sessions/{group}/.claude/ | Per-group isolation, mounted to /home/node/.claude/ |
-| WhatsApp Session | store/auth/ | Auto-created, persists ~20 days |
+| Credential | Storage | Notes |
+|------------|---------|-------|
+| Claude Auth | `data/sessions/{group}/.claude/` | Per-group isolation |
+| JWT Secret | `.env` | Required, fatal if missing |
+| User Passwords | SQLite (bcrypt hash) | Never stored in plaintext |
 
-### File Permissions
+---
 
-The groups/ folder contains personal memory and should be protected:
+## Testing
+
+### Framework
+
+Vitest for TypeScript, pytest for Python.
+
+### Running Tests
+
 ```bash
-chmod 700 groups/
+npm test           # All TypeScript tests
+npm run test:py    # Python deep-agent tests
+npm run test:all   # Both Node + Python
+npm run test:watch # Watch mode
+```
+
+### Test Coverage
+
+**Backend (`src/*.test.ts`)** — 24 test files:
+
+| Test File | Coverage |
+|-----------|----------|
+| `db.test.ts` | SQLite CRUD, sessions, users, tasks, router state |
+| `server-chat.test.ts` | WebSocket session integration, tool card streaming |
+| `server-create-chat.test.ts` | Chat creation API |
+| `server-confirm-bash.test.ts` | Confirm bash API flow |
+| `web-channel.test.ts` | Web channel message routing |
+| `slash-commands.test.ts` | /clear, /compact, custom commands |
+| `mount-security.test.ts` | Mount allowlist validation |
+| `container-runtime.test.ts` | Docker lifecycle |
+| `group-queue.test.ts` | Concurrent queue management |
+| `group-folder.test.ts` | Folder path validation |
+| `routing.test.ts` | Message routing logic |
+| `formatting.test.ts` | Message formatting |
+| `ipc-auth.test.ts` / `ipc-confirm-bash.test.ts` / `ipc-chart-message.test.ts` | IPC mechanisms |
+| `confirm-bash.test.ts` / `frontend-confirm-event.test.ts` | Confirm flow |
+| `dangerous-commands.test.ts` / `dangerous-commands-shared.test.ts` | Command rules |
+| `jumpserver-*.test.ts` (4 files) | JumpServer SSH integration |
+| `deepagent-stream-event-adapter.test.ts` | Event normalization |
+| `final-content.test.ts` | Thinking block merging |
+| `task-scheduler.test.ts` | Cron scheduling |
+
+**Frontend (`frontend/src/**/*.test.{ts,tsx}`)** — 8 test files:
+
+| Test File | Coverage |
+|-----------|----------|
+| `Chat.integration.test.tsx` | End-to-end chat flow |
+| `MessageItem.test.tsx` | Message rendering |
+| `ConfirmBashCard.test.tsx` | Confirm dialog UI |
+| `JumpServerSessionCard.test.tsx` | SSH card rendering |
+| `message-utils.test.ts` | Message helpers |
+| `tool-redaction.test.ts` | Sensitive data filtering |
+| `tool-visibility.test.ts` | Tool display filtering |
+| `streaming-session-recovery.test.ts` | WebSocket reconnection |
+
+**Setup (`setup/*.test.ts`)** — 4 test files:
+
+| Test File | Coverage |
+|-----------|----------|
+| `environment.test.ts` | Env validation |
+| `platform.test.ts` | OS detection |
+| `register.test.ts` | Group registration |
+| `service.test.ts` | Service installation |
+
+**Skills Engine (`skills-engine/__tests__/*.test.ts`)** — 19 test files:
+
+Covers: apply, backup, constants, customize, file-ops, lock, manifest, merge, path-remap, rebase, replay, state, structured, uninstall, update, etc.
+
+**Python (`container/deep-agent-runner/tests/`)** — 4 test files:
+
+| Test File | Coverage |
+|-----------|----------|
+| `test_hooks.py` | Dangerous command hook |
+| `test_ipc_tools.py` | IPC tool definitions |
+| `test_main.py` | Agent runner entry |
+| `test_protocol.py` | I/O serialization |
+
+---
+
+## Database Schema
+
+SQLite database at `store/messages.db`:
+
+```sql
+-- Chat sessions
+chats (jid, name, last_message_time, channel, is_group, user_id, agent_type)
+
+-- Message history
+messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message)
+  INDEX idx_messages_chat_ts ON messages(chat_jid, timestamp)
+
+-- Group registration
+registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger)
+
+-- Session persistence
+sessions (group_folder, session_id, agent_type)
+
+-- Scheduled tasks
+scheduled_tasks (id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
+                 next_run, last_run, last_result, status, created_at, context_mode)
+
+-- Task execution logs
+task_run_logs (id, task_id, run_at, duration_ms, status, result, error)
+
+-- User accounts
+users (id, username, password_hash, role, display_name, created_at, updated_at, last_login)
+
+-- Dangerous command audit
+command_audit_log (id, group_folder, command, reason, approved, timestamp)
+
+-- Key-value state
+router_state (key, value)
 ```
 
 ---
@@ -604,24 +995,22 @@ chmod 700 groups/
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| No response to messages | Service not running | Check `launchctl list | grep cnp-bot` |
-| "Claude Code process exited with code 1" | Container runtime failed to start | Check logs; CNP-Bot auto-starts container runtime but may fail |
-| "Claude Code process exited with code 1" | Session mount path wrong | Ensure mount is to `/home/node/.claude/` not `/root/.claude/` |
+| No response to messages | Service not running | Check `docker ps` or `node dist/index.js` |
+| "JWT_SECRET is not configured" | Missing env var | Set `JWT_SECRET` in `.env` |
+| Container exits with code 1 | Session mount path wrong | Ensure mount is to `/home/node/.claude/` not `/root/.claude/` |
 | Session not continuing | Session ID not saved | Check SQLite: `sqlite3 store/messages.db "SELECT * FROM sessions"` |
-| Session not continuing | Mount path mismatch | Container user is `node` with HOME=/home/node; sessions must be at `/home/node/.claude/` |
-| "QR code expired" | WhatsApp session expired | Delete store/auth/ and restart |
-| "No groups registered" | Haven't added groups | Use `@Andy add group "Name"` in main |
+| Agent not responding | Wrong agent type | Check `DEFAULT_AGENT_TYPE` and per-chat `agent_type` |
+| Dangerous command not prompting | Rules not matching | Check `container/shared/dangerous-commands.json` |
+| IPC confirm timeout | Orphan response file | Watcher auto-cleans after 10 minutes |
 
-### Log Location
+### Log Locations
 
-- `logs/cnp-bot.log` - stdout
-- `logs/cnp-bot.error.log` - stderr
+- `logs/cnp-bot.log` — Host stdout
+- `logs/cnp-bot.error.log` — Host stderr
+- `groups/{folder}/logs/container-*.log` — Per-container logs
 
 ### Debug Mode
 
-Run manually for verbose output:
 ```bash
-npm run dev
-# or
-node dist/index.js
+npm run dev    # Watch mode with verbose output
 ```
