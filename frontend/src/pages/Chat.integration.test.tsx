@@ -43,7 +43,8 @@ vi.mock('@/components/Chat/MessageItem', () => ({
 }));
 
 vi.mock('@/components/StatusSidebar', () => ({
-  StatusSidebar: () => <div data-testid="status-sidebar" />,
+  StatusSidebar: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="status-sidebar">status</div> : null,
 }));
 
 vi.mock('@/components/ConfirmDialog', () => ({
