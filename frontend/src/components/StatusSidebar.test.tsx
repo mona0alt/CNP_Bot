@@ -51,11 +51,9 @@ describe('StatusSidebar drawer', () => {
       root.render(
         <div className="relative h-96">
           <StatusSidebar
-            {...({
-              status: sampleStatus,
-              open: false,
-              onClose: vi.fn(),
-            } as never)}
+            status={sampleStatus}
+            open={false}
+            onClose={vi.fn()}
           />
         </div>,
       );
@@ -76,11 +74,9 @@ describe('StatusSidebar drawer', () => {
       root.render(
         <div className="relative h-96">
           <StatusSidebar
-            {...({
-              status: sampleStatus,
-              open: true,
-              onClose,
-            } as never)}
+            status={sampleStatus}
+            open={true}
+            onClose={onClose}
           />
         </div>,
       );
