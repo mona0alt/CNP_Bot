@@ -243,6 +243,12 @@ export function Chat() {
         next.delete(jid);
         return next;
       });
+      setGroupStatusMap((prev) => {
+        if (!(jid in prev)) return prev;
+        const next = { ...prev };
+        delete next[jid];
+        return next;
+      });
       if (selectedJid === jid) {
         setSelectedJid(null);
       }
@@ -316,7 +322,7 @@ export function Chat() {
         return next;
       });
       if (data) {
-        setGroupStatusMap((prev) => ({ ...prev, [jid]: data as GroupStatus }));
+        setGroupStatusMap((prev) => ({ ...prev, [jid]: data }));
       }
     } catch (error) {
       console.error('Failed to sync generating state', error);

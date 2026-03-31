@@ -88,4 +88,38 @@ describe('StatusSidebar drawer', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps the close button right-aligned even when status is null', async () => {
+    await act(async () => {
+      root.render(
+        <div className="relative h-96">
+          <StatusSidebar
+            status={null}
+            open={true}
+            onClose={vi.fn()}
+          />
+        </div>,
+      );
+    });
+
+    const closeButton = container.querySelector('button[aria-label="关闭状态面板"]');
+    expect(closeButton?.className).toContain('ml-auto');
+  });
+
+  it('does not put auto-margin on the status badge when status exists', async () => {
+    await act(async () => {
+      root.render(
+        <div className="relative h-96">
+          <StatusSidebar
+            status={sampleStatus}
+            open={true}
+            onClose={vi.fn()}
+          />
+        </div>,
+      );
+    });
+
+    const statusBadge = container.querySelector('.text-xs.rounded-full');
+    expect(statusBadge?.className).not.toContain('ml-auto');
+  });
 });

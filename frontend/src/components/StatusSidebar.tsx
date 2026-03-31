@@ -84,7 +84,7 @@ export function StatusSidebar({ status, open, onClose }: StatusSidebarProps) {
           <Activity className="w-4 h-4 text-blue-500" />
           <h3 className="font-semibold text-lg">状态</h3>
           {status && (
-            <span className={`ml-auto mr-2 px-2 py-0.5 text-xs rounded-full ${
+            <span className={`mr-2 px-2 py-0.5 text-xs rounded-full ${
               status.isActive
                 ? "bg-blue-500/20 text-blue-600 dark:text-blue-400"
                 : status.processReady
@@ -96,7 +96,7 @@ export function StatusSidebar({ status, open, onClose }: StatusSidebarProps) {
           )}
           <button
             onClick={onClose}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            className="ml-auto p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             aria-label="关闭状态面板"
           >
             <X size={16} />
