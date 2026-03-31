@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, MessageSquare, PanelLeftOpen, Trash2 } from 'lucide-react';
+import { Activity, ChevronRight, MessageSquare, PanelLeftOpen, Trash2 } from 'lucide-react';
 import type { Chat, Message, SlashCommand } from '@/lib/types';
 import { AskUserCard } from '@/components/AskUserCard';
 import { ConfirmBashCard } from '@/components/ConfirmBashCard';
@@ -33,6 +33,7 @@ export function Chat() {
   const [groupStatusMap, setGroupStatusMap] = useState<Record<string, GroupStatus>>({});
   const [newMessage, setNewMessage] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
   const [newChatAgentType, setNewChatAgentType] = useState<'claude' | 'deepagent'>('deepagent');
 
   // Derived: is the currently selected session generating?
@@ -351,6 +352,7 @@ export function Chat() {
   useEffect(() => {
     setAskRequests([]);
     setConfirmRequests([]);
+    setStatusOpen(false);
   }, [selectedJid]);
 
   useEffect(() => {
@@ -551,6 +553,14 @@ export function Chat() {
   const chatName = selectedJid
     ? chats.find((c) => c.jid === selectedJid)?.name || selectedJid
     : null;
+  const currentStatus = selectedJid ? groupStatusMap[selectedJid] ?? null : null;
+  const statusDotColor = !currentStatus
+    ? 'bg-gray-400'
+    : currentStatus.isActive
+      ? 'bg-blue-500'
+      : currentStatus.processReady
+        ? 'bg-green-500'
+        : 'bg-yellow-500';
 
   return (
     <div className="flex h-full">
@@ -566,7 +576,7 @@ export function Chat() {
         onAgentTypeChange={setNewChatAgentType}
       />
 
-      <div className="flex-1 flex flex-col bg-background h-full overflow-hidden">
+      <div className="flex-1 flex flex-col bg-background h-full overflow-hidden relative">
         {selectedJid ? (
           <>
             <div className="h-[60px] px-4 border-b flex items-center justify-between bg-card/60 backdrop-blur-sm shrink-0">
@@ -597,6 +607,15 @@ export function Chat() {
                     <ChevronRight size={18} />
                   </button>
                 )}
+                <button
+                  onClick={() => setStatusOpen(true)}
+                  className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors relative"
+                  title="查看状态"
+                  aria-label="查看状态"
+                >
+                  <Activity size={18} />
+                  <span className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${statusDotColor}`} />
+                </button>
                 <button
                   onClick={() => setShowDeleteDialog(true)}
                   className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -671,9 +690,13 @@ export function Chat() {
             </div>
           </div>
         )}
-      </div>
 
-      <StatusSidebar jid={selectedJid} apiBase={apiBase} token={token} />
+        <StatusSidebar
+          status={selectedJid ? groupStatusMap[selectedJid] ?? null : null}
+          open={statusOpen}
+          onClose={() => setStatusOpen(false)}
+        />
+      </div>
 
       <ConfirmDialog
         open={showDeleteDialog}
