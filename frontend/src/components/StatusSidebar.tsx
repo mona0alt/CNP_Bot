@@ -7,14 +7,14 @@ interface StatusSidebarProps {
   token: string | null;
 }
 
-interface ModelUsageEntry {
+export interface ModelUsageEntry {
   cacheReadInputTokens?: number;
   cacheCreationInputTokens?: number;
   contextWindow?: number;
   costUSD?: number;
 }
 
-interface GroupStatus {
+export interface GroupStatus {
   workingDirectory: string | null;
   model: string;
   usage: {

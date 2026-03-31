@@ -4,6 +4,7 @@ import type { Chat, Message, SlashCommand } from '@/lib/types';
 import { AskUserCard } from '@/components/AskUserCard';
 import { ConfirmBashCard } from '@/components/ConfirmBashCard';
 import { StatusSidebar } from '@/components/StatusSidebar';
+import type { GroupStatus } from '@/components/StatusSidebar';
 import { ChatSidebar, MessageInput } from '@/components/Chat';
 import { MessageItem } from '@/components/Chat/MessageItem';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -29,6 +30,7 @@ export function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [generatingJids, setGeneratingJids] = useState<Set<string>>(new Set());
+  const [groupStatusMap, setGroupStatusMap] = useState<Record<string, GroupStatus>>({});
   const [newMessage, setNewMessage] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [newChatAgentType, setNewChatAgentType] = useState<'claude' | 'deepagent'>('deepagent');
@@ -312,6 +314,9 @@ export function Chat() {
         else next.delete(jid);
         return next;
       });
+      if (data) {
+        setGroupStatusMap((prev) => ({ ...prev, [jid]: data as GroupStatus }));
+      }
     } catch (error) {
       console.error('Failed to sync generating state', error);
     }
