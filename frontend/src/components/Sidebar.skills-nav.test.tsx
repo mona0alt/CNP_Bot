@@ -47,7 +47,7 @@ describe("Sidebar skills links", () => {
     currentRole = "user";
   });
 
-  it("shows the admin skills route in sidebar for admins", async () => {
+  it("shows unified skills route in sidebar for admins", async () => {
     currentRole = "admin";
 
     await act(async () => {
@@ -58,11 +58,12 @@ describe("Sidebar skills links", () => {
       );
     });
 
-    expect(container.textContent).toContain("技能管理");
-    expect(container.textContent).toContain("技能目录");
+    expect(container.textContent).toContain("技能");
+    expect(container.textContent).not.toContain("技能管理");
+    expect(container.textContent).not.toContain("技能目录");
   });
 
-  it("hides the admin skills route for normal users", async () => {
+  it("shows unified skills route for normal users", async () => {
     currentRole = "user";
 
     await act(async () => {
@@ -73,7 +74,8 @@ describe("Sidebar skills links", () => {
       );
     });
 
+    expect(container.textContent).toContain("技能");
     expect(container.textContent).not.toContain("技能管理");
-    expect(container.textContent).toContain("技能目录");
+    expect(container.textContent).not.toContain("技能目录");
   });
 });

@@ -561,6 +561,40 @@ export function createApp(opts: ServerOpts = {}): AppContext {
     }
   });
 
+  app.get('/api/skills/catalog/tree', authenticateToken, (req, res) => {
+    try {
+      const skill =
+        typeof req.query.skill === 'string' ? req.query.skill : undefined;
+      res.json(getGlobalSkillTree({ rootDir: skillsRootDir, skill }));
+    } catch (err) {
+      logger.error({ err }, 'Failed to load skills catalog tree');
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid request' });
+    }
+  });
+
+  app.get('/api/skills/catalog/file', authenticateToken, (req, res) => {
+    try {
+      const targetPath =
+        typeof req.query.path === 'string' ? req.query.path : '';
+      if (!targetPath) {
+        return res.status(400).json({ error: 'path is required' });
+      }
+
+      const file = readGlobalSkillFile(targetPath, skillsRootDir);
+      const authReq = req as AuthRequest;
+      if (authReq.user?.role !== 'admin') {
+        return res.json({
+          ...file,
+          editable: false,
+        });
+      }
+      return res.json(file);
+    } catch (err) {
+      logger.error({ err }, 'Failed to read skills catalog file');
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid request' });
+    }
+  });
+
   app.get('/api/chats/:jid/skills', authenticateToken, (req, res) => {
     try {
       const authReq = req as AuthRequest;

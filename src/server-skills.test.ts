@@ -171,6 +171,40 @@ describe('skills api', () => {
     ]);
   });
 
+  it('allows a user to read skill detail from catalog', async () => {
+    const res = await invokeApp(app, {
+      method: 'GET',
+      url: '/api/skills/catalog/file',
+      token: userAToken,
+      query: { path: 'tmux/SKILL.md' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      path: 'tmux/SKILL.md',
+      content: '# tmux',
+      editable: false,
+    });
+  });
+
+  it('allows a user to load one skill tree by query', async () => {
+    const res = await invokeApp(app, {
+      method: 'GET',
+      url: '/api/skills/catalog/tree',
+      token: userAToken,
+      query: { skill: 'tmux' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      expect.objectContaining({
+        name: 'tmux',
+        path: 'tmux',
+        type: 'directory',
+      }),
+    ]);
+  });
+
   it('allows a user to replace skills for an owned web chat', async () => {
     const res = await invokeApp(app, {
       method: 'PUT',

@@ -20,19 +20,50 @@ function getGlobalRootDir(rootDir?: string): string {
   return resolved;
 }
 
-function getTopLevelSkillEntry(extractDir: string): { name: string; fullPath: string } {
+function deriveSkillNameFromZipPath(zipPath: string): string {
+  const parsed = path.parse(zipPath).name.trim();
+  if (!parsed || parsed === '.' || parsed === '..') {
+    throw new Error('Cannot derive skill name from zip filename');
+  }
+  return parsed;
+}
+
+function getTopLevelSkillEntry(
+  extractDir: string,
+  zipPath: string,
+): { name: string; fullPath: string } {
   const entries = fs
     .readdirSync(extractDir, { withFileTypes: true })
     .filter((entry) => !entry.name.startsWith('.'));
 
-  if (entries.length !== 1 || !entries[0]?.isDirectory()) {
-    throw new Error('Zip must contain exactly one top-level skill directory');
+  if (entries.length === 1 && entries[0]?.isDirectory()) {
+    const skillName = entries[0].name;
+    const fullPath = path.join(extractDir, skillName);
+    if (!fs.existsSync(path.join(fullPath, 'SKILL.md'))) {
+      throw new Error('Imported skill must include SKILL.md');
+    }
+
+    return { name: skillName, fullPath };
   }
 
-  const skillName = entries[0].name;
-  const fullPath = path.join(extractDir, skillName);
-  if (!fs.existsSync(path.join(fullPath, 'SKILL.md'))) {
+  const rootSkillMdPath = path.join(extractDir, 'SKILL.md');
+  if (!fs.existsSync(rootSkillMdPath) || !fs.statSync(rootSkillMdPath).isFile()) {
     throw new Error('Imported skill must include SKILL.md');
+  }
+
+  const skillName = deriveSkillNameFromZipPath(zipPath);
+  const fullPath = path.join(extractDir, skillName);
+  if (fs.existsSync(fullPath)) {
+    throw new Error(`Zip root entry conflicts with skill name "${skillName}"`);
+  }
+
+  fs.mkdirSync(fullPath, { recursive: true });
+  for (const entryName of fs.readdirSync(extractDir)) {
+    if (entryName === skillName) continue;
+    fs.renameSync(
+      path.join(extractDir, entryName),
+      path.join(fullPath, entryName),
+    );
   }
 
   return { name: skillName, fullPath };
@@ -115,7 +146,10 @@ export async function importGlobalSkillZip(input: {
   try {
     await extractZipToDirectory(input.zipPath, extractDir);
 
-    const { name: skillName, fullPath } = getTopLevelSkillEntry(extractDir);
+    const { name: skillName, fullPath } = getTopLevelSkillEntry(
+      extractDir,
+      input.zipPath,
+    );
     const destinationPath = path.join(globalRootDir, skillName);
 
     if (fs.existsSync(destinationPath)) {

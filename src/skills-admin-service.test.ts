@@ -85,6 +85,29 @@ describe('skills admin service', () => {
     expect(fs.existsSync(path.join(globalDir, 'tmux/SKILL.md'))).toBe(true);
   });
 
+  it('imports a zip without top-level directory by using zip filename as skill name', async () => {
+    const workspace = createTempDir('skills-admin-import-flat-');
+    const uploadDir = path.join(workspace, 'upload');
+    const globalDir = path.join(workspace, 'global');
+    const zipPath = path.join(workspace, 'flat-skill.zip');
+
+    writeFile(uploadDir, 'SKILL.md', '# flat skill');
+    writeFile(uploadDir, 'scripts/run.sh', 'echo hi');
+    fs.mkdirSync(globalDir, { recursive: true });
+    await createZipFromDir(uploadDir, zipPath);
+
+    await expect(
+      importGlobalSkillZip({ zipPath, globalRootDir: globalDir }),
+    ).resolves.toEqual({ skillName: 'flat-skill' });
+
+    expect(
+      fs.existsSync(path.join(globalDir, 'flat-skill/SKILL.md')),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(globalDir, 'flat-skill/scripts/run.sh')),
+    ).toBe(true);
+  });
+
   it('rejects zips missing SKILL.md', async () => {
     const workspace = createTempDir('skills-admin-missing-skill-');
     const uploadDir = path.join(workspace, 'upload');

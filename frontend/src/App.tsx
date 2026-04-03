@@ -5,7 +5,6 @@ import { Chat } from "@/pages/Chat";
 import { Login } from "@/pages/Login";
 import { Users } from "@/pages/Users";
 import { SkillsAdmin } from "@/pages/SkillsAdmin";
-import { SkillsCatalog } from "@/pages/SkillsCatalog";
 import { StreamingMessagesProvider } from "@/contexts/StreamingMessagesContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -74,19 +73,12 @@ function AppRoutes() {
         <Route
           path="skills"
           element={
-            <AdminRoute>
-              <SkillsAdmin />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="skills/catalog"
-          element={
             <ProtectedRoute>
-              <SkillsCatalog />
+              <SkillsAdmin />
             </ProtectedRoute>
           }
         />
+        <Route path="skills/catalog" element={<Navigate to="/skills" replace />} />
       </Route>
     </Routes>
   );

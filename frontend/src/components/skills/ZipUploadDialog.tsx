@@ -36,7 +36,9 @@ export function ZipUploadDialog({ open, onClose, onUpload }: ZipUploadDialogProp
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="w-full max-w-md rounded-lg bg-background p-5 shadow-lg">
         <h2 className="text-lg font-semibold">上传 ZIP 技能包</h2>
-        <p className="mt-1 text-sm text-muted-foreground">压缩包内需要包含顶层技能目录，且目录里必须有 SKILL.md</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          需要包含 SKILL.md。若压缩包没有顶层目录，系统会自动使用 zip 文件名创建目录。
+        </p>
 
         <input
           type="file"

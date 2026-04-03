@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
+
+import { SkillFileEditor } from "@/components/skills/SkillFileEditor";
+import { SkillTree } from "@/components/skills/SkillTree";
+import { ZipUploadDialog } from "@/components/skills/ZipUploadDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SkillCatalogItem, SkillTreeNode } from "@/lib/types";
-import { SkillTree } from "@/components/skills/SkillTree";
-import { SkillFileEditor } from "@/components/skills/SkillFileEditor";
-import { ZipUploadDialog } from "@/components/skills/ZipUploadDialog";
-
-function getParentPath(targetPath: string): string {
-  const parts = targetPath.split("/").filter(Boolean);
-  parts.pop();
-  return parts.join("/");
-}
 
 function flattenTree(nodes: SkillTreeNode[]): SkillTreeNode[] {
   const result: SkillTreeNode[] = [];
@@ -22,12 +18,23 @@ function flattenTree(nodes: SkillTreeNode[]): SkillTreeNode[] {
   return result;
 }
 
+function rootFromPath(targetPath: string): string {
+  return targetPath.split("/").filter(Boolean)[0] ?? "";
+}
+
 export function SkillsAdmin() {
-  const { token, logout } = useAuth();
+  const { token, logout, user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
   const [skills, setSkills] = useState<SkillCatalogItem[]>([]);
-  const [tree, setTree] = useState<SkillTreeNode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeSkill, setActiveSkill] = useState<string | null>(null);
+  const [tree, setTree] = useState<SkillTreeNode[]>([]);
+  const [treeLoading, setTreeLoading] = useState(false);
+
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState("");
   const [originContent, setOriginContent] = useState("");
@@ -35,7 +42,6 @@ export function SkillsAdmin() {
   const [fileError, setFileError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isMutatingFs, setIsMutatingFs] = useState(false);
-  const [entryName, setEntryName] = useState("");
   const [showUploadDialog, setShowUploadDialog] = useState(false);
 
   const authHeaders = useMemo<HeadersInit | undefined>(() => {
@@ -43,11 +49,10 @@ export function SkillsAdmin() {
     return { Authorization: `Bearer ${token}` };
   }, [token]);
 
-  const isDirty = selectedEditable && fileContent !== originContent;
+  const isDirty = isAdmin && selectedEditable && fileContent !== originContent;
   const nodeMap = useMemo(() => {
-    const allNodes = flattenTree(tree);
     const map = new Map<string, SkillTreeNode>();
-    for (const node of allNodes) map.set(node.path, node);
+    for (const node of flattenTree(tree)) map.set(node.path, node);
     return map;
   }, [tree]);
   const selectedNode = selectedPath ? nodeMap.get(selectedPath) ?? null : null;
@@ -57,42 +62,36 @@ export function SkillsAdmin() {
     window.location.href = "/login";
   }, [logout]);
 
-  const loadAdminData = useCallback(async () => {
+  const resetEditorState = () => {
+    setSelectedPath(null);
+    setFileContent("");
+    setOriginContent("");
+    setSelectedEditable(false);
+    setFileError("");
+  };
+
+  const loadSkillsList = useCallback(async () => {
     if (!token) return;
-
-    setError("");
-    try {
-      const [skillsRes, treeRes] = await Promise.all([
-        fetch("/api/skills", { headers: authHeaders }),
-        fetch("/api/skills/tree", { headers: authHeaders }),
-      ]);
-      if (skillsRes.status === 401 || skillsRes.status === 403 || treeRes.status === 401 || treeRes.status === 403) {
-        await handleUnauthorized();
-        return;
-      }
-      if (!skillsRes.ok || !treeRes.ok) {
-        throw new Error("加载技能目录失败");
-      }
-      const [skillsData, treeData] = await Promise.all([skillsRes.json(), treeRes.json()]);
-      setSkills(Array.isArray(skillsData) ? skillsData : []);
-      setTree(Array.isArray(treeData) ? treeData : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "加载技能目录失败");
-    } finally {
-      setIsLoading(false);
+    const endpoint = isAdmin ? "/api/skills" : "/api/skills/catalog";
+    const res = await fetch(endpoint, { headers: authHeaders });
+    if (res.status === 401 || res.status === 403) {
+      await handleUnauthorized();
+      return;
     }
-  }, [authHeaders, handleUnauthorized, token]);
+    if (!res.ok) {
+      throw new Error("加载技能列表失败");
+    }
+    const data = await res.json();
+    setSkills(Array.isArray(data) ? data : []);
+  }, [authHeaders, handleUnauthorized, isAdmin, token]);
 
-  useEffect(() => {
-    void loadAdminData();
-  }, [loadAdminData]);
-
-  const loadFile = useCallback(
-    async (path: string) => {
+  const loadSkillTree = useCallback(
+    async (skillName: string) => {
       if (!token) return;
-      setFileError("");
+      setTreeLoading(true);
       try {
-        const res = await fetch(`/api/skills/file?path=${encodeURIComponent(path)}`, {
+        const endpoint = isAdmin ? "/api/skills/tree" : "/api/skills/catalog/tree";
+        const res = await fetch(`${endpoint}?skill=${encodeURIComponent(skillName)}`, {
           headers: authHeaders,
         });
         if (res.status === 401 || res.status === 403) {
@@ -100,42 +99,90 @@ export function SkillsAdmin() {
           return;
         }
         if (!res.ok) {
-          const payload = await res.json().catch(() => ({ error: "读取文件失败" }));
-          throw new Error(payload.error || "读取文件失败");
+          const payload = await res.json().catch(() => ({ error: "加载技能文件树失败" }));
+          throw new Error(payload.error || "加载技能文件树失败");
         }
         const data = await res.json();
-        setSelectedPath(data.path ?? path);
-        setFileContent(data.content ?? "");
-        setOriginContent(data.content ?? "");
-        setSelectedEditable(Boolean(data.editable));
+        setTree(Array.isArray(data) ? data : []);
+      } finally {
+        setTreeLoading(false);
+      }
+    },
+    [authHeaders, handleUnauthorized, isAdmin, token],
+  );
+
+  const loadFile = useCallback(
+    async (path: string) => {
+      if (!token) return;
+      setFileError("");
+      const endpoint = isAdmin ? "/api/skills/file" : "/api/skills/catalog/file";
+      const res = await fetch(`${endpoint}?path=${encodeURIComponent(path)}`, {
+        headers: authHeaders,
+      });
+      if (res.status === 401 || res.status === 403) {
+        await handleUnauthorized();
+        return;
+      }
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({ error: "读取文件失败" }));
+        throw new Error(payload.error || "读取文件失败");
+      }
+      const data = await res.json();
+      setSelectedPath(data.path ?? path);
+      setFileContent(data.content ?? "");
+      setOriginContent(data.content ?? "");
+      setSelectedEditable(Boolean(data.editable));
+    },
+    [authHeaders, handleUnauthorized, isAdmin, token],
+  );
+
+  const loadPageData = useCallback(async () => {
+    if (!token) return;
+    setError("");
+    try {
+      await loadSkillsList();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加载技能列表失败");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadSkillsList, token]);
+
+  useEffect(() => {
+    void loadPageData();
+  }, [loadPageData]);
+
+  const closeDrawer = (allowDirtyDiscard = false) => {
+    if (!allowDirtyDiscard && isDirty && !window.confirm("有未保存修改，确认退出吗？")) {
+      return;
+    }
+    setDrawerOpen(false);
+    setActiveSkill(null);
+    setTree([]);
+    resetEditorState();
+  };
+
+  const handleOpenSkill = useCallback(
+    async (skillName: string) => {
+      if (isDirty && !window.confirm("当前有未保存修改，确认切换技能吗？")) {
+        return;
+      }
+      setError("");
+      setDrawerOpen(true);
+      setActiveSkill(skillName);
+      resetEditorState();
+      try {
+        await loadSkillTree(skillName);
+        await loadFile(`${skillName}/SKILL.md`);
       } catch (err) {
-        setFileError(err instanceof Error ? err.message : "读取文件失败");
+        setFileError(err instanceof Error ? err.message : "读取技能详情失败");
       }
     },
-    [authHeaders, handleUnauthorized, token],
+    [isDirty, loadFile, loadSkillTree],
   );
 
-  const handleNodeSelect = useCallback(
-    async (node: SkillTreeNode) => {
-      if (selectedPath === node.path) return;
-      if (isDirty && !window.confirm("当前文件有未保存改动，确认切换吗？")) {
-        return;
-      }
-      if (node.type === "directory") {
-        setSelectedPath(node.path);
-        setFileContent("");
-        setOriginContent("");
-        setSelectedEditable(false);
-        setFileError("");
-        return;
-      }
-      await loadFile(node.path);
-    },
-    [isDirty, loadFile, selectedPath],
-  );
-
-  const handleSave = useCallback(async () => {
-    if (!token || !selectedPath || !selectedEditable) return;
+  const handleSave = useCallback(async (): Promise<boolean> => {
+    if (!isAdmin || !token || !selectedPath || !selectedEditable) return true;
     setFileError("");
     setIsSaving(true);
     try {
@@ -146,40 +193,52 @@ export function SkillsAdmin() {
       });
       if (res.status === 401 || res.status === 403) {
         await handleUnauthorized();
-        return;
+        return false;
       }
       if (!res.ok) {
         const payload = await res.json().catch(() => ({ error: "保存失败" }));
         throw new Error(payload.error || "保存失败");
       }
       setOriginContent(fileContent);
+      return true;
     } catch (err) {
       setFileError(err instanceof Error ? err.message : "保存失败");
+      return false;
     } finally {
       setIsSaving(false);
     }
-  }, [authHeaders, fileContent, handleUnauthorized, selectedEditable, selectedPath, token]);
+  }, [authHeaders, fileContent, handleUnauthorized, isAdmin, selectedEditable, selectedPath, token]);
+
+  const handleSaveAndClose = useCallback(async () => {
+    const ok = await handleSave();
+    if (ok) {
+      closeDrawer(true);
+    }
+  }, [handleSave]);
+
+  const refreshCurrentSkill = useCallback(
+    async (nextSkill?: string) => {
+      await loadSkillsList();
+      const targetSkill = nextSkill ?? activeSkill;
+      if (targetSkill) {
+        await loadSkillTree(targetSkill);
+      }
+    },
+    [activeSkill, loadSkillTree, loadSkillsList],
+  );
 
   const handleCreateEntry = useCallback(
-    async (type: "file" | "directory") => {
-      if (!token) return;
-      const name = entryName.trim();
-      if (!name) {
-        setError("请输入名称");
-        return;
-      }
+    async (parentPath: string, type: "file" | "directory", name: string) => {
+      if (!isAdmin || !token) return;
+      const normalizedName = name.trim();
+      if (!normalizedName) return;
       setError("");
       setIsMutatingFs(true);
       try {
-        const parentPath = selectedNode
-          ? selectedNode.type === "directory"
-            ? selectedNode.path
-            : getParentPath(selectedNode.path)
-          : "";
         const res = await fetch("/api/skills/fs", {
           method: "POST",
           headers: { ...authHeaders, "Content-Type": "application/json" },
-          body: JSON.stringify({ parentPath, name, type }),
+          body: JSON.stringify({ parentPath, name: normalizedName, type }),
         });
         if (res.status === 401 || res.status === 403) {
           await handleUnauthorized();
@@ -189,54 +248,63 @@ export function SkillsAdmin() {
           const payload = await res.json().catch(() => ({ error: "创建失败" }));
           throw new Error(payload.error || "创建失败");
         }
-        setEntryName("");
-        await loadAdminData();
+        const payload = (await res.json().catch(() => ({}))) as { path?: string };
+        const nextSkill = payload.path ? rootFromPath(payload.path) : activeSkill ?? undefined;
+        if (nextSkill) setActiveSkill(nextSkill);
+        await refreshCurrentSkill(nextSkill);
+        if (payload.path) {
+          setSelectedPath(payload.path);
+          if (type === "file") {
+            await loadFile(payload.path);
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "创建失败");
       } finally {
         setIsMutatingFs(false);
       }
     },
-    [authHeaders, entryName, handleUnauthorized, loadAdminData, selectedNode, token],
+    [activeSkill, authHeaders, handleUnauthorized, isAdmin, loadFile, refreshCurrentSkill, token],
   );
 
-  const handleRename = useCallback(async () => {
-    if (!token || !selectedPath) return;
-    const nextPath = window.prompt("请输入新路径", selectedPath)?.trim();
-    if (!nextPath || nextPath === selectedPath) return;
-
-    setError("");
-    setIsMutatingFs(true);
-    try {
-      const res = await fetch("/api/skills/fs", {
-        method: "PATCH",
-        headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ fromPath: selectedPath, toPath: nextPath }),
-      });
-      if (res.status === 401 || res.status === 403) {
-        await handleUnauthorized();
-        return;
+  const handleMoveEntry = useCallback(
+    async (fromPath: string, toPath: string) => {
+      if (!isAdmin || !token || fromPath === toPath) return;
+      setError("");
+      setIsMutatingFs(true);
+      try {
+        const res = await fetch("/api/skills/fs", {
+          method: "PATCH",
+          headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ fromPath, toPath }),
+        });
+        if (res.status === 401 || res.status === 403) {
+          await handleUnauthorized();
+          return;
+        }
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({ error: "移动失败" }));
+          throw new Error(payload.error || "移动失败");
+        }
+        const nextSkill = rootFromPath(toPath);
+        if (nextSkill) setActiveSkill(nextSkill);
+        await refreshCurrentSkill(nextSkill);
+        if (selectedPath === fromPath) {
+          setSelectedPath(toPath);
+          await loadFile(toPath);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "移动失败");
+      } finally {
+        setIsMutatingFs(false);
       }
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({ error: "重命名失败" }));
-        throw new Error(payload.error || "重命名失败");
-      }
-      setSelectedPath(null);
-      setFileContent("");
-      setOriginContent("");
-      setSelectedEditable(false);
-      await loadAdminData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "重命名失败");
-    } finally {
-      setIsMutatingFs(false);
-    }
-  }, [authHeaders, handleUnauthorized, loadAdminData, selectedPath, token]);
+    },
+    [authHeaders, handleUnauthorized, isAdmin, loadFile, refreshCurrentSkill, selectedPath, token],
+  );
 
-  const handleDelete = useCallback(async () => {
-    if (!token || !selectedPath) return;
+  const handleDeleteSelected = useCallback(async () => {
+    if (!isAdmin || !token || !selectedPath) return;
     if (!window.confirm(`确认删除 ${selectedPath} 吗？`)) return;
-
     setError("");
     setIsMutatingFs(true);
     try {
@@ -252,24 +320,26 @@ export function SkillsAdmin() {
         const payload = await res.json().catch(() => ({ error: "删除失败" }));
         throw new Error(payload.error || "删除失败");
       }
-      setSelectedPath(null);
-      setFileContent("");
-      setOriginContent("");
-      setSelectedEditable(false);
-      await loadAdminData();
+      const deletedRoot = rootFromPath(selectedPath);
+      if (deletedRoot && activeSkill === deletedRoot && selectedPath === deletedRoot) {
+        await loadSkillsList();
+        closeDrawer(true);
+        return;
+      }
+      resetEditorState();
+      await refreshCurrentSkill();
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除失败");
     } finally {
       setIsMutatingFs(false);
     }
-  }, [authHeaders, handleUnauthorized, loadAdminData, selectedPath, token]);
+  }, [activeSkill, authHeaders, handleUnauthorized, isAdmin, loadSkillsList, refreshCurrentSkill, selectedPath, token]);
 
   const handleUploadZip = useCallback(
     async (file: File) => {
-      if (!token) return;
+      if (!isAdmin || !token) return;
       const formData = new FormData();
       formData.append("file", file);
-
       const res = await fetch("/api/skills/upload-zip", {
         method: "POST",
         headers: authHeaders,
@@ -283,127 +353,203 @@ export function SkillsAdmin() {
         const payload = await res.json().catch(() => ({ error: "上传失败" }));
         throw new Error(payload.error || "上传失败");
       }
-      await loadAdminData();
+      await loadSkillsList();
     },
-    [authHeaders, handleUnauthorized, loadAdminData, token],
+    [authHeaders, handleUnauthorized, isAdmin, loadSkillsList, token],
+  );
+
+  const handleNodeSelect = (node: SkillTreeNode) => {
+    setSelectedPath(node.path);
+    if (node.type === "directory") {
+      setFileContent("");
+      setOriginContent("");
+      setSelectedEditable(false);
+      setFileError("");
+    }
+  };
+
+  const handleNodeOpen = useCallback(
+    async (node: SkillTreeNode) => {
+      try {
+        if (node.type === "directory") {
+          await loadFile(`${node.path}/SKILL.md`);
+          return;
+        }
+        await loadFile(node.path);
+      } catch (err) {
+        setFileError(err instanceof Error ? err.message : "读取文件失败");
+      }
+    },
+    [loadFile],
   );
 
   if (isLoading) {
-    return <div className="p-6">加载技能目录中...</div>;
+    return <div className="p-6">加载技能列表中...</div>;
   }
 
   return (
-    <div className="space-y-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="relative h-full overflow-y-auto p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">技能管理</h1>
-          <p className="text-sm text-muted-foreground">全局技能库文件系统管理</p>
+          <h1 className="text-2xl font-semibold">技能</h1>
+          <p className="text-sm text-muted-foreground">
+            双击技能进入详情侧栏，{isAdmin ? "可进行增删改查" : "普通用户仅可查看文件列表与内容"}
+          </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowUploadDialog(true)}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-        >
-          上传 ZIP
-        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setShowUploadDialog(true)}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            上传 ZIP
+          </button>
+        )}
       </div>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
           {error}
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-        <section className="space-y-4 rounded-lg border bg-card p-4">
-          <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">可用 Skills</h2>
-            <ul className="mt-2 space-y-1 text-sm">
-              {skills.length ? (
-                skills.map((skill) => (
-                  <li key={skill.name} className="flex items-center justify-between rounded-md border px-2 py-1.5">
-                    <span className="font-medium">{skill.name}</span>
-                    <span className="text-xs text-muted-foreground">{new Date(skill.updated_at).toLocaleString()}</span>
-                  </li>
-                ))
-              ) : (
-                <li className="rounded-md border border-dashed px-2 py-2 text-muted-foreground">暂无 skill</li>
-              )}
-            </ul>
-          </div>
+      {skills.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+          当前没有可用技能
+        </div>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {skills.map((skill) => (
+            <button
+              key={skill.name}
+              type="button"
+              data-testid={`skill-card-${skill.name}`}
+              onDoubleClick={() => void handleOpenSkill(skill.name)}
+              className={`cursor-pointer rounded-lg border p-4 text-left transition-colors ${
+                activeSkill === skill.name ? "border-primary bg-primary/5" : "hover:bg-muted/70"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold">{skill.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {new Date(skill.updated_at).toLocaleDateString()}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                双击进入技能详情
+              </p>
+            </button>
+          ))}
+        </div>
+      )}
 
-          <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">目录树</h2>
-            <div className="mt-2 max-h-[460px] overflow-auto rounded-md border p-2">
-              <SkillTree nodes={tree} selectedPath={selectedPath} onSelect={(node) => void handleNodeSelect(node)} />
+      {drawerOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="close-skill-drawer-backdrop"
+            className="fixed inset-0 z-40 bg-black/20"
+            onClick={() => closeDrawer(false)}
+          />
+          <aside className="fixed inset-y-0 right-0 z-50 flex h-screen w-full flex-col border-l bg-background shadow-2xl lg:w-[calc(100vw-72px)]">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <div>
+                <h2 className="text-lg font-semibold">技能详情 · {activeSkill}</h2>
+                <p className="text-xs text-muted-foreground">
+                  {isAdmin ? "管理员模式：可编辑" : "只读模式"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveAndClose()}
+                    disabled={isSaving}
+                    className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+                  >
+                    保存并退出
+                  </button>
+                )}
+                <button
+                  type="button"
+                  data-testid="skill-drawer-exit"
+                  onClick={() => closeDrawer(false)}
+                  className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                >
+                  退出
+                </button>
+                <button
+                  type="button"
+                  aria-label="关闭技能详情"
+                  onClick={() => closeDrawer(false)}
+                  className="rounded-md border p-1.5 hover:bg-muted"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-2 rounded-md border p-3">
-            <p className="text-sm font-medium">文件操作</p>
-            <input
-              type="text"
-              placeholder="名称，如 README.md"
-              value={entryName}
-              onChange={(event) => setEntryName(event.target.value)}
-              className="w-full rounded-md border px-2 py-1.5 text-sm"
-            />
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void handleCreateEntry("file")}
-                disabled={isMutatingFs}
-                className="rounded-md border px-2 py-1 text-sm hover:bg-muted disabled:opacity-60"
-              >
-                新建文件
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCreateEntry("directory")}
-                disabled={isMutatingFs}
-                className="rounded-md border px-2 py-1 text-sm hover:bg-muted disabled:opacity-60"
-              >
-                新建目录
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleRename()}
-                disabled={!selectedPath || isMutatingFs}
-                className="rounded-md border px-2 py-1 text-sm hover:bg-muted disabled:opacity-60"
-              >
-                重命名/移动
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleDelete()}
-                disabled={!selectedPath || isMutatingFs}
-                className="rounded-md border px-2 py-1 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60"
-              >
-                删除
-              </button>
-            </div>
-          </div>
-        </section>
+            <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[380px_minmax(0,1fr)]">
+              <section className="flex min-h-0 flex-col gap-3 rounded-lg border bg-card p-3">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">文件列表</h3>
+                <div className="min-h-0 flex-1 overflow-auto rounded-md border p-2">
+                  {treeLoading ? (
+                    <div className="p-3 text-sm text-muted-foreground">加载文件树中...</div>
+                  ) : (
+                    <SkillTree
+                      nodes={tree}
+                      selectedPath={selectedPath}
+                      editable={isAdmin}
+                      onSelect={handleNodeSelect}
+                      onOpen={(node) => void handleNodeOpen(node)}
+                      onRename={async (fromPath, toPath) => {
+                        await handleMoveEntry(fromPath, toPath);
+                      }}
+                      onCreate={async (parentPath, type, name) => {
+                        await handleCreateEntry(parentPath, type, name);
+                      }}
+                      onMove={async (fromPath, toPath) => {
+                        await handleMoveEntry(fromPath, toPath);
+                      }}
+                    />
+                  )}
+                </div>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteSelected()}
+                    disabled={!selectedPath || isMutatingFs}
+                    className="rounded-md border px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60"
+                  >
+                    删除当前节点
+                  </button>
+                )}
+              </section>
 
-        <section className="rounded-lg border bg-card p-4">
-          {selectedNode?.type === "directory" ? (
-            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-              当前选中目录：<span className="font-mono">{selectedNode.path}</span>
+              <section className="min-h-0 rounded-lg border bg-card p-3">
+                {selectedNode?.type === "directory" ? (
+                  <div className="h-full rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                    当前选中目录：<span className="font-mono">{selectedNode.path}</span>
+                    <p className="mt-2">双击目录可尝试打开该目录下的 SKILL.md。</p>
+                  </div>
+                ) : (
+                  <SkillFileEditor
+                    path={selectedPath}
+                    content={fileContent}
+                    editable={selectedEditable}
+                    readOnly={!isAdmin}
+                    isDirty={isDirty}
+                    isSaving={isSaving}
+                    error={fileError}
+                    onChange={setFileContent}
+                    onSave={() => void handleSave()}
+                  />
+                )}
+              </section>
             </div>
-          ) : (
-            <SkillFileEditor
-              path={selectedPath}
-              content={fileContent}
-              editable={selectedEditable}
-              isDirty={isDirty}
-              isSaving={isSaving}
-              error={fileError}
-              onChange={setFileContent}
-              onSave={() => void handleSave()}
-            />
-          )}
-        </section>
-      </div>
+          </aside>
+        </>
+      )}
 
       <ZipUploadDialog
         open={showUploadDialog}
