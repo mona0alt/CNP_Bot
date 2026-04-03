@@ -32,8 +32,10 @@ import {
   getMessagesSince,
   getNewMessages,
   getRouterState,
+  getSessionSkillSyncState,
   getUserByUsername,
   initDatabase,
+  deleteSessionSkillData,
   deleteSession,
   setRegisteredGroup,
   setRouterState,
@@ -47,6 +49,10 @@ import {
   type MessageCursor,
   type SessionInfo,
 } from './db.js';
+import {
+  deleteChatSkillsDir,
+  syncChatSkills,
+} from './chat-skills-sync.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import {
@@ -344,6 +350,19 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   );
 
   if (missedMessages.length === 0) return true;
+
+  if (chatJid.startsWith('web:')) {
+    const syncState = getSessionSkillSyncState(chatJid);
+    if (!syncState || syncState.status === 'pending') {
+      const syncResult = await syncChatSkills({ chatJid });
+      if (syncResult.status === 'failed') {
+        logger.warn(
+          { chatJid, error: syncResult.errorMessage },
+          'Failed to sync pending chat skills before processing messages',
+        );
+      }
+    }
+  }
 
   // Only require trigger if the group is configured for it.
   const needsTrigger = group.requiresTrigger !== false;
@@ -1394,6 +1413,22 @@ async function main(): Promise<void> {
   };
 
   // Start web server
+  const syncActiveChatSkills = async (
+    jid: string,
+  ): Promise<{
+    status: 'pending' | 'synced' | 'failed';
+    errorMessage?: string;
+  }> => {
+    if (!jid.startsWith('web:')) {
+      return { status: 'pending' };
+    }
+    if (!queue.isGroupBusy(jid)) {
+      return { status: 'pending' };
+    }
+
+    return syncChatSkills({ chatJid: jid });
+  };
+
   const { broadcastToJid } = startServer({
     getGroupStats: (jid) => groupStats[jid],
     sendMessage: async (jid, rawText) => {
@@ -1496,6 +1531,7 @@ async function main(): Promise<void> {
       sessions[folder] = { sessionId: '', agentType };
       setSession(folder, '', agentType);
     },
+    onChatSkillsUpdated: syncActiveChatSkills,
     isGroupActive: (jid) => queue.isGroupBusy(jid),
     getGroupFolder: (jid) => registeredGroups[jid]?.folder,
     getPendingInteractive: (jid) => ({
@@ -1553,6 +1589,8 @@ async function main(): Promise<void> {
         delete sessions[folder];
         deleteSession(folder);
       }
+      deleteSessionSkillData(jid);
+      deleteChatSkillsDir(jid);
       pendingAskByJid.delete(jid);
       pendingConfirmByJid.delete(jid);
       delete lastAgentTimestamp[jid];
