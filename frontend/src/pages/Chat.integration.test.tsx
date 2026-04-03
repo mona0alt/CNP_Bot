@@ -13,12 +13,20 @@ vi.mock('@/components/Chat', () => ({
     chats,
     selectedJid,
     onSelectChat,
+    onCreateChat,
   }: {
     chats: Array<{ jid: string; name: string }>;
     selectedJid: string | null;
     onSelectChat: (jid: string) => void;
+    onCreateChat: (input?: { agentType?: 'claude' | 'deepagent'; skills?: string[] }) => void;
   }) => (
     <div data-testid="chat-sidebar">
+      <button
+        data-testid="create-chat"
+        onClick={() => onCreateChat({ agentType: 'deepagent' })}
+      >
+        create-chat
+      </button>
       {chats.map((chat) => (
         <button
           key={chat.jid}
@@ -76,6 +84,13 @@ interface MessageRecord {
   timestamp: string;
   is_from_me: boolean;
   is_bot_message: boolean;
+}
+
+interface ChatSkillsState {
+  selectedSkills: string[];
+  syncStatus: 'pending' | 'synced' | 'failed';
+  lastSyncedAt: string | null;
+  errorMessage: string | null;
 }
 
 class FakeWebSocket {
@@ -148,6 +163,7 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let createChatCalls: number;
   let currentChats: ChatSummary[];
+  let chatSkillsState: Map<string, ChatSkillsState>;
 
   const chats: ChatSummary[] = [
     {
@@ -193,6 +209,26 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
     vi.stubGlobal('WebSocket', FakeWebSocket);
     createChatCalls = 0;
     currentChats = [...chats];
+    chatSkillsState = new Map<string, ChatSkillsState>([
+      [
+        'web:a',
+        {
+          selectedSkills: [],
+          syncStatus: 'pending',
+          lastSyncedAt: null,
+          errorMessage: null,
+        },
+      ],
+      [
+        'web:b',
+        {
+          selectedSkills: [],
+          syncStatus: 'pending',
+          lastSyncedAt: null,
+          errorMessage: null,
+        },
+      ],
+    ]);
 
     fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -201,6 +237,14 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
       if (url.endsWith('/api/chats')) {
         if (method === 'POST') {
           createChatCalls += 1;
+          const parsedBody = (() => {
+            if (!init?.body) return {};
+            try {
+              return JSON.parse(String(init.body)) as { skills?: string[] };
+            } catch {
+              return {};
+            }
+          })();
           const createdChat = {
             jid: 'web:created-by-test',
             name: 'Created By Test',
@@ -210,12 +254,59 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
             is_group: 0,
           };
           currentChats = [createdChat];
+          chatSkillsState.set(createdChat.jid, {
+            selectedSkills: Array.isArray(parsedBody.skills) ? parsedBody.skills : [],
+            syncStatus: 'pending',
+            lastSyncedAt: null,
+            errorMessage: null,
+          });
           return new Response(
             JSON.stringify(createdChat),
             { status: 200 },
           );
         }
         return new Response(JSON.stringify(currentChats), { status: 200 });
+      }
+
+      if (url.endsWith('/api/skills/catalog')) {
+        return new Response(
+          JSON.stringify([
+            { name: 'tmux', has_skill_md: true, updated_at: '2026-04-03T08:00:00.000Z' },
+            { name: 'prometheus', has_skill_md: true, updated_at: '2026-04-03T08:00:00.000Z' },
+          ]),
+          { status: 200 },
+        );
+      }
+
+      if (url.includes('/api/chats/') && url.endsWith('/skills')) {
+        const jid = decodeURIComponent(
+          url.split('/api/chats/')[1]!.split('/skills')[0]!,
+        );
+        if (method === 'PUT') {
+          const parsedBody = (() => {
+            if (!init?.body) return { skills: [] as string[] };
+            try {
+              return JSON.parse(String(init.body)) as { skills?: string[] };
+            } catch {
+              return { skills: [] as string[] };
+            }
+          })();
+          const nextState: ChatSkillsState = {
+            selectedSkills: Array.isArray(parsedBody.skills) ? parsedBody.skills : [],
+            syncStatus: 'synced',
+            lastSyncedAt: '2026-04-03T09:30:00.000Z',
+            errorMessage: null,
+          };
+          chatSkillsState.set(jid, nextState);
+          return new Response(JSON.stringify(nextState), { status: 200 });
+        }
+        const current = chatSkillsState.get(jid) ?? {
+          selectedSkills: [],
+          syncStatus: 'pending' as const,
+          lastSyncedAt: null,
+          errorMessage: null,
+        };
+        return new Response(JSON.stringify(current), { status: 200 });
       }
 
       if (url.endsWith('/api/slash-commands')) {
@@ -315,6 +406,138 @@ describe('Chat 页面集成 - 会话切换时流式消息恢复', () => {
       return url.endsWith('/api/chats') && method === 'POST';
     });
     expect(postCalls).toHaveLength(1);
+  });
+
+  it('创建会话时可选择初始 skills', async () => {
+    await act(async () => {
+      root.render(
+        <AuthContext.Provider value={authValue}>
+          <StreamingMessagesProvider>
+            <Chat />
+          </StreamingMessagesProvider>
+        </AuthContext.Provider>,
+      );
+    });
+    await flush();
+
+    const createButton = container.querySelector(
+      '[data-testid="create-chat"]',
+    ) as HTMLButtonElement | null;
+    expect(createButton).not.toBeNull();
+    await act(async () => {
+      createButton!.click();
+    });
+    await flush();
+
+    const skillCheckbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    expect(skillCheckbox).not.toBeNull();
+    await act(async () => {
+      skillCheckbox!.click();
+    });
+
+    const confirmCreateButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('创建会话'),
+    ) as HTMLButtonElement | undefined;
+    expect(confirmCreateButton).toBeDefined();
+    await act(async () => {
+      confirmCreateButton!.click();
+    });
+    await flush();
+    await flush();
+
+    const createCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url = String(input);
+      const method = (init as RequestInit | undefined)?.method ?? 'GET';
+      return url.endsWith('/api/chats') && method === 'POST';
+    });
+    expect(createCall).toBeTruthy();
+    const body = JSON.parse(String(createCall?.[1]?.body));
+    expect(body.skills).toEqual(['tmux']);
+  });
+
+  it('会话技能设置会加载并保存新的选择', async () => {
+    await act(async () => {
+      root.render(
+        <AuthContext.Provider value={authValue}>
+          <StreamingMessagesProvider>
+            <Chat />
+          </StreamingMessagesProvider>
+        </AuthContext.Provider>,
+      );
+    });
+    await flush();
+
+    const skillsButton = container.querySelector(
+      'button[title="会话技能"]',
+    ) as HTMLButtonElement | null;
+    expect(skillsButton).not.toBeNull();
+    await act(async () => {
+      skillsButton!.click();
+    });
+    await flush();
+
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    expect(checkboxes.length).toBeGreaterThan(0);
+    await act(async () => {
+      (checkboxes[0] as HTMLInputElement).click();
+    });
+
+    const saveButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('保存技能'),
+    ) as HTMLButtonElement | undefined;
+    expect(saveButton).toBeDefined();
+    await act(async () => {
+      saveButton!.click();
+    });
+    await flush();
+
+    const saveCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url = String(input);
+      const method = (init as RequestInit | undefined)?.method ?? 'GET';
+      return url.includes('/api/chats/web%3Aa/skills') && method === 'PUT';
+    });
+    expect(saveCall).toBeTruthy();
+    const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(body.skills).toEqual(['tmux']);
+  });
+
+  it('保存会话技能后展示同步状态', async () => {
+    await act(async () => {
+      root.render(
+        <AuthContext.Provider value={authValue}>
+          <StreamingMessagesProvider>
+            <Chat />
+          </StreamingMessagesProvider>
+        </AuthContext.Provider>,
+      );
+    });
+    await flush();
+
+    const skillsButton = container.querySelector(
+      'button[title="会话技能"]',
+    ) as HTMLButtonElement | null;
+    expect(skillsButton).not.toBeNull();
+    await act(async () => {
+      skillsButton!.click();
+    });
+    await flush();
+
+    const firstCheckbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    expect(firstCheckbox).not.toBeNull();
+    await act(async () => {
+      firstCheckbox!.click();
+    });
+
+    const saveButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('保存技能'),
+    ) as HTMLButtonElement | undefined;
+    expect(saveButton).toBeDefined();
+    await act(async () => {
+      saveButton!.click();
+    });
+    await flush();
+
+    expect(container.textContent).toContain('已同步');
   });
 
   it('切换 A -> B -> A 后，继续流式更新仍写回同一张消息卡片', async () => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ChevronRight, MessageSquare, PanelLeftOpen, Trash2 } from 'lucide-react';
-import type { Chat, Message, SlashCommand } from '@/lib/types';
+import { Activity, ChevronRight, MessageSquare, PanelLeftOpen, Sparkles, Trash2 } from 'lucide-react';
+import type { Chat, ChatSkillSelectionResponse, Message, SlashCommand } from '@/lib/types';
 import { AskUserCard } from '@/components/AskUserCard';
 import { ConfirmBashCard } from '@/components/ConfirmBashCard';
 import { StatusSidebar } from '@/components/StatusSidebar';
@@ -8,6 +8,7 @@ import type { GroupStatus } from '@/components/StatusSidebar';
 import { ChatSidebar, MessageInput } from '@/components/Chat';
 import { MessageItem } from '@/components/Chat/MessageItem';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ChatSkillsDialog } from '@/components/skills/ChatSkillsDialog';
 import { useChatWebSocket } from '@/hooks/useChatWebSocket';
 import { useStreamingMessages } from '@/contexts/StreamingMessagesContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,6 +36,10 @@ export function Chat() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [newChatAgentType, setNewChatAgentType] = useState<'claude' | 'deepagent'>('deepagent');
+  const [createChatDialogOpen, setCreateChatDialogOpen] = useState(false);
+  const [createChatAgentType, setCreateChatAgentType] = useState<'claude' | 'deepagent'>('deepagent');
+  const [editChatSkillsDialogOpen, setEditChatSkillsDialogOpen] = useState(false);
+  const [chatSkillsMap, setChatSkillsMap] = useState<Record<string, ChatSkillSelectionResponse>>({});
 
   // Derived: is the currently selected session generating?
   const isGenerating = selectedJid ? generatingJids.has(selectedJid) : false;
@@ -190,13 +195,22 @@ export function Chat() {
     });
   };
 
-  const createChatSession = useCallback(async (agentType?: 'claude' | 'deepagent'): Promise<Chat | null> => {
+  const createChatSession = useCallback(async (
+    agentType?: 'claude' | 'deepagent',
+    skills?: string[],
+  ): Promise<Chat | null> => {
     try {
       if (!token) return null;
+      const payload: { agentType: 'claude' | 'deepagent'; skills?: string[] } = {
+        agentType: agentType ?? newChatAgentType,
+      };
+      if (Array.isArray(skills)) {
+        payload.skills = skills;
+      }
       const res = await fetch(`${apiBase}/api/chats`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentType: agentType ?? newChatAgentType }),
+        body: JSON.stringify(payload),
       });
       if (res.status === 401 || res.status === 403) {
         await handleUnauthorized();
@@ -214,12 +228,49 @@ export function Chat() {
     }
   }, [apiBase, authHeaders, token, handleUnauthorized, newChatAgentType]);
 
-  const handleCreateChat = useCallback(async (agentType?: 'claude' | 'deepagent') => {
-    const newChat = await createChatSession(agentType);
-    if (newChat) {
-      setSelectedJid(newChat.jid);
+  const loadChatSkills = useCallback(async (jid: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${apiBase}/api/chats/${encodeURIComponent(jid)}/skills`, {
+        headers: authHeaders,
+      });
+      if (res.status === 401 || res.status === 403) {
+        await handleUnauthorized();
+        return;
+      }
+      if (!res.ok) return;
+      const data = await res.json();
+      setChatSkillsMap((prev) => ({
+        ...prev,
+        [jid]: {
+          selectedSkills: Array.isArray(data.selectedSkills) ? data.selectedSkills : [],
+          syncStatus: data.syncStatus ?? 'pending',
+          lastSyncedAt: data.lastSyncedAt ?? null,
+          errorMessage: data.errorMessage ?? null,
+        },
+      }));
+    } catch (error) {
+      console.error('Failed to fetch chat skills', error);
     }
-  }, [createChatSession]);
+  }, [apiBase, authHeaders, token, handleUnauthorized]);
+
+  const handleCreateChat = useCallback((input?: {
+    agentType?: 'claude' | 'deepagent';
+    skills?: string[];
+  }) => {
+    const targetAgentType = input?.agentType ?? newChatAgentType;
+    if (Array.isArray(input?.skills)) {
+      void createChatSession(targetAgentType, input.skills).then((newChat) => {
+        if (newChat) {
+          setSelectedJid(newChat.jid);
+          void loadChatSkills(newChat.jid);
+        }
+      });
+      return;
+    }
+    setCreateChatAgentType(targetAgentType);
+    setCreateChatDialogOpen(true);
+  }, [createChatSession, loadChatSkills, newChatAgentType]);
 
   const handleDeleteChat = async (jid: string) => {
     try {
@@ -244,6 +295,12 @@ export function Chat() {
         return next;
       });
       setGroupStatusMap((prev) => {
+        if (!(jid in prev)) return prev;
+        const next = { ...prev };
+        delete next[jid];
+        return next;
+      });
+      setChatSkillsMap((prev) => {
         if (!(jid in prev)) return prev;
         const next = { ...prev };
         delete next[jid];
@@ -360,6 +417,11 @@ export function Chat() {
     setConfirmRequests([]);
     setStatusOpen(false);
   }, [selectedJid]);
+
+  useEffect(() => {
+    if (!selectedJid) return;
+    void loadChatSkills(selectedJid);
+  }, [loadChatSkills, selectedJid]);
 
   useEffect(() => {
     if (!selectedJid) {
@@ -532,6 +594,14 @@ export function Chat() {
     [sendConfirmBashResponse],
   );
 
+  const handleCreateChatWithSkills = useCallback(async (skills: string[]) => {
+    const newChat = await createChatSession(createChatAgentType, skills);
+    if (newChat) {
+      setSelectedJid(newChat.jid);
+      await loadChatSkills(newChat.jid);
+    }
+  }, [createChatAgentType, createChatSession, loadChatSkills]);
+
   // Render items with date separators
   const renderItems = useMemo(() => {
     const items: Array<
@@ -559,6 +629,7 @@ export function Chat() {
   const chatName = selectedJid
     ? chats.find((c) => c.jid === selectedJid)?.name || selectedJid
     : null;
+  const currentChatSkillsState = selectedJid ? chatSkillsMap[selectedJid] ?? null : null;
   const currentStatus = selectedJid ? groupStatusMap[selectedJid] ?? null : null;
   const statusDotColor = !currentStatus
     ? 'bg-gray-400'
@@ -567,6 +638,13 @@ export function Chat() {
       : currentStatus.processReady
         ? 'bg-green-500'
         : 'bg-yellow-500';
+  const skillsStatusLabel = currentChatSkillsState
+    ? currentChatSkillsState.syncStatus === 'synced'
+      ? '已同步'
+      : currentChatSkillsState.syncStatus === 'failed'
+        ? '同步失败'
+        : '待同步'
+    : '待同步';
 
   return (
     <div className="flex h-full">
@@ -599,7 +677,9 @@ export function Chat() {
                 )}
                 <div className="min-w-0">
                   <h3 className="font-semibold text-lg truncate">{chatName}</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">当前会话</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    当前会话 · Skills {currentChatSkillsState?.selectedSkills.length ?? 0} · {skillsStatusLabel}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -613,6 +693,14 @@ export function Chat() {
                     <ChevronRight size={18} />
                   </button>
                 )}
+                <button
+                  onClick={() => setEditChatSkillsDialogOpen(true)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border/70 bg-background px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                  title="会话技能"
+                >
+                  <Sparkles size={14} />
+                  Skills
+                </button>
                 <button
                   onClick={() => setStatusOpen(true)}
                   className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors relative"
@@ -703,6 +791,36 @@ export function Chat() {
           onClose={() => setStatusOpen(false)}
         />
       </div>
+
+      <ChatSkillsDialog
+        open={createChatDialogOpen}
+        mode="create"
+        apiBase={apiBase}
+        authHeaders={authHeaders}
+        agentType={createChatAgentType}
+        onClose={() => setCreateChatDialogOpen(false)}
+        onUnauthorized={handleUnauthorized}
+        onCreate={handleCreateChatWithSkills}
+        onUpdated={() => {}}
+      />
+
+      <ChatSkillsDialog
+        open={editChatSkillsDialogOpen && !!selectedJid}
+        mode="edit"
+        apiBase={apiBase}
+        authHeaders={authHeaders}
+        chatJid={selectedJid}
+        onClose={() => setEditChatSkillsDialogOpen(false)}
+        onUnauthorized={handleUnauthorized}
+        onCreate={async () => {}}
+        onUpdated={(state) => {
+          if (!selectedJid) return;
+          setChatSkillsMap((prev) => ({
+            ...prev,
+            [selectedJid]: state,
+          }));
+        }}
+      />
 
       <ConfirmDialog
         open={showDeleteDialog}

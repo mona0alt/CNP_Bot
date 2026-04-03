@@ -8,7 +8,10 @@ interface ChatSidebarProps {
   chats: Chat[];
   selectedJid: string | null;
   onSelectChat: (jid: string) => void;
-  onCreateChat: (agentType?: 'claude' | 'deepagent') => void;
+  onCreateChat: (input?: {
+    agentType?: 'claude' | 'deepagent';
+    skills?: string[];
+  }) => void;
   onDeleteChat: (jid: string) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -46,7 +49,7 @@ export function ChatSidebar({
 
   const handleAgentSelect = (type: 'claude' | 'deepagent') => {
     onAgentTypeChange(type);
-    onCreateChat(type);
+    onCreateChat({ agentType: type });
     setShowAgentDropdown(false);
   };
 
