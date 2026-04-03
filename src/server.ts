@@ -4,6 +4,8 @@ import express, {
   type NextFunction,
 } from 'express';
 import cors from 'cors';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
@@ -13,6 +15,12 @@ import type { RawData } from 'ws';
 import { z } from 'zod';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import multer from 'multer';
+import {
+  deleteGlobalSkillAndRebind,
+  importGlobalSkillZip,
+  renameGlobalSkillAndRebind,
+} from './skills-admin-service.js';
 import {
   getAllRegisteredGroups,
   getRecentMessages,
@@ -31,11 +39,24 @@ import {
   updateUserPassword,
   updateUserLastLogin,
   deleteUser,
+  getSessionSkillBindings,
+  getSessionSkillSyncState,
+  replaceSessionSkillBindings,
+  setSessionSkillSyncState,
   type UserWithoutPassword,
 } from './db.js';
 import { logger } from './logger.js';
 import { ASSISTANT_NAME, JWT_SECRET, JWT_EXPIRES_IN, AgentType, DEFAULT_AGENT_TYPE } from './config.js';
 import { getSlashCommands } from './slash-commands.js';
+import {
+  createGlobalSkillEntry,
+  deleteGlobalSkillEntry,
+  getGlobalSkillTree,
+  listGlobalSkills,
+  moveGlobalSkillEntry,
+  readGlobalSkillFile,
+  writeGlobalSkillFile,
+} from './skills-store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -128,6 +149,8 @@ function verifyToken(token: string): AuthUser | null {
 
 export interface ServerOpts {
   port?: number;
+  host?: string;
+  skillsRootDir?: string;
   sendMessage?: (jid: string, text: string) => Promise<void>;
   onWebUserMessage?: (
     jid: string,
@@ -153,6 +176,12 @@ export interface ServerOpts {
     userId: string,
     agentType: AgentType,
   ) => void;
+  onChatSkillsUpdated?: (
+    jid: string,
+  ) => Promise<{
+    status: 'pending' | 'synced' | 'failed';
+    errorMessage?: string;
+  }>;
   isGroupActive?: (jid: string) => boolean;
   /** Returns the group folder for a given JID, used to write ask/confirm responses */
   getGroupFolder?: (jid: string) => string | undefined;
@@ -181,11 +210,69 @@ export interface BroadcastCapability {
   broadcastToJid: (jid: string, payload: unknown) => void;
 }
 
-export function startServer(opts: ServerOpts = {}): BroadcastCapability {
-  const port = opts.port ?? 3000;
+export interface AppContext extends BroadcastCapability {
+  app: express.Express;
+  jidSockets: Map<string, Set<WebSocket>>;
+}
+
+export function createApp(opts: ServerOpts = {}): AppContext {
+  const skillsRootDir = opts.skillsRootDir;
   const app = express();
   app.use(cors());
   app.use(express.json());
+  const upload = multer({ dest: os.tmpdir() });
+
+  const buildSkillListResponse = () =>
+    listGlobalSkills(skillsRootDir).map((skill) => ({
+      name: skill.name,
+      has_skill_md: skill.hasSkillMd,
+      updated_at: skill.updatedAt,
+    }));
+
+  const buildChatSkillsResponse = (jid: string) => {
+    const syncState = getSessionSkillSyncState(jid);
+    return {
+      selectedSkills: getSessionSkillBindings(jid),
+      syncStatus: syncState?.status ?? 'pending',
+      lastSyncedAt: syncState?.last_synced_at ?? null,
+      errorMessage: syncState?.error_message ?? null,
+    };
+  };
+
+  const validateSkillSelection = (skills: string[]) => {
+    const availableSkills = new Set(
+      listGlobalSkills(skillsRootDir).map((skill) => skill.name),
+    );
+    for (const skill of skills) {
+      if (!availableSkills.has(skill)) {
+        throw new Error(`Unknown skill: ${skill}`);
+      }
+    }
+  };
+
+  const applyChatSkillsUpdate = async (jid: string, skills: string[]) => {
+    validateSkillSelection(skills);
+    replaceSessionSkillBindings(jid, skills);
+
+    const outcome = opts.onChatSkillsUpdated
+      ? await opts.onChatSkillsUpdated(jid)
+      : { status: 'pending' as const, errorMessage: undefined };
+
+    setSessionSkillSyncState(jid, {
+      status: outcome.status,
+      errorMessage: outcome.errorMessage ?? null,
+      lastSyncedAt:
+        outcome.status === 'synced' ? new Date().toISOString() : null,
+    });
+    return buildChatSkillsResponse(jid);
+  };
+
+  const isTopLevelSkillPath = (targetPath: string) => {
+    const normalized = targetPath
+      .replace(/\\/g, '/')
+      .replace(/^\/+|\/+$/g, '');
+    return normalized.length > 0 && !normalized.includes('/');
+  };
 
   // Store connected sockets indexed by jid for O(1) broadcast lookup
   const jidSockets = new Map<string, Set<WebSocket>>();
@@ -246,12 +333,23 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
   });
 
   app.post('/api/chats', authenticateToken, (req, res) => {
+    const schema = z.object({
+      agentType: z.enum(['claude', 'deepagent']).optional(),
+      skills: z.array(z.string().trim().min(1)).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
     try {
       const authReq = req as AuthRequest;
       const jid = 'web:' + randomUUID();
       const timestamp = new Date().toISOString();
       const agentType: AgentType =
-        (req.body?.agentType as AgentType) || DEFAULT_AGENT_TYPE;
+        parsed.data.agentType || DEFAULT_AGENT_TYPE;
+      const skills = parsed.data.skills ?? [];
       storeChatMetadata(
         jid,
         timestamp,
@@ -261,6 +359,9 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
         authReq.user!.userId,
         agentType,
       );
+      validateSkillSelection(skills);
+      replaceSessionSkillBindings(jid, skills);
+      setSessionSkillSyncState(jid, { status: 'pending' });
       if (opts.onCreateChat) {
         opts.onCreateChat(jid, authReq.user!.userId, agentType);
       }
@@ -274,6 +375,250 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
       });
     } catch (err) {
       logger.error({ err }, 'Failed to create chat');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  // --- Skills endpoints ---
+
+  app.get('/api/skills', authenticateToken, requireAdmin, (_req, res) => {
+    try {
+      res.json(buildSkillListResponse());
+    } catch (err) {
+      logger.error({ err }, 'Failed to list skills');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/skills/tree', authenticateToken, requireAdmin, (req, res) => {
+    try {
+      const skill =
+        typeof req.query.skill === 'string' ? req.query.skill : undefined;
+      res.json(getGlobalSkillTree({ rootDir: skillsRootDir, skill }));
+    } catch (err) {
+      logger.error({ err }, 'Failed to load skill tree');
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid request' });
+    }
+  });
+
+  app.get('/api/skills/file', authenticateToken, requireAdmin, (req, res) => {
+    try {
+      const targetPath =
+        typeof req.query.path === 'string' ? req.query.path : '';
+      if (!targetPath) {
+        return res.status(400).json({ error: 'path is required' });
+      }
+      res.json(readGlobalSkillFile(targetPath, skillsRootDir));
+    } catch (err) {
+      logger.error({ err }, 'Failed to read skill file');
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid request' });
+    }
+  });
+
+  app.put('/api/skills/file', authenticateToken, requireAdmin, (req, res) => {
+    const schema = z.object({
+      path: z.string().trim().min(1),
+      content: z.string(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    try {
+      writeGlobalSkillFile(parsed.data.path, parsed.data.content, skillsRootDir);
+      res.json({ success: true });
+    } catch (err) {
+      logger.error({ err }, 'Failed to write skill file');
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid request' });
+    }
+  });
+
+  app.post('/api/skills/fs', authenticateToken, requireAdmin, (req, res) => {
+    const schema = z.object({
+      parentPath: z.string(),
+      name: z.string().trim().min(1),
+      type: z.enum(['file', 'directory']),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    try {
+      const createdPath = createGlobalSkillEntry(parsed.data, skillsRootDir);
+      res.status(201).json({ path: createdPath });
+    } catch (err) {
+      logger.error({ err }, 'Failed to create skills entry');
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid request' });
+    }
+  });
+
+  app.patch('/api/skills/fs', authenticateToken, requireAdmin, async (req, res) => {
+    const schema = z.object({
+      fromPath: z.string().trim().min(1),
+      toPath: z.string().trim().min(1),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    try {
+      if (
+        isTopLevelSkillPath(parsed.data.fromPath) &&
+        isTopLevelSkillPath(parsed.data.toPath)
+      ) {
+        await renameGlobalSkillAndRebind({
+          fromPath: parsed.data.fromPath,
+          toPath: parsed.data.toPath,
+          globalRootDir: skillsRootDir,
+          isChatActive: opts.isGroupActive,
+          syncChatSkills: opts.onChatSkillsUpdated
+            ? async (jid) => {
+                await opts.onChatSkillsUpdated?.(jid);
+              }
+            : undefined,
+        });
+      } else {
+        moveGlobalSkillEntry(
+          parsed.data.fromPath,
+          parsed.data.toPath,
+          skillsRootDir,
+        );
+      }
+      res.json({ success: true });
+    } catch (err) {
+      logger.error({ err }, 'Failed to move skills entry');
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid request' });
+    }
+  });
+
+  app.delete('/api/skills/fs', authenticateToken, requireAdmin, async (req, res) => {
+    const targetPath =
+      typeof req.query.path === 'string' ? req.query.path : '';
+    if (!targetPath) {
+      return res.status(400).json({ error: 'path is required' });
+    }
+
+    try {
+      if (isTopLevelSkillPath(targetPath)) {
+        await deleteGlobalSkillAndRebind({
+          relativePath: targetPath,
+          globalRootDir: skillsRootDir,
+          isChatActive: opts.isGroupActive,
+          syncChatSkills: opts.onChatSkillsUpdated
+            ? async (jid) => {
+                await opts.onChatSkillsUpdated?.(jid);
+              }
+            : undefined,
+        });
+      } else {
+        deleteGlobalSkillEntry(targetPath, skillsRootDir);
+      }
+      res.json({ success: true });
+    } catch (err) {
+      logger.error({ err }, 'Failed to delete skills entry');
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid request' });
+    }
+  });
+
+  app.post(
+    '/api/skills/upload-zip',
+    authenticateToken,
+    requireAdmin,
+    upload.single('file'),
+    async (req, res) => {
+      if (!req.file) {
+        return res.status(400).json({ error: 'Zip file is required' });
+      }
+
+      try {
+        const result = await importGlobalSkillZip({
+          zipPath: req.file.path,
+          globalRootDir: skillsRootDir,
+        });
+        res.status(201).json(result);
+      } catch (err) {
+        logger.error({ err }, 'Failed to import skill zip');
+        const message = err instanceof Error ? err.message : 'Invalid request';
+        const statusCode = /already exists/i.test(message) ? 409 : 400;
+        res.status(statusCode).json({ error: message });
+      } finally {
+        try {
+          fs.rmSync(req.file.path, { force: true });
+        } catch {}
+      }
+    },
+  );
+
+  app.get('/api/skills/catalog', authenticateToken, (_req, res) => {
+    try {
+      res.json(buildSkillListResponse());
+    } catch (err) {
+      logger.error({ err }, 'Failed to list skills catalog');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/chats/:jid/skills', authenticateToken, (req, res) => {
+    try {
+      const authReq = req as AuthRequest;
+      const { jid } = req.params as { jid: string };
+      if (!canAccessChat(jid, authReq.user!.userId, authReq.user!.role)) {
+        return res.status(404).json({ error: 'Chat not found' });
+      }
+      res.json(buildChatSkillsResponse(jid));
+    } catch (err) {
+      logger.error({ err }, 'Failed to fetch chat skills');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.put('/api/chats/:jid/skills', authenticateToken, async (req, res) => {
+    const schema = z.object({
+      skills: z.array(z.string().trim().min(1)),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    try {
+      const authReq = req as AuthRequest;
+      const { jid } = req.params as { jid: string };
+      if (!canAccessChat(jid, authReq.user!.userId, authReq.user!.role)) {
+        return res.status(404).json({ error: 'Chat not found' });
+      }
+      const response = await applyChatSkillsUpdate(jid, parsed.data.skills);
+      res.json(response);
+    } catch (err) {
+      logger.error({ err }, 'Failed to update chat skills');
+      const message = err instanceof Error ? err.message : 'Invalid request';
+      const statusCode = /Unknown skill/i.test(message) ? 400 : 500;
+      res.status(statusCode).json({ error: message });
+    }
+  });
+
+  app.post('/api/chats/:jid/skills/sync', authenticateToken, async (req, res) => {
+    try {
+      const authReq = req as AuthRequest;
+      const { jid } = req.params as { jid: string };
+      if (!canAccessChat(jid, authReq.user!.userId, authReq.user!.role)) {
+        return res.status(404).json({ error: 'Chat not found' });
+      }
+      const outcome = opts.onChatSkillsUpdated
+        ? await opts.onChatSkillsUpdated(jid)
+        : { status: 'pending' as const, errorMessage: undefined };
+      setSessionSkillSyncState(jid, {
+        status: outcome.status,
+        errorMessage: outcome.errorMessage ?? null,
+        lastSyncedAt:
+          outcome.status === 'synced' ? new Date().toISOString() : null,
+      });
+      res.json(buildChatSkillsResponse(jid));
+    } catch (err) {
+      logger.error({ err }, 'Failed to sync chat skills');
       res.status(500).json({ error: 'Internal Server Error' });
     }
   });
@@ -698,8 +1043,16 @@ export function startServer(opts: ServerOpts = {}): BroadcastCapability {
     res.sendFile(path.join(frontendPath, 'index.html'));
   });
 
-  const server = app.listen(port, '0.0.0.0', () => {
-    logger.info({ port }, 'Web server started');
+  return { app, broadcastToJid, jidSockets };
+}
+
+export function startServer(opts: ServerOpts = {}): BroadcastCapability {
+  const port = opts.port ?? 3000;
+  const host = opts.host ?? '0.0.0.0';
+  const { app, broadcastToJid, jidSockets } = createApp(opts);
+
+  const server = app.listen(port, host, () => {
+    logger.info({ port, host }, 'Web server started');
   });
 
   const wss = new WebSocketServer({ server, path: '/ws' });

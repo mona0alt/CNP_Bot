@@ -1,6 +1,11 @@
-import net from 'net';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'events';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import jwt from 'jsonwebtoken';
+import httpMocks from 'node-mocks-http';
 
 vi.mock('./logger.js', () => ({
   logger: {
@@ -11,52 +16,82 @@ vi.mock('./logger.js', () => ({
   },
 }));
 
-import { startServer } from './server.js';
-import { _initTestDatabase } from './db.js';
+import {
+  _initTestDatabase,
+  getSessionSkillBindings,
+  getSessionSkillSyncState,
+} from './db.js';
 import { JWT_SECRET } from './config.js';
+import { createApp } from './server.js';
 
-function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, () => {
-      const addr = srv.address() as net.AddressInfo;
-      srv.close(() => resolve(addr.port));
-    });
-    srv.on('error', reject);
+async function invokeApp(
+  app: ReturnType<typeof createApp>['app'],
+  options: {
+    method: string;
+    url: string;
+    token?: string;
+    body?: unknown;
+  },
+): Promise<{ status: number; body: any }> {
+  const headers: Record<string, string> = {};
+  if (options.token) {
+    headers.authorization = `Bearer ${options.token}`;
+  }
+  if (options.body !== undefined) {
+    headers['content-type'] = 'application/json';
+  }
+
+  const req = httpMocks.createRequest({
+    method: options.method,
+    url: options.url,
+    headers,
+    body: options.body,
   });
+  const res = httpMocks.createResponse({ eventEmitter: EventEmitter });
+
+  await new Promise<void>((resolve, reject) => {
+    res.on('end', resolve);
+    app.handle(req, res, reject);
+  });
+
+  return {
+    status: res.statusCode,
+    body: res._isJSON() ? res._getJSONData() : res._getData(),
+  };
 }
 
 describe('POST /api/chats', () => {
-  let port: number;
   const onCreateChat = vi.fn();
   const token = jwt.sign(
     { userId: 'user-1', username: 'user-1', role: 'admin' },
     JWT_SECRET,
     { expiresIn: '1h' },
   );
+  let skillsRootDir: string;
 
-  beforeAll(async () => {
+  beforeEach(() => {
     _initTestDatabase();
-    port = await getFreePort();
-    startServer({
-      port,
-      onCreateChat: onCreateChat as any,
-    });
-    await new Promise((r) => setTimeout(r, 100));
+    onCreateChat.mockReset();
+    skillsRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'create-chat-skills-'));
+    fs.mkdirSync(path.join(skillsRootDir, 'tmux'), { recursive: true });
+    fs.writeFileSync(path.join(skillsRootDir, 'tmux', 'SKILL.md'), '# tmux', 'utf8');
   });
 
-  afterAll(() => {
-    onCreateChat.mockReset();
+  afterEach(() => {
+    fs.rmSync(skillsRootDir, { recursive: true, force: true });
   });
 
   it('passes requested agentType to onCreateChat so first turn uses the right agent', async () => {
-    const res = await fetch(`http://127.0.0.1:${port}/api/chats`, {
+    const app = createApp({
+      onCreateChat: onCreateChat as any,
+      skillsRootDir,
+    }).app;
+
+    const res = await invokeApp(app, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ agentType: 'claude' }),
+      url: '/api/chats',
+      token,
+      body: { agentType: 'claude' },
     });
 
     expect(res.status).toBe(201);
@@ -66,5 +101,27 @@ describe('POST /api/chats', () => {
     expect(jid).toMatch(/^web:/);
     expect(userId).toBe('user-1');
     expect(agentType).toBe('claude');
+  });
+
+  it('accepts initial skills during chat creation', async () => {
+    const app = createApp({
+      onCreateChat: onCreateChat as any,
+      skillsRootDir,
+    }).app;
+
+    const res = await invokeApp(app, {
+      method: 'POST',
+      url: '/api/chats',
+      token,
+      body: { agentType: 'deepagent', skills: ['tmux'] },
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.jid).toMatch(/^web:/);
+    expect(getSessionSkillBindings(res.body.jid)).toEqual(['tmux']);
+    expect(getSessionSkillSyncState(res.body.jid)).toMatchObject({
+      chat_jid: res.body.jid,
+      status: 'pending',
+    });
   });
 });
