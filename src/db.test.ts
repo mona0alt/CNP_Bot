@@ -6,6 +6,7 @@ import {
   canAccessChat,
   clearMessages,
   deleteChatByRole,
+  deleteSessionSkillData,
   deleteRegisteredGroup,
   deleteSession,
   deleteTask,
@@ -19,11 +20,15 @@ import {
   getRegisteredGroup,
   getRouterState,
   getSession,
+  getSessionSkillBindings,
+  getSessionSkillSyncState,
   getTaskById,
   logTaskRun,
+  replaceSessionSkillBindings,
   setRegisteredGroup,
   setRouterState,
   setSession,
+  setSessionSkillSyncState,
   storeChatMetadata,
   storeMessage,
   storeMessageDirect,
@@ -312,6 +317,39 @@ describe('chat RBAC accessors', () => {
     expect(deleteChatByRole('web:user-a', 'user-b', 'user')).toBe(false);
     expect(deleteChatByRole('web:user-a', 'user-a', 'user')).toBe(true);
     expect(canAccessChat('web:user-a', 'admin-id', 'admin')).toBe(false);
+  });
+});
+
+describe('session skill accessors', () => {
+  it('stores and replaces session skill bindings', () => {
+    replaceSessionSkillBindings('web:test', ['tmux', 'prometheus']);
+    expect(getSessionSkillBindings('web:test')).toEqual([
+      'prometheus',
+      'tmux',
+    ]);
+
+    replaceSessionSkillBindings('web:test', ['jumpserver']);
+    expect(getSessionSkillBindings('web:test')).toEqual(['jumpserver']);
+  });
+
+  it('stores sync state and clears skill data when chat is deleted', () => {
+    replaceSessionSkillBindings('web:test', ['tmux']);
+
+    setSessionSkillSyncState('web:test', {
+      status: 'failed',
+      errorMessage: 'copy failed',
+    });
+
+    expect(getSessionSkillSyncState('web:test')).toMatchObject({
+      chat_jid: 'web:test',
+      status: 'failed',
+      error_message: 'copy failed',
+    });
+
+    deleteSessionSkillData('web:test');
+
+    expect(getSessionSkillBindings('web:test')).toEqual([]);
+    expect(getSessionSkillSyncState('web:test')).toBeNull();
   });
 });
 

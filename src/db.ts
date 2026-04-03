@@ -10,6 +10,8 @@ import {
   NewMessage,
   RegisteredGroup,
   ScheduledTask,
+  SessionSkillSyncState,
+  SessionSkillSyncStatus,
   TaskRunLog,
 } from './types.js';
 
@@ -77,6 +79,20 @@ function createSchema(database: Database.Database): void {
       group_folder TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
       agent_type TEXT NOT NULL DEFAULT 'deepagent'
+    );
+    CREATE TABLE IF NOT EXISTS session_skill_bindings (
+      chat_jid TEXT NOT NULL,
+      skill_name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (chat_jid, skill_name)
+    );
+    CREATE TABLE IF NOT EXISTS session_skill_sync_state (
+      chat_jid TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      last_synced_at TEXT,
+      error_message TEXT,
+      updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS registered_groups (
       jid TEXT PRIMARY KEY,
@@ -760,6 +776,103 @@ export function getAllSessions(): Record<string, SessionInfo> {
     };
   }
   return result;
+}
+
+// --- Web chat skill accessors ---
+
+export function getSessionSkillBindings(chatJid: string): string[] {
+  const rows = db
+    .prepare(
+      'SELECT skill_name FROM session_skill_bindings WHERE chat_jid = ? ORDER BY skill_name ASC',
+    )
+    .all(chatJid) as Array<{ skill_name: string }>;
+  return rows.map((row) => row.skill_name);
+}
+
+export function replaceSessionSkillBindings(
+  chatJid: string,
+  skills: string[],
+): void {
+  const now = new Date().toISOString();
+  const normalizedSkills = Array.from(new Set(skills)).sort((a, b) =>
+    a.localeCompare(b),
+  );
+
+  const deleteStmt = db.prepare(
+    'DELETE FROM session_skill_bindings WHERE chat_jid = ?',
+  );
+  const insertStmt = db.prepare(
+    `INSERT INTO session_skill_bindings (chat_jid, skill_name, created_at, updated_at)
+     VALUES (?, ?, ?, ?)`,
+  );
+
+  const tx = db.transaction((dedupedSkills: string[]) => {
+    deleteStmt.run(chatJid);
+    for (const skill of dedupedSkills) {
+      insertStmt.run(chatJid, skill, now, now);
+    }
+  });
+
+  tx(normalizedSkills);
+}
+
+export function getSessionSkillSyncState(
+  chatJid: string,
+): SessionSkillSyncState | null {
+  const row = db
+    .prepare(
+      `SELECT chat_jid, status, last_synced_at, error_message, updated_at
+       FROM session_skill_sync_state
+       WHERE chat_jid = ?`,
+    )
+    .get(chatJid) as SessionSkillSyncState | undefined;
+  return row ?? null;
+}
+
+export function setSessionSkillSyncState(
+  chatJid: string,
+  input: {
+    status: SessionSkillSyncStatus;
+    lastSyncedAt?: string | null;
+    errorMessage?: string | null;
+  },
+): void {
+  const now = new Date().toISOString();
+  const lastSyncedAt =
+    input.lastSyncedAt === undefined ? null : input.lastSyncedAt;
+  const errorMessage =
+    input.errorMessage === undefined ? null : input.errorMessage;
+
+  db.prepare(
+    `INSERT INTO session_skill_sync_state (
+       chat_jid,
+       status,
+       last_synced_at,
+       error_message,
+       updated_at
+     ) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(chat_jid) DO UPDATE SET
+       status = excluded.status,
+       last_synced_at = excluded.last_synced_at,
+       error_message = excluded.error_message,
+       updated_at = excluded.updated_at`,
+  ).run(chatJid, input.status, lastSyncedAt, errorMessage, now);
+}
+
+export function deleteSessionSkillData(chatJid: string): void {
+  const deleteBindingsStmt = db.prepare(
+    'DELETE FROM session_skill_bindings WHERE chat_jid = ?',
+  );
+  const deleteSyncStateStmt = db.prepare(
+    'DELETE FROM session_skill_sync_state WHERE chat_jid = ?',
+  );
+
+  const tx = db.transaction(() => {
+    deleteBindingsStmt.run(chatJid);
+    deleteSyncStateStmt.run(chatJid);
+  });
+
+  tx();
 }
 
 // --- Registered group accessors ---

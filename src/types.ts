@@ -76,6 +76,16 @@ export interface TaskRunLog {
   error: string | null;
 }
 
+export type SessionSkillSyncStatus = 'pending' | 'synced' | 'failed';
+
+export interface SessionSkillSyncState {
+  chat_jid: string;
+  status: SessionSkillSyncStatus;
+  last_synced_at: string | null;
+  error_message: string | null;
+  updated_at: string;
+}
+
 // --- Channel abstraction ---
 
 export interface Channel {
