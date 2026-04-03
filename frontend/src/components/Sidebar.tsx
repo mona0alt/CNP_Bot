@@ -3,7 +3,18 @@ import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
-import { LayoutDashboard, MessageSquare, Users, LogOut, Key, User, Sun, Moon } from "lucide-react";
+import {
+  LayoutDashboard,
+  MessageSquare,
+  FolderKanban,
+  Sparkles,
+  Users,
+  LogOut,
+  Key,
+  User,
+  Sun,
+  Moon,
+} from "lucide-react";
 
 export function Sidebar() {
   const location = useLocation();
@@ -21,6 +32,8 @@ export function Sidebar() {
   const links = [
     { href: "/", label: "控制台", icon: LayoutDashboard },
     { href: "/chats", label: "会话", icon: MessageSquare },
+    { href: "/skills/catalog", label: "技能目录", icon: Sparkles },
+    ...(user?.role === "admin" ? [{ href: "/skills", label: "技能管理", icon: FolderKanban }] : []),
     ...(user?.role === "admin" ? [{ href: "/users", label: "用户管理", icon: Users }] : []),
   ];
 

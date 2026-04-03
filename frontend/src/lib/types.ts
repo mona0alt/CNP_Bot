@@ -91,3 +91,24 @@ export interface SlashCommand {
   allowedTools?: string[];
   source: 'sdk' | 'custom';
 }
+
+export interface SkillCatalogItem {
+  name: string;
+  has_skill_md: boolean;
+  updated_at: string;
+}
+
+export interface SkillTreeNode {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  children?: SkillTreeNode[];
+  editable?: boolean;
+}
+
+export interface ChatSkillSelectionResponse {
+  selectedSkills: string[];
+  syncStatus: 'pending' | 'synced' | 'failed';
+  lastSyncedAt: string | null;
+  errorMessage: string | null;
+}

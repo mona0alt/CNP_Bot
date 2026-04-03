@@ -134,7 +134,7 @@ function getHealthStateClass(state: string) {
 }
 
 export function Dashboard() {
-  useAuth();
+  const { user } = useAuth();
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50 dark:bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.14),transparent_22%),linear-gradient(180deg,#020617_0%,#0f172a_50%,#111827_100%)]">
@@ -178,11 +178,19 @@ export function Dashboard() {
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
-              to="/users"
+              to="/skills/catalog"
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-100 dark:hover:bg-slate-900 dark:focus-visible:ring-offset-slate-950"
             >
-              用户管理
+              技能目录
             </Link>
+            {user?.role === "admin" && (
+              <Link
+                to="/skills"
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-100 dark:hover:bg-slate-900 dark:focus-visible:ring-offset-slate-950"
+              >
+                技能管理
+              </Link>
+            )}
           </div>
         </section>
 
