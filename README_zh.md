@@ -75,6 +75,26 @@ claude
 @Andy 加入"家庭聊天"群组
 ```
 
+### Web Skills 管理
+
+- 管理员在 `/skills` 管理全局技能库：
+  - 浏览目录树与文件内容
+  - 在线编辑并保存文本文件
+  - 新建/重命名/移动/删除文件和目录
+  - 上传 `.zip` 技能包（顶层技能目录必须包含 `SKILL.md`）
+- 所有用户可在 `/skills/catalog` 只读浏览全局技能目录。
+- 对于 Web 会话（`web:*`）：
+  - 创建会话时可选择 skills
+  - 创建后可在会话顶部 `Skills` 按钮继续修改
+  - 保存后展示同步状态（`pending` / `synced` / `failed`）
+
+存储目录：
+
+```text
+data/skills/global/      # 全局技能库
+data/skills/sessions/    # 每个会话已同步生效的技能目录
+```
+
 ## 定制
 
 没有需要学习的配置文件。直接告诉 Claude Code 您想要什么：

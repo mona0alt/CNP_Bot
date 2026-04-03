@@ -122,6 +122,25 @@ From the main channel, manage groups and tasks:
 @Assistant add group "Ops Team"
 ```
 
+### Web Skills Management
+
+- Admins manage the global skills library at `/skills`:
+  - browse/edit tree and file content
+  - create/rename/move/delete files and directories
+  - upload a `.zip` skill package (must include `SKILL.md` in the top-level skill directory)
+- All users can browse the read-only catalog at `/skills/catalog`.
+- For Web chats (`web:*`):
+  - select skills when creating a new chat
+  - update skills later from the chat header `Skills` button
+  - UI shows sync status (`pending` / `synced` / `failed`) after saving
+
+Storage layout:
+
+```text
+data/skills/global/      # global skills library
+data/skills/sessions/    # per-chat active synced skills
+```
+
 ### Slash Commands
 
 Type `/` in the chat input for autocomplete:
