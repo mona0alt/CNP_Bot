@@ -397,11 +397,22 @@ export function createJumpServerStreamAggregator() {
     return block;
   }
 
-  function resetBlock(next: Omit<JumpServerBlock, 'type' | 'id'>): JumpServerBlock {
-    blockSequence += 1;
+  function shouldReuseCurrentBlockIdForReconnect(): boolean {
+    if (!block?.id) return false;
+    return !block.target_host && (block.executions?.length ?? 0) === 0;
+  }
+
+  function resetBlock(
+    next: Omit<JumpServerBlock, 'type' | 'id'>,
+    options?: { preserveCurrentId?: boolean },
+  ): JumpServerBlock {
+    const id =
+      options?.preserveCurrentId && block?.id
+        ? block.id
+        : nextJumpServerSessionId(++blockSequence);
     block = {
       type: 'jumpserver_session',
-      id: nextJumpServerSessionId(blockSequence),
+      id,
       ...next,
     };
     return block;
@@ -430,6 +441,8 @@ export function createJumpServerStreamAggregator() {
         stage: 'connecting_jumpserver',
         status: 'calling',
         executions: [],
+      }, {
+        preserveCurrentId: shouldReuseCurrentBlockIdForReconnect(),
       });
       if (event.toolUseId) {
         pendingToolCommands.set(event.toolUseId, { command, kind: 'connect' });
@@ -444,6 +457,8 @@ export function createJumpServerStreamAggregator() {
         status: 'calling',
         target_host: targetIp,
         executions: [],
+      }, {
+        preserveCurrentId: shouldReuseCurrentBlockIdForReconnect(),
       });
       if (event.toolUseId) {
         pendingToolCommands.set(event.toolUseId, { command, kind: 'connect_and_enter' });
@@ -482,14 +497,11 @@ export function createJumpServerStreamAggregator() {
       return emit(true);
     }
 
-    if (!block) {
-      return emit(false);
-    }
-
     const target = extractTmuxTarget(command);
     const isJumpServerPane = isJumpServerPaneTarget(target);
 
     if (isTmuxCapturePaneCommand(command) && isJumpServerPane) {
+      ensureBlock();
       if (event.toolUseId) {
         pendingToolCommands.set(event.toolUseId, { command, kind: 'capture' });
       }
@@ -497,6 +509,7 @@ export function createJumpServerStreamAggregator() {
     }
 
     if (isTmuxSendKeysCommand(command) && isJumpServerPane) {
+      const hadBlock = !!block;
       if (event.toolUseId) {
         pendingToolCommands.set(event.toolUseId, { command, kind: 'send_keys' });
       }
@@ -504,6 +517,32 @@ export function createJumpServerStreamAggregator() {
       const current = ensureBlock();
       const payload = extractSendKeysPayload(command)?.trim() ?? '';
       if (!payload) return emit(true);
+
+      if (!hadBlock) {
+        if (looksLikeTargetSelection(payload) && canUpdateTargetHost(current, payload)) {
+          current.target_host = extractHostFromText(payload) ?? payload;
+          current.stage = 'sending_target';
+          current.status = 'calling';
+          return emit(true);
+        }
+
+        if (looksLikeRemoteCommand(payload)) {
+          const executions = current.executions ?? [];
+          current.executions = [
+            ...executions,
+            {
+              id: nextExecutionId(executions),
+              command: payload,
+              status: 'running',
+              started_at: new Date().toISOString(),
+            },
+          ];
+          current.stage = 'running_remote_command';
+          current.status = 'calling';
+          current.latest_output = undefined;
+          return emit(true);
+        }
+      }
 
       if (
         REMOTE_SELECTION_STAGES.has(current.stage) &&
@@ -543,6 +582,10 @@ export function createJumpServerStreamAggregator() {
       }
 
       return emit(true);
+    }
+
+    if (!block) {
+      return emit(false);
     }
 
     return emit(false);

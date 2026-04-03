@@ -372,11 +372,15 @@ export async function runContainerAgent(
         fs.symlinkSync(process.cwd(), path.join(tempWorkspace, 'project'));
       }
 
-      // Symlink skills (if exists)
-      const skillsSrc = path.join(process.cwd(), 'container', 'skills');
-      if (fs.existsSync(skillsSrc)) {
-        // This is handled by buildVolumeMounts copying to groupSessionsDir.
-        // So it's already in HOME/.claude/skills.
+      // Mirror additional mounts into the local temp workspace so the agent
+      // sees the same /workspace/extra/* layout as Docker mode.
+      const extraBase = path.join(tempWorkspace, 'extra');
+      for (const mount of mounts) {
+        if (!mount.containerPath.startsWith('/workspace/extra/')) continue;
+        const relativeExtraPath = mount.containerPath.slice('/workspace/extra/'.length);
+        const localExtraPath = path.join(extraBase, relativeExtraPath);
+        fs.mkdirSync(path.dirname(localExtraPath), { recursive: true });
+        fs.symlinkSync(mount.hostPath, localExtraPath);
       }
 
       const groupSessionsDir = path.join(

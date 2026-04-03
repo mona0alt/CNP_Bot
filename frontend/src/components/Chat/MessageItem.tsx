@@ -135,7 +135,6 @@ export function MessageItem({ message: msg }: MessageItemProps) {
             key="aggregated-thought"
             content={thoughtContent}
             isComplete={aggregatedThought.isComplete}
-            autoCollapse={true}
           />
         ) : null}
 

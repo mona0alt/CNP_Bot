@@ -657,4 +657,109 @@ describe('JumpServerStreamAggregator', () => {
       }),
     ]);
   });
+
+  it('recreates a jumpserver card after reset when a new round resumes with direct tmux commands', () => {
+    const aggregator = createJumpServerStreamAggregator();
+    aggregator.seed({
+      type: 'jumpserver_session',
+      id: 'jump-1',
+      stage: 'completed',
+      status: 'executed',
+      target_host: '10.255.37.227',
+      executions: [
+        { id: 'jumpserver-exec-1', command: 'iostat -dxm 1', status: 'completed' },
+      ],
+    });
+
+    aggregator.reset();
+
+    const toolUseResult = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-direct-tmux-1',
+      input: {
+        command:
+          'tmux -S /tmp/cnpbot-tmux-sockets/cnpbot.sock send-keys -t jumpserver:0.0 "ss -tnp | grep \':2379\' | wc -l" Enter',
+      },
+    });
+
+    expect(toolUseResult.hiddenOriginalEvent).toBe(true);
+    expect(toolUseResult.block?.type).toBe('jumpserver_session');
+    expect(toolUseResult.block?.id).not.toBe('jump-1');
+    expect(toolUseResult.block?.stage).toBe('running_remote_command');
+    expect(toolUseResult.block?.executions).toEqual([
+      expect.objectContaining({
+        id: 'jumpserver-exec-1',
+        command: "ss -tnp | grep ':2379' | wc -l",
+        status: 'running',
+      }),
+    ]);
+
+    aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-direct-tmux-capture-1',
+      input: {
+        command:
+          'tmux -S /tmp/cnpbot-tmux-sockets/cnpbot.sock capture-pane -p -J -t jumpserver:0.0 -S -200',
+      },
+    });
+
+    const captureResult = aggregator.consume({
+      type: 'tool_result',
+      toolUseId: 'tool-direct-tmux-capture-1',
+      content: '693\n[root@bd-cnp-uat01-37-227 ~]#',
+      isError: false,
+    });
+
+    expect(captureResult.hiddenOriginalEvent).toBe(true);
+    expect(captureResult.block?.stage).toBe('target_connected');
+    expect(captureResult.block?.executions?.[0]).toMatchObject({
+      command: "ss -tnp | grep ':2379' | wc -l",
+      status: 'completed',
+      output: '693\n[root@bd-cnp-uat01-37-227 ~]#',
+    });
+  });
+
+  it('reuses the same jumpserver card id when a direct tmux round later falls back to connect.sh', () => {
+    const aggregator = createJumpServerStreamAggregator();
+
+    const directTmuxResult = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-direct-tmux-before-connect',
+      input: {
+        command:
+          'tmux -S /tmp/cnpbot-tmux-sockets/cnpbot.sock capture-pane -p -J -t jumpserver:0.0 -S -200',
+      },
+    });
+
+    expect(directTmuxResult.hiddenOriginalEvent).toBe(true);
+    expect(directTmuxResult.block?.type).toBe('jumpserver_session');
+
+    const firstBlockId = directTmuxResult.block?.id;
+    expect(firstBlockId).toBeTruthy();
+
+    aggregator.consume({
+      type: 'tool_result',
+      toolUseId: 'tool-direct-tmux-before-connect',
+      content: 'Opt> 请输入资产 IP',
+      isError: false,
+    });
+
+    const connectResult = aggregator.consume({
+      type: 'tool_use',
+      name: 'Bash',
+      toolUseId: 'tool-connect-after-direct-tmux',
+      input: {
+        command:
+          'bash /home/node/.claude/skills/jumpserver/scripts/connect.sh',
+      },
+    });
+
+    expect(connectResult.hiddenOriginalEvent).toBe(true);
+    expect(connectResult.block?.id).toBe(firstBlockId);
+    expect(connectResult.block?.stage).toBe('connecting_jumpserver');
+    expect(connectResult.block?.executions).toEqual([]);
+  });
 });
