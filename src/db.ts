@@ -875,6 +875,35 @@ export function deleteSessionSkillData(chatJid: string): void {
   tx();
 }
 
+export function getChatJidsBoundToSkill(skillName: string): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT chat_jid
+       FROM session_skill_bindings
+       WHERE skill_name = ?
+       ORDER BY chat_jid ASC`,
+    )
+    .all(skillName) as Array<{ chat_jid: string }>;
+  return rows.map((row) => row.chat_jid);
+}
+
+export function renameBoundSkill(oldName: string, newName: string): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE session_skill_bindings
+     SET skill_name = ?, updated_at = ?
+     WHERE skill_name = ?`,
+  ).run(newName, now, oldName);
+}
+
+export function removeSkillFromAllChats(skillName: string): string[] {
+  const affectedChatJids = getChatJidsBoundToSkill(skillName);
+  db.prepare('DELETE FROM session_skill_bindings WHERE skill_name = ?').run(
+    skillName,
+  );
+  return affectedChatJids;
+}
+
 // --- Registered group accessors ---
 
 export function getRegisteredGroup(

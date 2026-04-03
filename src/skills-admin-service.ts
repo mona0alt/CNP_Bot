@@ -1,0 +1,169 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { pipeline } from 'stream/promises';
+
+import unzipper from 'unzipper';
+
+import {
+  getChatJidsBoundToSkill,
+  removeSkillFromAllChats,
+  renameBoundSkill,
+  setSessionSkillSyncState,
+} from './db.js';
+import { GLOBAL_SKILLS_DIR } from './config.js';
+import { deleteGlobalSkillEntry, moveGlobalSkillEntry } from './skills-store.js';
+
+function getGlobalRootDir(rootDir?: string): string {
+  const resolved = rootDir ?? GLOBAL_SKILLS_DIR;
+  fs.mkdirSync(resolved, { recursive: true });
+  return resolved;
+}
+
+function getTopLevelSkillEntry(extractDir: string): { name: string; fullPath: string } {
+  const entries = fs
+    .readdirSync(extractDir, { withFileTypes: true })
+    .filter((entry) => !entry.name.startsWith('.'));
+
+  if (entries.length !== 1 || !entries[0]?.isDirectory()) {
+    throw new Error('Zip must contain exactly one top-level skill directory');
+  }
+
+  const skillName = entries[0].name;
+  const fullPath = path.join(extractDir, skillName);
+  if (!fs.existsSync(path.join(fullPath, 'SKILL.md'))) {
+    throw new Error('Imported skill must include SKILL.md');
+  }
+
+  return { name: skillName, fullPath };
+}
+
+function assertTopLevelPath(relativePath: string): string {
+  const normalized = path.posix.normalize(relativePath).replace(/\/+$/, '');
+  if (
+    !normalized ||
+    normalized === '.' ||
+    normalized === '..' ||
+    normalized.includes('/') ||
+    normalized.includes('\\')
+  ) {
+    throw new Error('Expected a top-level skill directory path');
+  }
+  return normalized;
+}
+
+async function extractZipToDirectory(
+  zipPath: string,
+  extractDir: string,
+): Promise<void> {
+  const directory = await unzipper.Open.file(zipPath);
+
+  for (const entry of directory.files) {
+    const normalizedPath = path.posix.normalize(entry.path);
+    if (
+      !normalizedPath ||
+      normalizedPath === '.' ||
+      normalizedPath.startsWith('../') ||
+      normalizedPath.includes('/../')
+    ) {
+      throw new Error('Zip contains unsafe entry path');
+    }
+
+    const destinationPath = path.join(
+      extractDir,
+      ...normalizedPath.split('/'),
+    );
+    const relative = path.relative(extractDir, destinationPath);
+    if (
+      relative === '..' ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    ) {
+      throw new Error('Zip contains unsafe entry path');
+    }
+
+    if (entry.type === 'Directory') {
+      fs.mkdirSync(destinationPath, { recursive: true });
+      continue;
+    }
+
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    await pipeline(entry.stream(), fs.createWriteStream(destinationPath));
+  }
+}
+
+async function resyncActiveChats(
+  affectedChatJids: string[],
+  isChatActive?: (chatJid: string) => boolean,
+  syncChatSkills?: (chatJid: string) => Promise<void>,
+): Promise<void> {
+  for (const chatJid of affectedChatJids) {
+    setSessionSkillSyncState(chatJid, { status: 'pending' });
+    if (isChatActive?.(chatJid)) {
+      await syncChatSkills?.(chatJid);
+    }
+  }
+}
+
+export async function importGlobalSkillZip(input: {
+  zipPath: string;
+  globalRootDir?: string;
+}): Promise<{ skillName: string }> {
+  const globalRootDir = getGlobalRootDir(input.globalRootDir);
+  const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-import-'));
+
+  try {
+    await extractZipToDirectory(input.zipPath, extractDir);
+
+    const { name: skillName, fullPath } = getTopLevelSkillEntry(extractDir);
+    const destinationPath = path.join(globalRootDir, skillName);
+
+    if (fs.existsSync(destinationPath)) {
+      throw new Error(`Skill "${skillName}" already exists`);
+    }
+
+    fs.renameSync(fullPath, destinationPath);
+    return { skillName };
+  } finally {
+    fs.rmSync(extractDir, { recursive: true, force: true });
+  }
+}
+
+export async function renameGlobalSkillAndRebind(input: {
+  fromPath: string;
+  toPath: string;
+  globalRootDir?: string;
+  isChatActive?: (chatJid: string) => boolean;
+  syncChatSkills?: (chatJid: string) => Promise<void>;
+}): Promise<void> {
+  const globalRootDir = getGlobalRootDir(input.globalRootDir);
+  const oldName = assertTopLevelPath(input.fromPath);
+  const newName = assertTopLevelPath(input.toPath);
+  const affectedChatJids = getChatJidsBoundToSkill(oldName);
+
+  moveGlobalSkillEntry(oldName, newName, globalRootDir);
+  renameBoundSkill(oldName, newName);
+  await resyncActiveChats(
+    affectedChatJids,
+    input.isChatActive,
+    input.syncChatSkills,
+  );
+}
+
+export async function deleteGlobalSkillAndRebind(input: {
+  relativePath: string;
+  globalRootDir?: string;
+  isChatActive?: (chatJid: string) => boolean;
+  syncChatSkills?: (chatJid: string) => Promise<void>;
+}): Promise<void> {
+  const globalRootDir = getGlobalRootDir(input.globalRootDir);
+  const skillName = assertTopLevelPath(input.relativePath);
+
+  deleteGlobalSkillEntry(skillName, globalRootDir);
+  const affectedChatJids = removeSkillFromAllChats(skillName);
+  await resyncActiveChats(
+    affectedChatJids,
+    input.isChatActive,
+    input.syncChatSkills,
+  );
+}
