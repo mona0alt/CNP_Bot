@@ -77,7 +77,6 @@ describe("SkillTree interactions", () => {
 
   it("creates node from context menu", async () => {
     const onCreate = vi.fn(async () => {});
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("new-script.sh");
 
     await act(async () => {
       root.render(
@@ -109,7 +108,38 @@ describe("SkillTree interactions", () => {
       createFileAction!.click();
     });
 
-    expect(promptSpy).toHaveBeenCalled();
+    // Wait for dialog to render
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Dialog should now be open
+    const dialog = container.querySelector('[role="dialog"]') as HTMLDivElement | null;
+    expect(dialog).not.toBeNull();
+
+    // Type in the input using focus + input event
+    const input = dialog!.querySelector('input[type="text"]') as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+
+    // Focus and type to trigger React onChange
+    await act(async () => {
+      input!.focus();
+    });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'new-script.sh');
+      input!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // Click confirm button
+    const confirmButton = Array.from(dialog!.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("确认"),
+    ) as HTMLButtonElement | undefined;
+    expect(confirmButton).not.toBeUndefined();
+
+    await act(async () => {
+      confirmButton!.click();
+    });
+
     expect(onCreate).toHaveBeenCalledWith("tmux/scripts", "file", "new-script.sh");
   });
 

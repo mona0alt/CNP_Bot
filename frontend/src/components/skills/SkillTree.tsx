@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, FileText, FolderClosed, FolderOpen } from "l
 
 import type { SkillTreeNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { RenameDialog } from "./RenameDialog";
 
 interface SkillTreeProps {
   nodes: SkillTreeNode[];
@@ -117,35 +118,60 @@ function TreeNode({
           await onDrop(node);
         }}
         className={cn(
-          "group relative flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-          isActive ? "bg-primary/15 text-foreground ring-1 ring-primary/30" : "hover:bg-muted/70",
-          isDropTarget && editable && "bg-blue-100 ring-1 ring-blue-400 dark:bg-blue-950/40",
-          isDragSource && editable && "opacity-50",
+          "group relative flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-all duration-200",
+          isActive ? "bg-primary/10 text-foreground ring-1 ring-primary/20" : "hover:bg-muted/80",
+          isDropTarget && editable && "bg-blue-500/10 ring-1 ring-blue-400/40",
+          isDragSource && editable && "opacity-40",
         )}
-        style={{ paddingLeft: `${depth * 18 + 8}px` }}
+        style={{ paddingLeft: `${depth * 20 + 12}px` }}
       >
+        {/* Indentation guide line */}
+        {depth > 0 && (
+          <div
+            className="absolute bottom-0 top-0 w-px bg-border/40"
+            style={{ left: `${(depth - 1) * 20 + 12}px` }}
+          />
+        )}
+
         {isDirectory ? (
           <span
-            className="inline-flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+            className="inline-flex h-5 w-5 items-center justify-center rounded-md transition-colors hover:bg-muted"
             onClick={(event) => {
               event.stopPropagation();
               onToggleExpand(node.path);
             }}
           >
-            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            {isExpanded ? (
+              <ChevronDown size={16} className="text-primary" />
+            ) : (
+              <ChevronRight size={16} className="text-muted-foreground" />
+            )}
           </span>
         ) : (
-          <span className="inline-flex h-4 w-4" />
+          <span className="inline-flex h-5 w-5" />
         )}
 
-        <span className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground">
+        {/* File/Folder icon with color coding */}
+        <span className={cn(
+          "inline-flex h-6 w-6 items-center justify-center rounded-lg transition-all duration-200",
+          isActive ? "bg-primary/15" : "group-hover:bg-muted",
+        )}>
           {isDirectory ? (
-            isExpanded ? <FolderOpen size={14} /> : <FolderClosed size={14} />
+            isExpanded ? (
+              <FolderOpen size={18} className="text-amber-500" />
+            ) : (
+              <FolderClosed size={18} className="text-amber-400" />
+            )
           ) : (
-            <FileText size={14} />
+            <FileText size={18} className="text-sky-400/80" />
           )}
         </span>
-        <span className="truncate font-mono">{node.name}</span>
+        <span className={cn(
+          "truncate font-mono text-sm",
+          isActive ? "text-foreground font-medium" : "text-muted-foreground"
+        )}>
+          {node.name}
+        </span>
       </div>
 
       {isDirectory && hasChildren && isExpanded && (
@@ -190,6 +216,11 @@ export function SkillTree({
   const [dragSourcePath, setDragSourcePath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
 
+  // Dialog state
+  const [dialogType, setDialogType] = useState<'file' | 'directory' | 'rename' | null>(null);
+  const [dialogValue, setDialogValue] = useState('');
+  const [dialogNode, setDialogNode] = useState<SkillTreeNode | null>(null);
+
   const directoryPaths = useMemo(() => getDirectories(nodes), [nodes]);
 
   useEffect(() => {
@@ -231,13 +262,61 @@ export function SkillTree({
     await onMove(dragSourcePath, nextPath);
   };
 
+  const openFileDialog = (parentPath: string) => {
+    setDialogType('file');
+    setDialogValue('');
+    setDialogNode({ path: parentPath, name: '', type: 'directory' } as SkillTreeNode);
+    setContextMenu(null);
+  };
+
+  const openDirectoryDialog = (parentPath: string) => {
+    setDialogType('directory');
+    setDialogValue('');
+    setDialogNode({ path: parentPath, name: '', type: 'directory' } as SkillTreeNode);
+    setContextMenu(null);
+  };
+
+  const openRenameDialog = (node: SkillTreeNode) => {
+    const currentName = node.path.split("/").filter(Boolean).at(-1) ?? "";
+    setDialogType('rename');
+    setDialogValue(currentName);
+    setDialogNode(node);
+    setContextMenu(null);
+  };
+
+  const handleDialogConfirm = async (value: string) => {
+    if (!dialogType || !dialogNode) return;
+
+    if (dialogType === 'file') {
+      const parentPath = dialogNode.type === 'directory' ? dialogNode.path : getParentPath(dialogNode.path);
+      await onCreate(parentPath, 'file', value);
+    } else if (dialogType === 'directory') {
+      const parentPath = dialogNode.type === 'directory' ? dialogNode.path : getParentPath(dialogNode.path);
+      await onCreate(parentPath, 'directory', value);
+    } else if (dialogType === 'rename') {
+      const parentPath = getParentPath(dialogNode.path);
+      await onRename(dialogNode.path, joinPath(parentPath, value));
+    }
+
+    setDialogType(null);
+    setDialogValue('');
+    setDialogNode(null);
+  };
+
   if (!nodes.length) {
-    return <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">暂无技能目录</div>;
+    return (
+      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed bg-muted/20 py-12 text-center">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-3 text-muted-foreground/30">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+        </svg>
+        <p className="text-sm text-muted-foreground/60">暂无技能目录</p>
+      </div>
+    );
   }
 
   return (
-    <div className="relative">
-      <ul className="space-y-0.5">
+    <div className="relative py-1">
+      <ul className="space-y-1">
         {nodes.map((node) => (
           <TreeNode
             key={node.path}
@@ -268,59 +347,96 @@ export function SkillTree({
       </ul>
 
       {contextMenu && editable && (
-        <div
-          className="fixed z-50 min-w-[160px] rounded-md border bg-popover p-1 shadow-lg"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <button
-            type="button"
-            className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-            onClick={() => {
-              const parentPath =
-                contextMenu.node.type === "directory"
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setContextMenu(null)}
+          />
+          {/* Menu panel */}
+          <div
+            className="context-menu-panel"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="context-menu-item w-full"
+              onClick={() => {
+                const parentPath = contextMenu.node.type === "directory"
                   ? contextMenu.node.path
                   : getParentPath(contextMenu.node.path);
-              const name = window.prompt("请输入文件名");
-              setContextMenu(null);
-              if (!name) return;
-              void onCreate(parentPath, "file", name.trim());
-            }}
-          >
-            新建文件
-          </button>
-          <button
-            type="button"
-            className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-            onClick={() => {
-              const parentPath =
-                contextMenu.node.type === "directory"
+                openFileDialog(parentPath);
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="12" y1="18" x2="12" y2="12" />
+                <line x1="9" y1="15" x2="15" y2="15" />
+              </svg>
+              新建文件
+            </button>
+            <button
+              type="button"
+              className="context-menu-item w-full"
+              onClick={() => {
+                const parentPath = contextMenu.node.type === "directory"
                   ? contextMenu.node.path
                   : getParentPath(contextMenu.node.path);
-              const name = window.prompt("请输入目录名");
-              setContextMenu(null);
-              if (!name) return;
-              void onCreate(parentPath, "directory", name.trim());
-            }}
-          >
-            新建目录
-          </button>
-          <button
-            type="button"
-            className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-            onClick={() => {
-              const currentName = contextMenu.node.path.split("/").filter(Boolean).at(-1) ?? "";
-              const parentPath = getParentPath(contextMenu.node.path);
-              const nextName = window.prompt("请输入新名称", currentName)?.trim();
-              setContextMenu(null);
-              if (!nextName || nextName === currentName) return;
-              void onRename(contextMenu.node.path, joinPath(parentPath, nextName));
-            }}
-          >
-            重命名
-          </button>
-        </div>
+                openDirectoryDialog(parentPath);
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                <line x1="12" y1="11" x2="12" y2="17" />
+                <line x1="9" y1="14" x2="15" y2="14" />
+              </svg>
+              新建目录
+            </button>
+            <div className="context-menu-separator" />
+            <button
+              type="button"
+              className="context-menu-item w-full"
+              onClick={() => openRenameDialog(contextMenu.node)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+              重命名
+            </button>
+          </div>
+        </>
       )}
+
+      {/* Dialogs */}
+      <RenameDialog
+        open={dialogType === 'file'}
+        title="新建文件"
+        label="文件名"
+        placeholder="请输入文件名"
+        initialValue=""
+        onConfirm={(name) => handleDialogConfirm(name)}
+        onCancel={() => { setDialogType(null); setDialogNode(null); }}
+      />
+      <RenameDialog
+        open={dialogType === 'directory'}
+        title="新建目录"
+        label="目录名"
+        placeholder="请输入目录名"
+        initialValue=""
+        onConfirm={(name) => handleDialogConfirm(name)}
+        onCancel={() => { setDialogType(null); setDialogNode(null); }}
+      />
+      <RenameDialog
+        open={dialogType === 'rename'}
+        title="重命名"
+        label="新名称"
+        placeholder="请输入新名称"
+        initialValue={dialogValue}
+        onConfirm={(name) => handleDialogConfirm(name)}
+        onCancel={() => { setDialogType(null); setDialogNode(null); }}
+      />
     </div>
   );
 }

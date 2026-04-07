@@ -96,6 +96,7 @@ export interface SkillCatalogItem {
   name: string;
   has_skill_md: boolean;
   updated_at: string;
+  summary?: string;
 }
 
 export interface SkillTreeNode {

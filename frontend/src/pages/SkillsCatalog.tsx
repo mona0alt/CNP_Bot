@@ -3,6 +3,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import type { SkillCatalogItem } from "@/lib/types";
 import { SkillMarkdownPreview } from "@/components/skills/SkillMarkdownPreview";
 
+function extractSummary(content: string | null | undefined): string {
+  if (!content) return '';
+  const lines = content.split('\n').filter(l => l.trim().length > 0).slice(0, 3);
+  const text = lines.join(' ').trim();
+  return text.length > 150 ? text.slice(0, 147) + '...' : text;
+}
+
 export function SkillsCatalog() {
   const { token, logout } = useAuth();
   const [skills, setSkills] = useState<SkillCatalogItem[]>([]);
@@ -33,7 +40,22 @@ export function SkillsCatalog() {
         throw new Error("加载技能目录失败");
       }
       const data = await res.json();
-      setSkills(Array.isArray(data) ? data : []);
+      const rawSkills: SkillCatalogItem[] = Array.isArray(data) ? data : [];
+
+      // 并行预抓取每个 skill 的 SKILL.md 概要
+      const summaryPromises = rawSkills.map(skill =>
+        fetch(`/api/skills/catalog/file?path=${encodeURIComponent(skill.name + '/SKILL.md')}`, { headers: authHeaders })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => ({
+            name: skill.name,
+            has_skill_md: skill.has_skill_md,
+            updated_at: skill.updated_at,
+            summary: extractSummary(data?.content)
+          }))
+          .catch(() => ({ ...skill, summary: '' }))
+      );
+      const skillsWithSummary = await Promise.all(summaryPromises);
+      setSkills(skillsWithSummary);
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载技能目录失败");
     } finally {
@@ -70,7 +92,7 @@ export function SkillsCatalog() {
             <SkillMarkdownPreview
               key={skill.name}
               title={`${skill.name} · ${new Date(skill.updated_at).toLocaleString()}`}
-              content={`# ${skill.name}\n\n- 包含 SKILL.md: ${skill.has_skill_md ? "是" : "否"}\n- 仅支持只读浏览\n- 可在会话创建和会话设置中启用`}
+              content={skill.summary ? `# ${skill.name}\n\n${skill.summary}` : `# ${skill.name}\n\n暂无概要`}
             />
           ))}
         </div>

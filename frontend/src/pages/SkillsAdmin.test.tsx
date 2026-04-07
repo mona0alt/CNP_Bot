@@ -74,6 +74,13 @@ describe("Skills pages", () => {
           editable: true,
         });
       }
+      if (url.includes(`/api/skills/file?path=${encodeURIComponent('tmux/SKILL.md')}`)) {
+        return createJsonResponse({
+          path: "tmux/SKILL.md",
+          content: "# tmux skill summary\nLine 2 of summary\nLine 3 of summary",
+          editable: true,
+        });
+      }
       throw new Error(`Unhandled fetch url: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -86,7 +93,7 @@ describe("Skills pages", () => {
     const skillCard = container.querySelector('[data-testid="skill-card-tmux"]') as HTMLButtonElement | null;
     expect(skillCard).not.toBeNull();
     await act(async () => {
-      skillCard!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      skillCard!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
 
@@ -120,6 +127,13 @@ describe("Skills pages", () => {
           editable: true,
         });
       }
+      if (url.includes(`/api/skills/file?path=${encodeURIComponent('tmux/SKILL.md')}`)) {
+        return createJsonResponse({
+          path: "tmux/SKILL.md",
+          content: "# tmux skill summary\nLine 2 of summary\nLine 3 of summary",
+          editable: true,
+        });
+      }
       if (url.endsWith("/api/skills/file") && method === "PUT") {
         return createJsonResponse({ success: true });
       }
@@ -135,7 +149,7 @@ describe("Skills pages", () => {
     const skillCard = container.querySelector('[data-testid="skill-card-tmux"]') as HTMLButtonElement | null;
     expect(skillCard).not.toBeNull();
     await act(async () => {
-      skillCard!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      skillCard!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
 
@@ -145,7 +159,7 @@ describe("Skills pages", () => {
     expect(fileButton).not.toBeNull();
 
     await act(async () => {
-      fileButton!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      fileButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
 
@@ -255,6 +269,13 @@ describe("Skills pages", () => {
           editable: false,
         });
       }
+      if (url.includes(`/api/skills/catalog/file?path=${encodeURIComponent('prometheus/SKILL.md')}`)) {
+        return createJsonResponse({
+          path: "prometheus/SKILL.md",
+          content: "# prometheus skill\nDescription line 2\nLine 3",
+          editable: false,
+        });
+      }
       throw new Error(`Unhandled fetch url: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -273,7 +294,7 @@ describe("Skills pages", () => {
     expect(skillCard).not.toBeNull();
 
     await act(async () => {
-      skillCard!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      skillCard!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
 
@@ -313,6 +334,13 @@ describe("Skills pages", () => {
           editable: true,
         });
       }
+      if (url.includes(`/api/skills/file?path=${encodeURIComponent('tmux/SKILL.md')}`)) {
+        return createJsonResponse({
+          path: "tmux/SKILL.md",
+          content: "# tmux skill summary\nLine 2 of summary\nLine 3 of summary",
+          editable: true,
+        });
+      }
       if (url.endsWith("/api/skills/file") && method === "PUT") {
         return createJsonResponse({ success: true });
       }
@@ -328,10 +356,10 @@ describe("Skills pages", () => {
     const skillCard = container.querySelector('[data-testid="skill-card-tmux"]') as HTMLButtonElement | null;
     expect(skillCard).not.toBeNull();
     await act(async () => {
-      skillCard!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      skillCard!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
-    expect(container.querySelector('[data-testid="skill-drawer-exit"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="关闭技能详情"]')).not.toBeNull();
 
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
     expect(textarea).not.toBeNull();
@@ -359,19 +387,19 @@ describe("Skills pages", () => {
     expect(saveCall).toBeTruthy();
 
     await act(async () => {
-      skillCard!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      skillCard!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
-    expect(container.querySelector('[data-testid="skill-drawer-exit"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="关闭技能详情"]')).not.toBeNull();
 
     const exitButton = container.querySelector(
-      '[data-testid="skill-drawer-exit"]',
+      '[aria-label="关闭技能详情"]',
     ) as HTMLButtonElement | null;
     expect(exitButton).not.toBeNull();
     await act(async () => {
       exitButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
-    expect(container.querySelector('[data-testid="skill-drawer-exit"]')).toBeNull();
+    expect(container.querySelector('[aria-label="关闭技能详情"]')).toBeNull();
   });
 });

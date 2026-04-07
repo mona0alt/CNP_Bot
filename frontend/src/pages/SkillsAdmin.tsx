@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 
+import { DeleteSkillDialog } from "@/components/skills/DeleteSkillDialog";
 import { SkillFileEditor } from "@/components/skills/SkillFileEditor";
 import { SkillTree } from "@/components/skills/SkillTree";
 import { ZipUploadDialog } from "@/components/skills/ZipUploadDialog";
@@ -20,6 +21,13 @@ function flattenTree(nodes: SkillTreeNode[]): SkillTreeNode[] {
 
 function rootFromPath(targetPath: string): string {
   return targetPath.split("/").filter(Boolean)[0] ?? "";
+}
+
+function extractSummary(content: string | null | undefined): string {
+  if (!content) return '';
+  const lines = content.split('\n').filter(l => l.trim().length > 0).slice(0, 3);
+  const text = lines.join(' ').trim();
+  return text.length > 150 ? text.slice(0, 147) + '...' : text;
 }
 
 export function SkillsAdmin() {
@@ -43,6 +51,7 @@ export function SkillsAdmin() {
   const [isSaving, setIsSaving] = useState(false);
   const [isMutatingFs, setIsMutatingFs] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const authHeaders = useMemo<HeadersInit | undefined>(() => {
     if (!token) return undefined;
@@ -82,7 +91,21 @@ export function SkillsAdmin() {
       throw new Error("加载技能列表失败");
     }
     const data = await res.json();
-    setSkills(Array.isArray(data) ? data : []);
+    const rawSkills = Array.isArray(data) ? data : [];
+    // 并行预抓取每个 skill 的 SKILL.md 概要
+    const summaryPromises = rawSkills.map(skill =>
+      fetch(`${isAdmin ? "/api/skills/file" : "/api/skills/catalog/file"}?path=${encodeURIComponent(skill.name + '/SKILL.md')}`, { headers: authHeaders })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => ({
+          name: skill.name,
+          has_skill_md: skill.has_skill_md,
+          updated_at: skill.updated_at,
+          summary: extractSummary(data?.content)
+        }))
+        .catch(() => ({ ...skill, summary: '' }))
+    );
+    const skillsWithSummary = await Promise.all(summaryPromises);
+    setSkills(skillsWithSummary);
   }, [authHeaders, handleUnauthorized, isAdmin, token]);
 
   const loadSkillTree = useCallback(
@@ -358,13 +381,43 @@ export function SkillsAdmin() {
     [authHeaders, handleUnauthorized, isAdmin, loadSkillsList, token],
   );
 
-  const handleNodeSelect = (node: SkillTreeNode) => {
+  const handleDeleteSkill = useCallback(async () => {
+    if (!isAdmin || !token || !activeSkill) return;
+    try {
+      const res = await fetch(`/api/skills/fs?path=${encodeURIComponent(activeSkill)}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      });
+      if (res.status === 401 || res.status === 403) {
+        await handleUnauthorized();
+        return;
+      }
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({ error: "删除失败" }));
+        throw new Error(payload.error || "删除失败");
+      }
+      setShowDeleteDialog(false);
+      closeDrawer(true);
+      await loadSkillsList();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    }
+  }, [activeSkill, authHeaders, handleUnauthorized, isAdmin, loadSkillsList, token]);
+
+  const handleNodeSelect = async (node: SkillTreeNode) => {
     setSelectedPath(node.path);
     if (node.type === "directory") {
       setFileContent("");
       setOriginContent("");
       setSelectedEditable(false);
       setFileError("");
+    } else {
+      // Single-click on file loads content into preview
+      try {
+        await loadFile(node.path);
+      } catch (err) {
+        setFileError(err instanceof Error ? err.message : "读取文件失败");
+      }
     }
   };
 
@@ -393,7 +446,7 @@ export function SkillsAdmin() {
         <div>
           <h1 className="text-2xl font-semibold">技能</h1>
           <p className="text-sm text-muted-foreground">
-            双击技能进入详情侧栏，{isAdmin ? "可进行增删改查" : "普通用户仅可查看文件列表与内容"}
+            单击技能卡片进入详情侧栏，{isAdmin ? "可进行增删改查" : "普通用户仅可查看文件列表与内容"}
           </p>
         </div>
         {isAdmin && (
@@ -418,26 +471,54 @@ export function SkillsAdmin() {
           当前没有可用技能
         </div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {skills.map((skill) => (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {skills.map((skill, index) => (
             <button
               key={skill.name}
               type="button"
               data-testid={`skill-card-${skill.name}`}
-              onDoubleClick={() => void handleOpenSkill(skill.name)}
-              className={`cursor-pointer rounded-lg border p-4 text-left transition-colors ${
-                activeSkill === skill.name ? "border-primary bg-primary/5" : "hover:bg-muted/70"
-              }`}
+              onClick={() => void handleOpenSkill(skill.name)}
+              className="skill-card group relative cursor-pointer rounded-xl border bg-card p-5 text-left transition-all duration-300 ease-out"
+              style={{ animationDelay: `${index * 50}ms` }}
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold">{skill.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(skill.updated_at).toLocaleDateString()}
-                </span>
+              {/* Glow effect on hover */}
+              <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+
+              {/* Active state indicator */}
+              {activeSkill === skill.name && (
+                <div className="absolute inset-0 rounded-xl ring-2 ring-primary/30" />
+              )}
+
+              <div className="relative flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  {/* Skill name with icon */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 text-primary">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                        <polyline points="2 17 12 22 22 17" />
+                        <polyline points="2 12 12 17 22 12" />
+                      </svg>
+                    </div>
+                    <span className="font-brand truncate text-base font-semibold tracking-tight">{skill.name}</span>
+                  </div>
+
+                  {/* Summary text */}
+                  <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-muted-foreground/80">
+                    {skill.summary || '暂无概要'}
+                  </p>
+                </div>
+
+                {/* Date badge */}
+                <div className="shrink-0">
+                  <span className="inline-flex items-center rounded-full bg-muted/50 px-2 py-1 text-xs font-medium text-muted-foreground tabular-nums">
+                    {new Date(skill.updated_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                双击进入技能详情
-              </p>
+
+              {/* Bottom accent line */}
+              <div className="mt-4 h-px bg-gradient-to-r from-transparent via-border to-transparent opacity-60 transition-opacity duration-300 group-hover:opacity-100" />
             </button>
           ))}
         </div>
@@ -448,51 +529,95 @@ export function SkillsAdmin() {
           <button
             type="button"
             aria-label="close-skill-drawer-backdrop"
-            className="fixed inset-0 z-40 bg-black/20"
+            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]"
             onClick={() => closeDrawer(false)}
           />
-          <aside className="fixed inset-y-0 right-0 z-50 flex h-screen w-full flex-col border-l bg-background shadow-2xl lg:w-[calc(100vw-72px)]">
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <div>
-                <h2 className="text-lg font-semibold">技能详情 · {activeSkill}</h2>
-                <p className="text-xs text-muted-foreground">
-                  {isAdmin ? "管理员模式：可编辑" : "只读模式"}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {isAdmin && (
+          <aside className="fixed inset-y-0 right-0 z-50 flex h-screen w-full flex-col border-l bg-background/95 shadow-2xl backdrop-blur-xl lg:w-[calc(100vw-72px)]">
+            {/* Enhanced Header */}
+            <div className="relative border-b">
+              {/* Gradient accent bar */}
+              <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/50 via-primary to-primary/50" />
+
+              <div className="flex items-center justify-between px-6 py-4">
+                <div className="flex items-center gap-4">
+                  {/* Skill icon */}
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary shadow-sm ring-1 ring-primary/10">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                      <polyline points="2 17 12 22 22 17" />
+                      <polyline points="2 12 12 17 22 12" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="font-brand text-xl font-semibold tracking-tight">{activeSkill}</h2>
+                    <p className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
+                      {isAdmin ? (
+                        <>
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            管理员模式
+                          </span>
+                          <span className="text-muted-foreground/60">·</span>
+                          <span className="text-xs">可编辑</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            只读模式
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setShowDeleteDialog(true)}
+                        className="rounded-xl border border-red-200/50 px-4 py-2 text-sm font-medium text-red-500 transition-all hover:bg-red-500/10"
+                      >
+                        <span className="flex items-center gap-2">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                          删除技能
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveAndClose()}
+                        disabled={isSaving}
+                        className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:shadow-xl hover:shadow-primary/30 disabled:opacity-50"
+                      >
+                        保存并退出
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
-                    onClick={() => void handleSaveAndClose()}
-                    disabled={isSaving}
-                    className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+                    aria-label="关闭技能详情"
+                    onClick={() => closeDrawer(false)}
+                    className="rounded-xl border p-2 transition-all hover:bg-muted"
                   >
-                    保存并退出
+                    <X size={18} />
                   </button>
-                )}
-                <button
-                  type="button"
-                  data-testid="skill-drawer-exit"
-                  onClick={() => closeDrawer(false)}
-                  className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-                >
-                  退出
-                </button>
-                <button
-                  type="button"
-                  aria-label="关闭技能详情"
-                  onClick={() => closeDrawer(false)}
-                  className="rounded-md border p-1.5 hover:bg-muted"
-                >
-                  <X size={16} />
-                </button>
+                </div>
               </div>
             </div>
 
             <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[380px_minmax(0,1fr)]">
-              <section className="flex min-h-0 flex-col gap-3 rounded-lg border bg-card p-3">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">文件列表</h3>
-                <div className="min-h-0 flex-1 overflow-auto rounded-md border p-2">
+              <section className="flex min-h-0 flex-col gap-3 rounded-2xl border bg-card/50 p-4 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">文件列表</h3>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto rounded-xl border bg-background/80 p-3">
                   {treeLoading ? (
                     <div className="p-3 text-sm text-muted-foreground">加载文件树中...</div>
                   ) : (
@@ -519,18 +644,25 @@ export function SkillsAdmin() {
                     type="button"
                     onClick={() => void handleDeleteSelected()}
                     disabled={!selectedPath || isMutatingFs}
-                    className="rounded-md border px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60"
+                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-red-200/50 px-4 py-2.5 text-sm font-medium text-red-500 transition-all hover:bg-red-500/10 disabled:opacity-50"
                   >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
                     删除当前节点
                   </button>
                 )}
               </section>
 
-              <section className="min-h-0 rounded-lg border bg-card p-3">
+              <section className="min-h-0 rounded-2xl border bg-card/50 p-4 shadow-sm">
                 {selectedNode?.type === "directory" ? (
-                  <div className="h-full rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                    当前选中目录：<span className="font-mono">{selectedNode.path}</span>
-                    <p className="mt-2">双击目录可尝试打开该目录下的 SKILL.md。</p>
+                  <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed bg-muted/20 p-8 text-center">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-4 text-muted-foreground/40">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                    <p className="text-sm font-medium text-muted-foreground">{selectedNode.path}</p>
+                    <p className="mt-2 text-xs text-muted-foreground/60">双击目录可打开该目录下的 SKILL.md</p>
                   </div>
                 ) : (
                   <SkillFileEditor
@@ -555,6 +687,13 @@ export function SkillsAdmin() {
         open={showUploadDialog}
         onClose={() => setShowUploadDialog(false)}
         onUpload={handleUploadZip}
+      />
+
+      <DeleteSkillDialog
+        open={showDeleteDialog}
+        skillName={activeSkill ?? ""}
+        onConfirm={() => void handleDeleteSkill()}
+        onCancel={() => setShowDeleteDialog(false)}
       />
     </div>
   );

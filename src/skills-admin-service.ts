@@ -30,7 +30,7 @@ function deriveSkillNameFromZipPath(zipPath: string): string {
 
 function getTopLevelSkillEntry(
   extractDir: string,
-  zipPath: string,
+  originalName: string,
 ): { name: string; fullPath: string } {
   const entries = fs
     .readdirSync(extractDir, { withFileTypes: true })
@@ -51,7 +51,7 @@ function getTopLevelSkillEntry(
     throw new Error('Imported skill must include SKILL.md');
   }
 
-  const skillName = deriveSkillNameFromZipPath(zipPath);
+  const skillName = deriveSkillNameFromZipPath(originalName);
   const fullPath = path.join(extractDir, skillName);
   if (fs.existsSync(fullPath)) {
     throw new Error(`Zip root entry conflicts with skill name "${skillName}"`);
@@ -155,6 +155,7 @@ async function resyncActiveChats(
 export async function importGlobalSkillZip(input: {
   zipPath: string;
   globalRootDir?: string;
+  originalName?: string;
 }): Promise<{ skillName: string }> {
   const globalRootDir = getGlobalRootDir(input.globalRootDir);
   const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-import-'));
@@ -164,7 +165,7 @@ export async function importGlobalSkillZip(input: {
 
     const { name: skillName, fullPath } = getTopLevelSkillEntry(
       extractDir,
-      input.zipPath,
+      input.originalName ?? input.zipPath,
     );
     const destinationPath = path.join(globalRootDir, skillName);
 

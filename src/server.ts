@@ -537,6 +537,7 @@ export function createApp(opts: ServerOpts = {}): AppContext {
         const result = await importGlobalSkillZip({
           zipPath: req.file.path,
           globalRootDir: skillsRootDir,
+          originalName: req.file.originalname,
         });
         res.status(201).json(result);
       } catch (err) {
