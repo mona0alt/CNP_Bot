@@ -113,6 +113,85 @@ describe('chat skills sync', () => {
     expect(fs.existsSync(path.join(activeDir, 'tmux/scripts/run.sh'))).toBe(true);
   });
 
+  it('copies selected skills into the mounted claude skills directory', async () => {
+    const globalRootDir = makeTempDir('global-skills-mounted-');
+    const sessionRootDir = makeTempDir('session-skills-mounted-');
+    const claudeSessionsRootDir = makeTempDir('claude-sessions-root-');
+
+    writeFile(globalRootDir, 'custom-ops/SKILL.md', '# custom ops');
+    writeFile(globalRootDir, 'custom-ops/scripts/run.sh', 'echo custom');
+    replaceSessionSkillBindings('web:test-room', ['custom-ops']);
+
+    const result = await syncChatSkills({
+      chatJid: 'web:test-room',
+      globalRootDir,
+      sessionRootDir,
+      claudeSessionsRootDir,
+    });
+
+    expect(result).toEqual({ status: 'synced' });
+    expect(
+      fs.existsSync(
+        path.join(
+          claudeSessionsRootDir,
+          'web-test-room',
+          '.claude',
+          'skills',
+          'custom-ops',
+          'SKILL.md',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(
+        path.join(
+          claudeSessionsRootDir,
+          'web-test-room',
+          '.claude',
+          'skills',
+          'custom-ops',
+          'scripts',
+          'run.sh',
+        ),
+        'utf8',
+      ),
+    ).toContain('echo custom');
+  });
+
+  it('removes only previously managed mounted skills and keeps builtin skills', async () => {
+    const globalRootDir = makeTempDir('global-skills-managed-');
+    const sessionRootDir = makeTempDir('session-skills-managed-');
+    const claudeSessionsRootDir = makeTempDir('claude-sessions-managed-');
+    const mountedSkillsDir = path.join(
+      claudeSessionsRootDir,
+      'web-test',
+      '.claude',
+      'skills',
+    );
+
+    writeFile(globalRootDir, 'tmux/SKILL.md', '# tmux custom');
+    replaceSessionSkillBindings('web:test', ['tmux']);
+
+    writeFile(mountedSkillsDir, 'builtin/SKILL.md', '# builtin');
+    writeFile(mountedSkillsDir, 'old-managed/SKILL.md', '# old managed');
+    writeFile(
+      path.join(claudeSessionsRootDir, 'web-test', '.claude'),
+      'session-skills.json',
+      JSON.stringify({ selectedSkills: ['old-managed'] }, null, 2),
+    );
+
+    await syncChatSkills({
+      chatJid: 'web:test',
+      globalRootDir,
+      sessionRootDir,
+      claudeSessionsRootDir,
+    });
+
+    expect(fs.existsSync(path.join(mountedSkillsDir, 'builtin/SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(mountedSkillsDir, 'old-managed/SKILL.md'))).toBe(false);
+    expect(fs.existsSync(path.join(mountedSkillsDir, 'tmux/SKILL.md'))).toBe(true);
+  });
+
   it('deletes the chat skills directory', () => {
     const sessionRootDir = makeTempDir('session-skills-delete-');
     const activeDir = getChatActiveSkillsDir('web:test', sessionRootDir);
