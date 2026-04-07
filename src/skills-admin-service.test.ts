@@ -64,6 +64,7 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+  vi.restoreAllMocks();
 });
 
 describe('skills admin service', () => {
@@ -137,6 +138,42 @@ describe('skills admin service', () => {
     await expect(
       importGlobalSkillZip({ zipPath, globalRootDir: globalDir }),
     ).rejects.toThrow(/already exists/i);
+  });
+
+  it('falls back to copy when moving imported skill across devices fails with EXDEV', async () => {
+    const workspace = createTempDir('skills-admin-exdev-');
+    const uploadDir = path.join(workspace, 'upload');
+    const globalDir = path.join(workspace, 'global');
+    const zipPath = path.join(workspace, 'cross-device.zip');
+
+    writeFile(uploadDir, 'cross-device/SKILL.md', '# cross device');
+    writeFile(uploadDir, 'cross-device/scripts/run.sh', 'echo exdev');
+    fs.mkdirSync(globalDir, { recursive: true });
+    await createZipFromDir(uploadDir, zipPath);
+
+    const renameSync = vi.spyOn(fs, 'renameSync');
+    renameSync.mockImplementation((oldPath, newPath) => {
+      if (
+        String(oldPath).includes(`${path.sep}skills-import-`) &&
+        String(newPath) === path.join(globalDir, 'cross-device')
+      ) {
+        const error = new Error(
+          `EXDEV: cross-device link not permitted, rename '${oldPath}' -> '${newPath}'`,
+        ) as NodeJS.ErrnoException;
+        error.code = 'EXDEV';
+        throw error;
+      }
+      return fs.renameSync.wrappedMethod.call(fs, oldPath, newPath);
+    });
+
+    await expect(
+      importGlobalSkillZip({ zipPath, globalRootDir: globalDir }),
+    ).resolves.toEqual({ skillName: 'cross-device' });
+
+    expect(fs.existsSync(path.join(globalDir, 'cross-device/SKILL.md'))).toBe(true);
+    expect(
+      fs.readFileSync(path.join(globalDir, 'cross-device/scripts/run.sh'), 'utf8'),
+    ).toContain('echo exdev');
   });
 
   it('renames a top-level skill and updates session bindings', async () => {

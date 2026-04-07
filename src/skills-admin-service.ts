@@ -83,6 +83,22 @@ function assertTopLevelPath(relativePath: string): string {
   return normalized;
 }
 
+function moveDirectoryWithCrossDeviceFallback(
+  sourcePath: string,
+  destinationPath: string,
+): void {
+  try {
+    fs.renameSync(sourcePath, destinationPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'EXDEV') {
+      throw err;
+    }
+
+    fs.cpSync(sourcePath, destinationPath, { recursive: true });
+    fs.rmSync(sourcePath, { recursive: true, force: true });
+  }
+}
+
 async function extractZipToDirectory(
   zipPath: string,
   extractDir: string,
@@ -156,7 +172,7 @@ export async function importGlobalSkillZip(input: {
       throw new Error(`Skill "${skillName}" already exists`);
     }
 
-    fs.renameSync(fullPath, destinationPath);
+    moveDirectoryWithCrossDeviceFallback(fullPath, destinationPath);
     return { skillName };
   } finally {
     fs.rmSync(extractDir, { recursive: true, force: true });
