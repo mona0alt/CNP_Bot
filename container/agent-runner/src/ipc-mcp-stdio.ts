@@ -17,8 +17,12 @@ const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
 const TASKS_DIR = path.join(IPC_DIR, 'tasks');
 const ASK_REQUESTS_DIR = path.join(IPC_DIR, 'ask_requests');
 const ASK_RESPONSES_DIR = path.join(IPC_DIR, 'ask_responses');
+const KB_REQUESTS_DIR = path.join(IPC_DIR, 'kb_requests');
+const KB_RESPONSES_DIR = path.join(IPC_DIR, 'kb_responses');
 const ASK_POLL_MS = 500;
 const ASK_TIMEOUT_MS = 5 * 60 * 1000;
+const KB_POLL_MS = 500;
+const KB_TIMEOUT_MS = 5 * 60 * 1000;
 
 // Context from environment variables (set by the agent runner)
 const chatJid = process.env.CNP_BOT_CHAT_JID!;
@@ -59,6 +63,34 @@ async function waitForAskResponse(requestId: string): Promise<string> {
   }
 
   throw new Error('Timed out waiting for ask_user response');
+}
+
+interface IpcKbSearchResponse {
+  results: Array<{
+    uri: string;
+    content: string;
+    abstract?: string;
+    category?: string;
+    score: number;
+  }>;
+  error?: string;
+}
+
+async function waitForKbResponse(requestId: string): Promise<IpcKbSearchResponse> {
+  const responsePath = path.join(KB_RESPONSES_DIR, `${requestId}.json`);
+  const started = Date.now();
+
+  while (Date.now() - started < KB_TIMEOUT_MS) {
+    if (fs.existsSync(responsePath)) {
+      const raw = fs.readFileSync(responsePath, 'utf-8');
+      fs.unlinkSync(responsePath);
+      return JSON.parse(raw) as IpcKbSearchResponse;
+    }
+
+    await sleep(KB_POLL_MS);
+  }
+
+  throw new Error('Timed out waiting for kb_search response');
 }
 
 const server = new McpServer({
@@ -122,6 +154,55 @@ server.tool(
             text: `等待用户回答超时：${err instanceof Error ? err.message : String(err)}`,
           },
         ],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.tool(
+  'search_knowledge_base',
+  'Search the operations knowledge base for relevant information. Use when you need to find SOPs, incident records, deployment guides, or any previously stored knowledge.',
+  {
+    query: z.string().min(1).describe('Search query describing what you want to find'),
+    limit: z.number().optional().describe('Max results to return (default: 6)'),
+    target_uri: z.string().optional().describe('Limit search scope, e.g. viking://resources/cnp-kb/docs/'),
+  },
+  async (args) => {
+    const requestId = randomUUID();
+    writeIpcFile(KB_REQUESTS_DIR, {
+      type: 'kb_search',
+      requestId,
+      query: args.query,
+      limit: args.limit ?? 6,
+      targetUri: args.target_uri,
+    });
+
+    try {
+      const response = await waitForKbResponse(requestId);
+      if (response.error) {
+        return {
+          content: [{ type: 'text' as const, text: `知识库搜索失败: ${response.error}` }],
+          isError: true,
+        };
+      }
+      if (response.results.length === 0) {
+        return { content: [{ type: 'text' as const, text: '知识库中未找到相关内容。' }] };
+      }
+
+      const lines = response.results.map((result, index) => {
+        const category = result.category ?? 'knowledge';
+        const score = (result.score * 100).toFixed(0);
+        return `${index + 1}. [${category}] (${score}%)\n${result.content.trim()}`;
+      });
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n\n') }] };
+    } catch (err) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `知识库搜索超时: ${err instanceof Error ? err.message : String(err)}`,
+        }],
         isError: true,
       };
     }

@@ -7,6 +7,7 @@ import {
   ASSISTANT_NAME,
   DEFAULT_AGENT_TYPE,
   IDLE_TIMEOUT,
+  KB_INJECT_LIMIT,
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
   TRIGGER_PATTERN,
@@ -58,10 +59,13 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import {
   loadPendingInteractiveRequests,
   startAskConfirmWatcher,
+  startKbSearchWatcher,
   startIpcWatcher,
   type IpcAskRequest,
+  type IpcKbSearchRequest,
   type IpcConfirmRequest,
   writeAskResponse,
+  writeKbSearchResponse,
   writeConfirmResponse,
 } from './ipc.js';
 import {
@@ -100,6 +104,12 @@ import {
   isSlashCommand,
   updateSdkCommands,
 } from './slash-commands.js';
+import {
+  getRelevantContext,
+  isKbConfigured,
+  readContent,
+  search,
+} from './kb-proxy.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -375,6 +385,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   const prompt = formatMessages(missedMessages);
+  let enrichedPrompt = prompt;
+  if (isKbConfigured()) {
+    const kbContext = await getRelevantContext(prompt, { limit: KB_INJECT_LIMIT });
+    if (kbContext) {
+      enrichedPrompt = `${prompt}\n\n${kbContext}`;
+    }
+  }
 
   // Check if the last user message is a slash command
   const lastUserMessage = missedMessages.filter((m) => !m.is_bot_message).pop();
@@ -728,7 +745,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // Resolve agentType in the callback closure so stream event handling can branch on it.
   const agentType = sessions[group.folder]?.agentType ?? DEFAULT_AGENT_TYPE;
 
-  const agentResult = await runAgent(group, prompt, chatJid, async (result) => {
+  const agentResult = await runAgent(group, enrichedPrompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.streamEvent) {
       const event = result.streamEvent.event;
@@ -1690,6 +1707,42 @@ async function main(): Promise<void> {
       }
     },
   );
+  if (isKbConfigured()) {
+    startKbSearchWatcher(
+      () => registeredGroups,
+      async (groupFolder, req: IpcKbSearchRequest) => {
+        try {
+          const results = await search(req.query, {
+            limit: req.limit,
+            targetUri: req.targetUri,
+          });
+          const enriched = await Promise.all(
+            results.map(async (item) => {
+              let content = item.abstract ?? '';
+              try {
+                content = await readContent(item.uri);
+              } catch {
+                // fall back to abstract if full content read fails
+              }
+              return {
+                uri: item.uri,
+                content,
+                abstract: item.abstract,
+                category: item.category,
+                score: item.score ?? 0,
+              };
+            }),
+          );
+          writeKbSearchResponse(groupFolder, req.requestId, { results: enriched });
+        } catch (err) {
+          writeKbSearchResponse(groupFolder, req.requestId, {
+            results: [],
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    );
+  }
   // Reload any confirm/ask requests that arrived while the host was offline
   loadPendingInteractiveRequests(
     () => registeredGroups,

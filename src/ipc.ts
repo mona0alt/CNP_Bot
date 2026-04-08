@@ -31,6 +31,25 @@ export interface IpcConfirmRequest {
   chatJid?: string;
 }
 
+export interface IpcKbSearchRequest {
+  type: 'kb_search';
+  requestId: string;
+  query: string;
+  limit?: number;
+  targetUri?: string;
+}
+
+export interface IpcKbSearchResponse {
+  results: Array<{
+    uri: string;
+    content: string;
+    abstract?: string;
+    category?: string;
+    score: number;
+  }>;
+  error?: string;
+}
+
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
@@ -47,6 +66,7 @@ export interface IpcDeps {
 
 const ASK_CONFIRM_POLL_MS = 500;
 let askConfirmWatcherRunning = false;
+let kbSearchWatcherRunning = false;
 
 /**
  * Scan confirm_requests/ and ask_requests/ directories for all registered groups
@@ -292,6 +312,82 @@ export function writeConfirmResponse(
     );
     return false;
   }
+}
+
+export function writeKbSearchResponse(
+  groupFolder: string,
+  requestId: string,
+  response: IpcKbSearchResponse,
+): boolean {
+  try {
+    const groupIpcDir = resolveGroupIpcPath(groupFolder);
+    const responseDir = path.join(groupIpcDir, 'kb_responses');
+    fs.mkdirSync(responseDir, { recursive: true });
+    const filePath = path.join(responseDir, `${requestId}.json`);
+    const tempPath = `${filePath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(response));
+    fs.renameSync(tempPath, filePath);
+    return true;
+  } catch (err) {
+    logger.error({ err, groupFolder, requestId }, 'Failed to write kb_search response');
+    return false;
+  }
+}
+
+export function startKbSearchWatcher(
+  registeredGroupsFn: () => Record<string, RegisteredGroup>,
+  onKbSearch: (groupFolder: string, req: IpcKbSearchRequest) => Promise<void>,
+): void {
+  if (kbSearchWatcherRunning) return;
+  kbSearchWatcherRunning = true;
+
+  const poll = () => {
+    const groups = registeredGroupsFn();
+    const folders = new Set<string>();
+    for (const group of Object.values(groups)) {
+      folders.add(group.folder);
+    }
+
+    for (const folder of folders) {
+      let groupIpcDir: string;
+      try {
+        groupIpcDir = resolveGroupIpcPath(folder);
+      } catch {
+        continue;
+      }
+
+      const kbDir = path.join(groupIpcDir, 'kb_requests');
+      if (!fs.existsSync(kbDir)) {
+        continue;
+      }
+
+      const files = fs.readdirSync(kbDir).filter((file) => file.endsWith('.json'));
+      for (const file of files) {
+        const filePath = path.join(kbDir, file);
+        try {
+          const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as IpcKbSearchRequest;
+          fs.unlinkSync(filePath);
+          if (data.type === 'kb_search' && data.requestId) {
+            onKbSearch(folder, data).catch((err) =>
+              logger.error({ err, folder, requestId: data.requestId }, 'KB search handler error')
+            );
+          }
+        } catch (err) {
+          logger.error({ err, file, folder }, 'Error processing kb_request');
+          try {
+            fs.unlinkSync(filePath);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+
+    setTimeout(poll, ASK_CONFIRM_POLL_MS);
+  };
+
+  poll();
+  logger.info('KB search IPC watcher started');
 }
 
 let ipcWatcherRunning = false;
