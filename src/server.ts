@@ -16,6 +16,8 @@ import { z } from 'zod';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import multer from 'multer';
+import { AuthRequest, AuthUser, authenticateToken, requireAdmin, verifyToken } from './auth-middleware.js';
+import kbRouter from './kb-routes.js';
 import {
   deleteGlobalSkillAndRebind,
   importGlobalSkillZip,
@@ -89,62 +91,6 @@ function recordLoginFailure(ip: string): void {
 
 function clearLoginAttempts(ip: string): void {
   loginAttempts.delete(ip);
-}
-
-// --- Auth types ---
-
-interface AuthUser {
-  userId: string;
-  username: string;
-  role: 'admin' | 'user';
-}
-
-interface AuthRequest extends Request {
-  user?: AuthUser;
-}
-
-// --- Auth middleware ---
-
-function authenticateToken(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction,
-): void {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    res.status(401).json({ error: 'Authentication required' });
-    return;
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
-    req.user = decoded;
-    next();
-  } catch {
-    res.status(403).json({ error: 'Invalid or expired token' });
-  }
-}
-
-function requireAdmin(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction,
-): void {
-  if (!req.user || req.user.role !== 'admin') {
-    res.status(403).json({ error: 'Admin access required' });
-    return;
-  }
-  next();
-}
-
-function verifyToken(token: string): AuthUser | null {
-  try {
-    return jwt.verify(token, JWT_SECRET) as AuthUser;
-  } catch {
-    return null;
-  }
 }
 
 export interface ServerOpts {
@@ -657,6 +603,8 @@ export function createApp(opts: ServerOpts = {}): AppContext {
       res.status(500).json({ error: 'Internal Server Error' });
     }
   });
+
+  app.use('/api/kb', kbRouter);
 
   app.delete('/api/chats/:jid', authenticateToken, (req, res) => {
     try {
