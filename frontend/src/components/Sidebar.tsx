@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
   LayoutDashboard,
+  BookOpen,
   MessageSquare,
   Sparkles,
   Users,
@@ -31,6 +32,7 @@ export function Sidebar() {
   const links = [
     { href: "/", label: "控制台", icon: LayoutDashboard },
     { href: "/chats", label: "会话", icon: MessageSquare },
+    { href: "/kb", label: "知识库", icon: BookOpen },
     { href: "/skills", label: "技能", icon: Sparkles },
     ...(user?.role === "admin" ? [{ href: "/users", label: "用户管理", icon: Users }] : []),
   ];

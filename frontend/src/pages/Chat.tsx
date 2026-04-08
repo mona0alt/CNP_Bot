@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ChevronRight, MessageSquare, PanelLeftOpen, Sparkles, Trash2 } from 'lucide-react';
+import { Activity, BookOpen, ChevronRight, MessageSquare, PanelLeftOpen, Sparkles, Trash2 } from 'lucide-react';
 import type { Chat, ChatSkillSelectionResponse, Message, SlashCommand } from '@/lib/types';
 import { AskUserCard } from '@/components/AskUserCard';
 import { ConfirmBashCard } from '@/components/ConfirmBashCard';
@@ -9,6 +9,7 @@ import { ChatSidebar, MessageInput } from '@/components/Chat';
 import { MessageItem } from '@/components/Chat/MessageItem';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ChatSkillsDialog } from '@/components/skills/ChatSkillsDialog';
+import { KBExtractDialog } from '@/components/kb/KBExtractDialog';
 import { useChatWebSocket } from '@/hooks/useChatWebSocket';
 import { useStreamingMessages } from '@/contexts/StreamingMessagesContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -40,6 +41,8 @@ export function Chat() {
   const [createChatAgentType, setCreateChatAgentType] = useState<'claude' | 'deepagent'>('deepagent');
   const [editChatSkillsDialogOpen, setEditChatSkillsDialogOpen] = useState(false);
   const [chatSkillsMap, setChatSkillsMap] = useState<Record<string, ChatSkillSelectionResponse>>({});
+  const [showKbExtract, setShowKbExtract] = useState(false);
+  const [kbAvailable, setKbAvailable] = useState(false);
 
   // Derived: is the currently selected session generating?
   const isGenerating = selectedJid ? generatingJids.has(selectedJid) : false;
@@ -154,6 +157,29 @@ export function Chat() {
       setChatsLoaded(true);
     }
   }, [apiBase, authHeaders, token, handleUnauthorized]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    const checkKbHealth = async () => {
+      try {
+        const response = await fetch(`${apiBase}/api/kb/health`, {
+          headers: authHeaders,
+        });
+        if (response.status === 401 || response.status === 403) {
+          await handleUnauthorized();
+          return;
+        }
+        if (!response.ok) return;
+        const data = await response.json();
+        setKbAvailable(Boolean(data.connected) || Boolean(data.url));
+      } catch {
+        setKbAvailable(false);
+      }
+    };
+
+    void checkKbHealth();
+  }, [apiBase, authHeaders, handleUnauthorized, token]);
 
   const updateChatPreviewFromUserMessage = (
     jid: string,
@@ -701,6 +727,16 @@ export function Chat() {
                   <Sparkles size={14} />
                   Skills
                 </button>
+                {kbAvailable ? (
+                  <button
+                    onClick={() => setShowKbExtract(true)}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border/70 bg-background px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                    title="提取到知识库"
+                  >
+                    <BookOpen size={14} />
+                    提取到知识库
+                  </button>
+                ) : null}
                 <button
                   onClick={() => setStatusOpen(true)}
                   className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors relative"
@@ -836,6 +872,12 @@ export function Chat() {
         }}
         onCancel={() => setShowDeleteDialog(false)}
         destructive
+      />
+
+      <KBExtractDialog
+        open={showKbExtract}
+        onClose={() => setShowKbExtract(false)}
+        chatJid={selectedJid}
       />
     </div>
   );

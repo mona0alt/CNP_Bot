@@ -5,6 +5,7 @@ import { Chat } from "@/pages/Chat";
 import { Login } from "@/pages/Login";
 import { Users } from "@/pages/Users";
 import { SkillsAdmin } from "@/pages/SkillsAdmin";
+import { KnowledgeBase } from "@/pages/KnowledgeBase";
 import { StreamingMessagesProvider } from "@/contexts/StreamingMessagesContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -75,6 +76,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <SkillsAdmin />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="kb"
+          element={
+            <ProtectedRoute>
+              <KnowledgeBase />
             </ProtectedRoute>
           }
         />
