@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DeleteSkillDialog } from "@/components/skills/DeleteSkillDialog";
 import { SkillFileEditor } from "@/components/skills/SkillFileEditor";
 import { SkillTree } from "@/components/skills/SkillTree";
@@ -52,6 +53,10 @@ export function SkillsAdmin() {
   const [isMutatingFs, setIsMutatingFs] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmSwitch, setConfirmSwitch] = useState(false);
+  const [pendingSwitchSkill, setPendingSwitchSkill] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const authHeaders = useMemo<HeadersInit | undefined>(() => {
     if (!token) return undefined;
@@ -176,7 +181,8 @@ export function SkillsAdmin() {
   }, [loadPageData]);
 
   const closeDrawer = (allowDirtyDiscard = false) => {
-    if (!allowDirtyDiscard && isDirty && !window.confirm("有未保存修改，确认退出吗？")) {
+    if (!allowDirtyDiscard && isDirty) {
+      setConfirmClose(true);
       return;
     }
     setDrawerOpen(false);
@@ -187,7 +193,9 @@ export function SkillsAdmin() {
 
   const handleOpenSkill = useCallback(
     async (skillName: string) => {
-      if (isDirty && !window.confirm("当前有未保存修改，确认切换技能吗？")) {
+      if (isDirty) {
+        setPendingSwitchSkill(skillName);
+        setConfirmSwitch(true);
         return;
       }
       setError("");
@@ -327,7 +335,7 @@ export function SkillsAdmin() {
 
   const handleDeleteSelected = useCallback(async () => {
     if (!isAdmin || !token || !selectedPath) return;
-    if (!window.confirm(`确认删除 ${selectedPath} 吗？`)) return;
+    setConfirmDelete(true);
     setError("");
     setIsMutatingFs(true);
     try {
@@ -694,6 +702,85 @@ export function SkillsAdmin() {
         skillName={activeSkill ?? ""}
         onConfirm={() => void handleDeleteSkill()}
         onCancel={() => setShowDeleteDialog(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmClose}
+        title="有未保存修改"
+        message="当前有未保存修改，确认退出吗？"
+        confirmLabel="退出"
+        cancelLabel="取消"
+        onConfirm={() => {
+          setConfirmClose(false);
+          setDrawerOpen(false);
+          setActiveSkill(null);
+          setTree([]);
+          resetEditorState();
+        }}
+        onCancel={() => setConfirmClose(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmSwitch}
+        title="有未保存修改"
+        message="当前有未保存修改，确认切换技能吗？"
+        confirmLabel="切换"
+        cancelLabel="取消"
+        onConfirm={() => {
+          setConfirmSwitch(false);
+          const skillName = pendingSwitchSkill;
+          setPendingSwitchSkill(null);
+          if (skillName) {
+            setError("");
+            setDrawerOpen(true);
+            setActiveSkill(skillName);
+            resetEditorState();
+            void loadSkillTree(skillName);
+            void loadFile(`${skillName}/SKILL.md`);
+          }
+        }}
+        onCancel={() => {
+          setConfirmSwitch(false);
+          setPendingSwitchSkill(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="确认删除"
+        message={`确认删除 ${selectedPath} 吗？`}
+        confirmLabel="删除"
+        cancelLabel="取消"
+        destructive
+        onConfirm={() => {
+          setConfirmDelete(false);
+          setError("");
+          setIsMutatingFs(true);
+          void (async () => {
+            try {
+              const res = await fetch(`/api/skills/fs?path=${encodeURIComponent(selectedPath ?? '')}`, {
+                method: "DELETE",
+                headers: authHeaders,
+              });
+              if (res.status === 401 || res.status === 403) {
+                await handleUnauthorized();
+                return;
+              }
+              if (!res.ok) {
+                const payload = await res.json().catch(() => ({}));
+                throw new Error(payload.error || "删除失败");
+              }
+              setSelectedPath(null);
+              resetEditorState();
+              await loadSkillsList();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "删除失败");
+            } finally {
+              setIsMutatingFs(false);
+            }
+          })();
+        }}
+        onCancel={() => setConfirmDelete(false)}
       />
     </div>
   );

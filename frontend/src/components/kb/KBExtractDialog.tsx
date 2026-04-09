@@ -40,6 +40,10 @@ export function KBExtractDialog({ open, onClose, onSaved, chatJid }: KBExtractDi
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [showBackConfirm, setShowBackConfirm] = useState(false);
+  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
 
   const apiBase = import.meta.env.DEV
     ? `${location.protocol}//${location.hostname}:3000`
@@ -150,7 +154,8 @@ export function KBExtractDialog({ open, onClose, onSaved, chatJid }: KBExtractDi
   }, [apiBase, authHeaders, handleUnauthorized, open, selectedChatJid, step, token]);
 
   const handleDialogClose = useCallback(() => {
-    if (hasUnsavedDraft && !window.confirm('当前草稿尚未保存，确认关闭？')) {
+    if (hasUnsavedDraft) {
+      setShowCloseConfirm(true);
       return;
     }
     onClose();
@@ -196,7 +201,8 @@ export function KBExtractDialog({ open, onClose, onSaved, chatJid }: KBExtractDi
   }, [apiBase, authHeaders, handleUnauthorized, selectedChat, selectedChatJid, title, token]);
 
   const handleBackToForm = useCallback(() => {
-    if (hasUnsavedDraft && !window.confirm('返回上一步会放弃当前草稿修改，是否继续？')) {
+    if (hasUnsavedDraft) {
+      setShowBackConfirm(true);
       return;
     }
     setStep('form');
@@ -204,7 +210,8 @@ export function KBExtractDialog({ open, onClose, onSaved, chatJid }: KBExtractDi
   }, [hasUnsavedDraft]);
 
   const handleRegenerate = useCallback(async () => {
-    if (hasUnsavedDraft && !window.confirm('重新提取会覆盖当前草稿内容，是否继续？')) {
+    if (hasUnsavedDraft) {
+      setShowRegenerateConfirm(true);
       return;
     }
     await handleGenerateDraft();
@@ -226,10 +233,8 @@ export function KBExtractDialog({ open, onClose, onSaved, chatJid }: KBExtractDi
     }
     const payload = await response.json().catch(() => ({}));
     if (response.status === 409 && payload.code === 'KB_FILE_EXISTS') {
-      if (!window.confirm('目标文件已存在，是否覆盖原内容？')) {
-        return false;
-      }
-      return submitSave(true);
+      setShowOverwriteConfirm(true);
+      return false;
     }
     if (!response.ok) {
       throw new Error(payload.error || '保存失败');
@@ -493,6 +498,60 @@ export function KBExtractDialog({ open, onClose, onSaved, chatJid }: KBExtractDi
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showOverwriteConfirm}
+        title="文件已存在"
+        message="目标文件已存在，是否覆盖原内容？"
+        confirmLabel="覆盖"
+        cancelLabel="取消"
+        destructive
+        onConfirm={() => {
+          setShowOverwriteConfirm(false);
+          void submitSave(true);
+        }}
+        onCancel={() => setShowOverwriteConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showCloseConfirm}
+        title="草稿未保存"
+        message="当前草稿尚未保存，确认关闭？"
+        confirmLabel="关闭"
+        cancelLabel="取消"
+        onConfirm={() => {
+          setShowCloseConfirm(false);
+          onClose();
+        }}
+        onCancel={() => setShowCloseConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showBackConfirm}
+        title="放弃修改"
+        message="返回上一步会放弃当前草稿修改，是否继续？"
+        confirmLabel="继续"
+        cancelLabel="取消"
+        onConfirm={() => {
+          setShowBackConfirm(false);
+          setStep('form');
+          setError('');
+        }}
+        onCancel={() => setShowBackConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showRegenerateConfirm}
+        title="重新提取"
+        message="重新提取会覆盖当前草稿内容，是否继续？"
+        confirmLabel="重新提取"
+        cancelLabel="取消"
+        onConfirm={() => {
+          setShowRegenerateConfirm(false);
+          void handleGenerateDraft();
+        }}
+        onCancel={() => setShowRegenerateConfirm(false)}
+      />
     </div>
   );
 }
