@@ -87,6 +87,21 @@ export interface ExtractResult {
   errors?: string[];
 }
 
+export interface KnowledgeDraftSource {
+  chatJid?: string;
+  chatName?: string;
+  messageCount: number;
+  generatedAt: string;
+}
+
+export interface KnowledgeDraft {
+  draftTitle: string;
+  suggestedUri: string;
+  content: string;
+  source: KnowledgeDraftSource;
+  warnings: string[];
+}
+
 export interface OvTreeNode {
   uri?: string;
   name?: string;
@@ -103,6 +118,18 @@ type SearchOptions = {
 type RelevantContextOptions = SearchOptions;
 
 type WriteMode = 'replace' | 'append';
+
+type BuildKnowledgeDraftOptions = {
+  title?: string;
+  chatJid?: string;
+  chatName?: string;
+};
+
+type SaveKnowledgeDraftOptions = {
+  uri: string;
+  content: string;
+  overwrite?: boolean;
+};
 
 export function buildQueryProfile(query: string): QueryProfile {
   const rawTokens = (query.toLowerCase().match(/[\p{L}\p{N}_-]{2,}/gu) ?? [])
@@ -137,6 +164,47 @@ export function filterMessages<T extends ExtractMessage>(messages: T[]): T[] {
         : content,
     }];
   });
+}
+
+export function buildKnowledgeDraft(
+  messages: ExtractMessage[],
+  options: BuildKnowledgeDraftOptions = {},
+): KnowledgeDraft {
+  const filtered = filterMessages(messages);
+  const fallbackMessages = messages.flatMap((message) => {
+    const content = (message.content ?? '').trim();
+    if (!content) return [];
+    return [{
+      ...message,
+      content: content.length > MAX_CAPTURE_CHARS
+        ? content.slice(0, MAX_CAPTURE_CHARS)
+        : content,
+    }];
+  });
+  const draftMessages = filtered.length > 0 ? filtered : fallbackMessages;
+
+  if (draftMessages.length === 0) {
+    throw new Error('当前会话可提取内容不足');
+  }
+
+  const draftTitle = resolveDraftTitle(options);
+  const suggestedUri = buildDraftUri(draftTitle);
+  const warnings = filtered.length === 0
+    ? ['当前草稿基于原始消息兜底生成，请人工校对。']
+    : [];
+
+  return {
+    draftTitle,
+    suggestedUri,
+    content: renderKnowledgeDraft(draftTitle, draftMessages, options),
+    source: {
+      chatJid: options.chatJid,
+      chatName: options.chatName,
+      messageCount: draftMessages.length,
+      generatedAt: new Date().toISOString(),
+    },
+    warnings,
+  };
 }
 
 export function isKbConfigured(): boolean {
@@ -292,7 +360,12 @@ export async function extractConversation(
         title: options.title,
       },
     });
-    sessionId = readString(session.id) ?? readString(session.sessionId) ?? '';
+    const sessionPayload = unwrapOvResult(session);
+    sessionId =
+      readString((sessionPayload as Record<string, unknown>).id) ??
+      readString((sessionPayload as Record<string, unknown>).sessionId) ??
+      readString((sessionPayload as Record<string, unknown>).session_id) ??
+      '';
     if (!sessionId) {
       throw new Error('OpenViking 未返回 sessionId');
     }
@@ -377,6 +450,7 @@ export async function fsDelete(uri: string): Promise<boolean> {
 
   const url = new URL('/api/v1/fs', normalizeBaseUrl(KB_API_URL));
   url.searchParams.set('uri', uri);
+  url.searchParams.set('recursive', 'true');
   await ovFetch(url.toString(), {
     method: 'DELETE',
     timeoutMs: KB_SEARCH_TIMEOUT,
@@ -417,6 +491,27 @@ export async function reindex(uri: string): Promise<boolean> {
     body: { uri },
   });
   return true;
+}
+
+export async function saveKnowledgeDraft(
+  options: SaveKnowledgeDraftOptions,
+): Promise<{ success: true; uri: string }> {
+  const uri = normalizeDraftTargetUri(options.uri);
+  const rootUri = ensureTrailingSlash(KB_ROOT_URI);
+  if (!uri.startsWith(rootUri)) {
+    throw new Error('保存路径超出知识库根目录');
+  }
+  const relativePath = uri.slice(rootUri.length);
+  if (!relativePath || relativePath.includes('/')) {
+    throw new Error('当前版本仅支持保存到知识库根目录');
+  }
+
+  if (!options.overwrite && await kbEntryExists(uri)) {
+    throw createKbConflictError('目标文件已存在');
+  }
+
+  const uploadedUri = await uploadTextResource(uri, options.content);
+  return { success: true, uri: uploadedUri };
 }
 
 function clampScore(score?: number): number {
@@ -503,14 +598,15 @@ async function ovFetch<T>(
 }
 
 function normalizeSearchResults(payload: unknown): FindResultItem[] {
-  const source = Array.isArray(payload)
-    ? payload
-    : Array.isArray((payload as { results?: unknown[] } | null)?.results)
-      ? (payload as { results: unknown[] }).results
-      : Array.isArray((payload as { items?: unknown[] } | null)?.items)
-        ? (payload as { items: unknown[] }).items
-        : Array.isArray((payload as { data?: unknown[] } | null)?.data)
-          ? (payload as { data: unknown[] }).data
+  const unwrapped = unwrapOvResult(payload);
+  const source = Array.isArray(unwrapped)
+    ? unwrapped
+    : Array.isArray((unwrapped as { results?: unknown[] } | null)?.results)
+      ? (unwrapped as { results: unknown[] }).results
+      : Array.isArray((unwrapped as { items?: unknown[] } | null)?.items)
+        ? (unwrapped as { items: unknown[] }).items
+        : Array.isArray((unwrapped as { data?: unknown[] } | null)?.data)
+          ? (unwrapped as { data: unknown[] }).data
           : [];
 
   return source
@@ -535,9 +631,10 @@ function normalizeSearchItem(payload: unknown): FindResultItem | null {
 }
 
 function normalizeExtractItems(payload: unknown): unknown[] {
-  if (Array.isArray(payload)) return payload;
-  if (!payload || typeof payload !== 'object') return [];
-  const record = payload as Record<string, unknown>;
+  const unwrapped = unwrapOvResult(payload);
+  if (Array.isArray(unwrapped)) return unwrapped;
+  if (!unwrapped || typeof unwrapped !== 'object') return [];
+  const record = unwrapped as Record<string, unknown>;
   if (Array.isArray(record.items)) return record.items;
   if (Array.isArray(record.results)) return record.results;
   if (Array.isArray(record.memories)) return record.memories;
@@ -545,19 +642,32 @@ function normalizeExtractItems(payload: unknown): unknown[] {
 }
 
 function normalizeContentResponse(payload: unknown): string {
-  if (typeof payload === 'string') return payload;
-  if (!payload || typeof payload !== 'object') return '';
-  const record = payload as Record<string, unknown>;
+  const unwrapped = unwrapOvResult(payload);
+  if (typeof unwrapped === 'string') return unwrapped;
+  if (!unwrapped || typeof unwrapped !== 'object') return '';
+  const record = unwrapped as Record<string, unknown>;
   return readString(record.content) ?? readString(record.text) ?? '';
 }
 
 function normalizeTree(payload: unknown): OvTreeNode[] {
-  if (Array.isArray(payload)) return payload as OvTreeNode[];
-  if (!payload || typeof payload !== 'object') return [];
-  const record = payload as Record<string, unknown>;
+  const unwrapped = unwrapOvResult(payload);
+  if (Array.isArray(unwrapped)) {
+    return isFlatTreeEntries(unwrapped)
+      ? buildTreeFromFlatEntries(unwrapped as Array<Record<string, unknown>>)
+      : unwrapped as OvTreeNode[];
+  }
+  if (!unwrapped || typeof unwrapped !== 'object') return [];
+  const record = unwrapped as Record<string, unknown>;
   if (Array.isArray(record.tree)) return record.tree as OvTreeNode[];
   if (Array.isArray(record.children)) return record.children as OvTreeNode[];
   return [];
+}
+
+function unwrapOvResult(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || !('result' in payload)) {
+    return payload;
+  }
+  return (payload as { result?: unknown }).result;
 }
 
 function readString(value: unknown): string | undefined {
@@ -584,4 +694,255 @@ function deriveTitle(uri: string): string {
 
 function squashWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+function resolveDraftTitle(options: BuildKnowledgeDraftOptions): string {
+  const rawTitle = options.title?.trim() || options.chatName?.trim() || options.chatJid?.trim() || '';
+  const sanitized = sanitizeDraftSegment(rawTitle);
+  if (sanitized) {
+    return sanitized;
+  }
+  return `知识草稿-${new Date().toISOString().slice(0, 10)}`;
+}
+
+function renderKnowledgeDraft(
+  title: string,
+  messages: ExtractMessage[],
+  options: BuildKnowledgeDraftOptions,
+): string {
+  const summary = squashWhitespace(messages.map((message) => message.content).join(' ')).slice(0, 160);
+  const background = messages[0]?.content?.trim() ?? '请补充本次会话的背景信息。';
+  const process = messages
+    .slice(0, 8)
+    .map((message, index) => `${index + 1}. [${message.role ?? 'user'}] ${message.content.trim()}`)
+    .join('\n');
+  const conclusions = messages
+    .filter((message) => message.role === 'assistant')
+    .slice(-3)
+    .map((message) => `- ${message.content.trim()}`)
+    .join('\n') || '- 请补充最终确认的结论与注意事项。';
+  const sourceLines = [
+    options.chatName ? `- 会话：${options.chatName}` : undefined,
+    options.chatJid ? `- Chat JID：${options.chatJid}` : undefined,
+    `- 提取时间：${new Date().toISOString()}`,
+  ].filter(Boolean).join('\n');
+
+  return [
+    `# ${title}`,
+    '',
+    '## 摘要',
+    summary || '请补充本次会话的核心结论。',
+    '',
+    '## 背景',
+    background,
+    '',
+    '## 处理过程',
+    process,
+    '',
+    '## 关键结论',
+    conclusions,
+    '',
+    '## 后续建议',
+    '- 请补充后续优化建议或待确认事项。',
+    '',
+    '## 来源',
+    sourceLines,
+  ].join('\n');
+}
+
+function buildDraftUri(title: string): string {
+  return `${ensureTrailingSlash(KB_ROOT_URI)}${title}.md`;
+}
+
+function sanitizeDraftSegment(value: string): string {
+  return value
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function ensureTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value : `${value}/`;
+}
+
+function normalizeDraftTargetUri(uri: string): string {
+  const trimmed = uri.trim();
+  if (!trimmed) {
+    throw new Error('保存路径不能为空');
+  }
+  const withMd = trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`;
+  return withMd;
+}
+
+async function kbEntryExists(uri: string): Promise<boolean> {
+  const parentUri = getParentUri(uri);
+  const entries = await fsTree(parentUri);
+  const normalizedTarget = normalizeUri(uri);
+  return entries.some((entry) => normalizeUri(readString(entry.uri) ?? '') === normalizedTarget);
+}
+
+function getParentUri(uri: string): string {
+  const normalized = normalizeUri(uri);
+  const rootUri = normalizeUri(KB_ROOT_URI);
+  if (normalized === rootUri) {
+    return rootUri;
+  }
+  const lastSlashIndex = normalized.lastIndexOf('/');
+  if (lastSlashIndex === -1) {
+    return ensureTrailingSlash(KB_ROOT_URI);
+  }
+  return normalized.slice(0, lastSlashIndex + 1);
+}
+
+function normalizeUri(uri: string): string {
+  return uri.replace(/\/+$/, '');
+}
+
+function createKbConflictError(message: string): Error & { code: string } {
+  return Object.assign(new Error(message), { code: 'KB_FILE_EXISTS' });
+}
+
+async function uploadTextResource(targetUri: string, content: string): Promise<string> {
+  const tempUpload = await ovFetchFormData<Record<string, unknown>>('/api/v1/resources/temp_upload', {
+    fileName: `${sanitizeDraftSegment(basenameFromUri(targetUri)) || 'knowledge'}.md`,
+    mimeType: 'text/markdown',
+    content,
+  });
+  const tempPayload = unwrapOvResult(tempUpload);
+  const tempPath = readString((tempPayload as Record<string, unknown> | undefined)?.temp_path);
+  if (!tempPath) {
+    throw new Error('OpenViking 未返回 temp_path');
+  }
+
+  const created = await ovFetch<Record<string, unknown>>('/api/v1/resources', {
+    method: 'POST',
+    timeoutMs: KB_SEARCH_TIMEOUT,
+    body: {
+      temp_path: tempPath,
+      to: targetUri,
+      wait: true,
+    },
+  });
+  const createdPayload = unwrapOvResult(created);
+  const rootResourceUri =
+    readString((createdPayload as Record<string, unknown> | undefined)?.root_uri) ??
+    targetUri;
+
+  const resourceTree = await fsTree(rootResourceUri);
+  const leafUri = findFirstLeafUri(resourceTree);
+  return leafUri ?? rootResourceUri;
+}
+
+async function ovFetchFormData<T>(
+  endpoint: string,
+  options: {
+    fileName: string;
+    mimeType: string;
+    content: string;
+  },
+): Promise<T> {
+  if (!isKbConfigured()) {
+    throw new Error('Knowledge base is not configured');
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), KB_SEARCH_TIMEOUT);
+
+  try {
+    const formData = new FormData();
+    formData.append(
+      'file',
+      new Blob([options.content], { type: options.mimeType }),
+      options.fileName,
+    );
+
+    const response = await fetch(new URL(endpoint, normalizeBaseUrl(KB_API_URL)).toString(), {
+      method: 'POST',
+      headers: {
+        ...(KB_API_KEY ? { authorization: `Bearer ${KB_API_KEY}` } : {}),
+      },
+      body: formData,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenViking request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const text = await response.text();
+    return (text ? JSON.parse(text) : undefined) as T;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isFlatTreeEntries(entries: unknown[]): boolean {
+  return entries.some((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return false;
+    }
+    return 'rel_path' in entry || 'isDir' in entry;
+  });
+}
+
+function buildTreeFromFlatEntries(entries: Array<Record<string, unknown>>): OvTreeNode[] {
+  const nodes = new Map<string, OvTreeNode>();
+  const roots: OvTreeNode[] = [];
+
+  const sorted = [...entries]
+    .filter((entry) => typeof entry.uri === 'string')
+    .sort((left, right) => {
+      const leftPath = readString(left.rel_path) ?? '';
+      const rightPath = readString(right.rel_path) ?? '';
+      return leftPath.localeCompare(rightPath);
+    });
+
+  for (const entry of sorted) {
+    const uri = readString(entry.uri);
+    if (!uri) continue;
+    const relPath = readString(entry.rel_path) ?? basenameFromUri(uri);
+    const segments = relPath.split('/').filter(Boolean);
+    const node: OvTreeNode = {
+      uri,
+      name: readString(entry.name) ?? segments[segments.length - 1] ?? basenameFromUri(uri),
+      type: entry.isDir === true ? 'directory' : 'file',
+      children: [],
+    };
+    nodes.set(uri, node);
+
+    if (segments.length <= 1) {
+      roots.push(node);
+      continue;
+    }
+
+    const parentUri = uri.slice(0, uri.lastIndexOf('/'));
+    const parent = nodes.get(parentUri);
+    if (parent) {
+      parent.children = parent.children ?? [];
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return roots;
+}
+
+function findFirstLeafUri(nodes: OvTreeNode[]): string | undefined {
+  for (const node of nodes) {
+    if (node.type === 'file' && node.uri) {
+      return node.uri;
+    }
+    const nested = node.children ? findFirstLeafUri(node.children) : undefined;
+    if (nested) {
+      return nested;
+    }
+  }
+  return undefined;
+}
+
+function basenameFromUri(uri: string): string {
+  const normalized = uri.replace(/\/+$/, '');
+  const segments = normalized.split('/');
+  return segments[segments.length - 1] || uri;
 }

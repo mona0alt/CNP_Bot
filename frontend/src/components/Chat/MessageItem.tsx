@@ -123,7 +123,7 @@ export function MessageItem({ message: msg }: MessageItemProps) {
       >
         {hasThinkingTag ? <Brain size={16} /> : (msg.is_bot_message ? <Bot size={16} /> : <User size={16} />)}
       </div>
-      <div className={cn("p-3 rounded-2xl text-sm min-w-[100px] mt-2 first:mt-0", bubble, !outgoing && "flex-1 min-w-0")}>
+      <div className={cn("p-3 rounded-2xl text-sm min-w-[100px] mt-2 first:mt-0 break-words overflow-wrap-anywhere", bubble, !outgoing && "flex-1 min-w-0")}>
         {!outgoing ? (
           <div className="font-semibold text-xs mb-1 opacity-70">
             {displayName}

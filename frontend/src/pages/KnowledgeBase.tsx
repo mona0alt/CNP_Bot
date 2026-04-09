@@ -347,6 +347,12 @@ export function KnowledgeBase() {
     }
   };
 
+  const handleExtractSaved = useCallback(async (uri: string) => {
+    setShowExtractDialog(false);
+    await loadTree();
+    await handleSelectUri(uri);
+  }, [loadTree]);
+
   return (
     <div className="flex h-full bg-background">
       <div className="flex min-w-0 flex-1 flex-col">
@@ -563,6 +569,7 @@ export function KnowledgeBase() {
       <KBExtractDialog
         open={showExtractDialog}
         onClose={() => setShowExtractDialog(false)}
+        onSaved={handleExtractSaved}
       />
 
       <ConfirmDialog

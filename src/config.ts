@@ -11,6 +11,12 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'USE_LOCAL_AGENT',
   'JWT_SECRET',
+  'KB_API_URL',
+  'KB_API_KEY',
+  'KB_ROOT_URI',
+  'KB_INJECT_LIMIT',
+  'KB_SEARCH_TIMEOUT',
+  'KB_EXTRACT_TIMEOUT',
 ]);
 
 export const ASSISTANT_NAME =
@@ -99,9 +105,19 @@ export const JWT_SECRET: string = _jwtSecret;
 export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // --- Knowledge Base (OpenViking) ---
-export const KB_API_URL = process.env.KB_API_URL || '';
-export const KB_API_KEY = process.env.KB_API_KEY || '';
-export const KB_ROOT_URI = process.env.KB_ROOT_URI || 'viking://resources/cnp-kb/';
-export const KB_INJECT_LIMIT = parseInt(process.env.KB_INJECT_LIMIT || '5', 10);
-export const KB_SEARCH_TIMEOUT = parseInt(process.env.KB_SEARCH_TIMEOUT || '15000', 10);
-export const KB_EXTRACT_TIMEOUT = parseInt(process.env.KB_EXTRACT_TIMEOUT || '30000', 10);
+export const KB_API_URL = process.env.KB_API_URL || envConfig.KB_API_URL || '';
+export const KB_API_KEY = process.env.KB_API_KEY || envConfig.KB_API_KEY || '';
+export const KB_ROOT_URI =
+  process.env.KB_ROOT_URI || envConfig.KB_ROOT_URI || 'viking://resources/cnp-kb/';
+export const KB_INJECT_LIMIT = parseInt(
+  process.env.KB_INJECT_LIMIT || envConfig.KB_INJECT_LIMIT || '5',
+  10,
+);
+export const KB_SEARCH_TIMEOUT = parseInt(
+  process.env.KB_SEARCH_TIMEOUT || envConfig.KB_SEARCH_TIMEOUT || '15000',
+  10,
+);
+export const KB_EXTRACT_TIMEOUT = parseInt(
+  process.env.KB_EXTRACT_TIMEOUT || envConfig.KB_EXTRACT_TIMEOUT || '30000',
+  10,
+);

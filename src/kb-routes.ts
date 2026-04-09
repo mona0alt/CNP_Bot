@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { authenticateToken, requireAdmin } from './auth-middleware.js';
 import { getMessagesSinceAll } from './db.js';
 import {
+  buildKnowledgeDraft,
   extractConversation,
   fsDelete,
   fsMkdir,
@@ -17,6 +18,7 @@ import {
   healthCheck,
   readContent,
   reindex,
+  saveKnowledgeDraft,
   search,
   writeContent,
 } from './kb-proxy.js';
@@ -213,10 +215,7 @@ router.post('/extract', authenticateToken, requireAdmin, async (req, res) => {
   }
 
   try {
-    const messages = getMessagesSinceAll(parsed.data.chatJid, '', 200).map((message) => ({
-      role: message.is_from_me ? 'assistant' : 'user',
-      content: message.content,
-    }));
+    const messages = readChatMessages(parsed.data.chatJid);
     const result = await extractConversation(messages, { title: parsed.data.title });
     res.json(result);
   } catch (err) {
@@ -225,7 +224,66 @@ router.post('/extract', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+router.post('/extract-draft', authenticateToken, requireAdmin, async (req, res) => {
+  const schema = z.object({
+    chatJid: z.string().trim().min(1),
+    title: z.string().trim().min(1).optional(),
+    chatName: z.string().trim().min(1).optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request body' });
+  }
+
+  try {
+    const messages = readChatMessages(parsed.data.chatJid);
+    const draft = buildKnowledgeDraft(messages, {
+      title: parsed.data.title,
+      chatJid: parsed.data.chatJid,
+      chatName: parsed.data.chatName,
+    });
+    res.json(draft);
+  } catch (err) {
+    logger.error({ err }, 'Failed to build KB draft');
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Internal Server Error' });
+  }
+});
+
+router.post('/save-draft', authenticateToken, requireAdmin, async (req, res) => {
+  const schema = z.object({
+    uri: z.string().trim().min(1),
+    content: z.string(),
+    overwrite: z.boolean().optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request body' });
+  }
+
+  try {
+    const result = await saveKnowledgeDraft(parsed.data);
+    res.status(201).json(result);
+  } catch (err) {
+    logger.error({ err }, 'Failed to save KB draft');
+    const errorCode = err instanceof Error && 'code' in err ? String(err.code) : '';
+    if (errorCode === 'KB_FILE_EXISTS') {
+      return res.status(409).json({
+        error: err instanceof Error ? err.message : '目标文件已存在',
+        code: errorCode,
+      });
+    }
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Internal Server Error' });
+  }
+});
+
 export default router;
+
+function readChatMessages(chatJid: string): Array<{ role: string; content: string }> {
+  return getMessagesSinceAll(chatJid, '', 200).map((message) => ({
+    role: message.is_from_me ? 'assistant' : 'user',
+    content: message.content,
+  }));
+}
 
 async function uploadToKnowledgeBase(
   filePath: string,
@@ -273,7 +331,7 @@ async function kbFetch(
   endpoint: string,
   options: {
     method?: string;
-    body?: BodyInit;
+    body?: string | FormData;
     headers?: Record<string, string>;
   } = {},
 ): Promise<Record<string, unknown>> {
@@ -303,6 +361,6 @@ async function kbFetch(
   }
 }
 
-function readString(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
