@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('./config.js', () => ({
   KB_API_KEY: 'dev-secret-key',
   KB_API_URL: 'http://kb.example',
+  KB_API_ACCOUNT: 'acme',
+  KB_API_USER: 'default-user',
+  KB_API_AGENT_ID: 'kb-agent',
   KB_EXTRACT_TIMEOUT: 30000,
   KB_ROOT_URI: 'viking://resources/cnp-kb/',
   KB_SEARCH_TIMEOUT: 15000,
@@ -78,7 +81,7 @@ describe('buildKnowledgeDraft', () => {
       .mockResolvedValueOnce(jsonResponse({
         status: 'ok',
         result: {
-          temp_path: '/app/data/temp/upload/upload_123.md',
+          temp_file_id: 'upload_123.md',
         },
       }))
       .mockResolvedValueOnce(jsonResponse({
@@ -119,7 +122,7 @@ describe('buildKnowledgeDraft', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('http://kb.example/api/v1/resources/temp_upload');
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe('http://kb.example/api/v1/resources');
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
-      temp_path: '/app/data/temp/upload/upload_123.md',
+      temp_file_id: 'upload_123.md',
       to: 'viking://resources/cnp-kb/数据库连接超时排查.md',
       wait: true,
     });
@@ -130,7 +133,7 @@ describe('buildKnowledgeDraft', () => {
       .mockResolvedValueOnce(jsonResponse({
         status: 'ok',
         result: {
-          temp_path: '/app/data/temp/upload/upload_456.md',
+          temp_file_id: 'upload_456.md',
         },
       }))
       .mockResolvedValueOnce(jsonResponse({
@@ -163,7 +166,7 @@ describe('buildKnowledgeDraft', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('http://kb.example/api/v1/resources/temp_upload');
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe('http://kb.example/api/v1/resources');
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
-      temp_path: '/app/data/temp/upload/upload_456.md',
+      temp_file_id: 'upload_456.md',
       to: 'viking://resources/cnp-kb/数据库连接超时排查.md',
       wait: true,
     });
@@ -208,7 +211,7 @@ describe('buildKnowledgeDraft', () => {
       .mockResolvedValueOnce(jsonResponse({
         status: 'ok',
         result: {
-          temp_path: '/app/data/temp/upload/upload_900.md',
+          temp_file_id: 'upload_900.md',
         },
       }))
       .mockResolvedValueOnce(jsonResponse({
@@ -229,7 +232,48 @@ describe('buildKnowledgeDraft', () => {
     expect(result).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
-      temp_path: '/app/data/temp/upload/upload_900.md',
+      temp_file_id: 'upload_900.md',
+      to: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+      wait: true,
+    });
+  });
+
+  it('writeContent 应兼容 temp_upload 返回 temp_file_id', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          temp_file_id: 'upload_new.md',
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          root_uri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: [
+          {
+            uri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+            rel_path: '数据库连接超时排查.md',
+            isDir: false,
+          },
+        ],
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { writeContent } = await import('./kb-proxy.js');
+    const result = await writeContent(
+      'viking://resources/cnp-kb/数据库连接超时排查.md',
+      '# 更新后的内容',
+      'replace',
+    );
+
+    expect(result).toBe(true);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      temp_file_id: 'upload_new.md',
       to: 'viking://resources/cnp-kb/数据库连接超时排查.md',
       wait: true,
     });
@@ -333,6 +377,47 @@ describe('buildKnowledgeDraft', () => {
         children: [],
       },
     ]);
+  });
+
+  it('fsTree 在知识库根目录不存在时应自动创建后重试', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        text: async () => JSON.stringify({
+          error: {
+            message: 'no such directory: /default/resources/cnp-kb',
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          created: true,
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: [],
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { fsTree } = await import('./kb-proxy.js');
+    const result = await fsTree('viking://resources/cnp-kb/');
+
+    expect(result).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'http://kb.example/api/v1/fs/tree?uri=viking%3A%2F%2Fresources%2Fcnp-kb%2F',
+    );
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe('http://kb.example/api/v1/fs/mkdir');
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      uri: 'viking://resources/cnp-kb/',
+    });
+    expect(String(fetchMock.mock.calls[2]?.[0])).toBe(
+      'http://kb.example/api/v1/fs/tree?uri=viking%3A%2F%2Fresources%2Fcnp-kb%2F',
+    );
   });
 
   it('fsDelete 应对知识资源目录使用 recursive=true', async () => {

@@ -13,6 +13,9 @@ const envConfig = readEnvFile([
   'JWT_SECRET',
   'KB_API_URL',
   'KB_API_KEY',
+  'KB_API_ACCOUNT',
+  'KB_API_USER',
+  'KB_API_AGENT_ID',
   'KB_ROOT_URI',
   'KB_INJECT_LIMIT',
   'KB_SEARCH_TIMEOUT',
@@ -107,6 +110,12 @@ export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 // --- Knowledge Base (OpenViking) ---
 export const KB_API_URL = process.env.KB_API_URL || envConfig.KB_API_URL || '';
 export const KB_API_KEY = process.env.KB_API_KEY || envConfig.KB_API_KEY || '';
+export const KB_API_ACCOUNT =
+  process.env.KB_API_ACCOUNT || envConfig.KB_API_ACCOUNT || 'default';
+export const KB_API_USER =
+  process.env.KB_API_USER || envConfig.KB_API_USER || 'default';
+export const KB_API_AGENT_ID =
+  process.env.KB_API_AGENT_ID || envConfig.KB_API_AGENT_ID || '';
 export const KB_ROOT_URI =
   process.env.KB_ROOT_URI || envConfig.KB_ROOT_URI || 'viking://resources/cnp-kb/';
 export const KB_INJECT_LIMIT = parseInt(

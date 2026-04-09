@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, FileText, Loader2, Sparkles, X } from 'lucide-react';
 
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Chat, Message } from '@/lib/types';
 

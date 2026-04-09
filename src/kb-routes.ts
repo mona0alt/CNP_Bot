@@ -6,7 +6,7 @@ import path from 'path';
 import multer from 'multer';
 import { z } from 'zod';
 
-import { authenticateToken, requireAdmin } from './auth-middleware.js';
+import { authenticateToken, requireAdmin, type AuthRequest } from './auth-middleware.js';
 import { getMessagesSinceAll } from './db.js';
 import {
   buildKnowledgeDraft,
@@ -16,13 +16,22 @@ import {
   fsMove,
   fsTree,
   healthCheck,
+  invalidateKnowledgeCache,
+  type OpenVikingIdentity,
   readContent,
   reindex,
   saveKnowledgeDraft,
   search,
   writeContent,
 } from './kb-proxy.js';
-import { KB_API_KEY, KB_API_URL, KB_ROOT_URI, KB_SEARCH_TIMEOUT } from './config.js';
+import {
+  KB_API_ACCOUNT,
+  KB_API_AGENT_ID,
+  KB_API_KEY,
+  KB_API_URL,
+  KB_ROOT_URI,
+  KB_SEARCH_TIMEOUT,
+} from './config.js';
 import { logger } from './logger.js';
 
 const router = express.Router();
@@ -30,7 +39,8 @@ const upload = multer({ dest: os.tmpdir() });
 
 router.get('/health', authenticateToken, async (_req, res) => {
   try {
-    res.json(await healthCheck());
+    const authReq = _req as AuthRequest;
+    res.json(await healthCheck(resolveKbIdentity(authReq)));
   } catch (err) {
     logger.error({ err }, 'Failed to check KB health');
     res.status(500).json({ error: 'Internal Server Error' });
@@ -52,6 +62,7 @@ router.post('/search', authenticateToken, async (req, res) => {
     const results = await search(parsed.data.query, {
       limit: parsed.data.limit,
       targetUri: parsed.data.targetUri,
+      identity: resolveKbIdentity(req as AuthRequest),
     });
     res.json(results);
   } catch (err) {
@@ -63,7 +74,7 @@ router.post('/search', authenticateToken, async (req, res) => {
 router.get('/tree', authenticateToken, async (req, res) => {
   try {
     const uri = typeof req.query.uri === 'string' ? req.query.uri : KB_ROOT_URI;
-    res.json(await fsTree(uri));
+    res.json(await fsTree(uri, resolveKbIdentity(req as AuthRequest)));
   } catch (err) {
     logger.error({ err }, 'Failed to load KB tree');
     res.status(500).json({ error: err instanceof Error ? err.message : 'Internal Server Error' });
@@ -77,7 +88,7 @@ router.get('/read', authenticateToken, async (req, res) => {
   }
 
   try {
-    res.json({ uri, content: await readContent(uri) });
+    res.json({ uri, content: await readContent(uri, resolveKbIdentity(req as AuthRequest)) });
   } catch (err) {
     logger.error({ err }, 'Failed to read KB content');
     res.status(500).json({ error: err instanceof Error ? err.message : 'Internal Server Error' });
@@ -96,7 +107,12 @@ router.post('/write', authenticateToken, requireAdmin, async (req, res) => {
   }
 
   try {
-    await writeContent(parsed.data.uri, parsed.data.content, parsed.data.mode);
+    await writeContent(
+      parsed.data.uri,
+      parsed.data.content,
+      parsed.data.mode,
+      resolveKbIdentity(req as AuthRequest),
+    );
     res.json({ success: true });
   } catch (err) {
     logger.error({ err }, 'Failed to write KB content');
@@ -114,7 +130,7 @@ router.post('/mkdir', authenticateToken, requireAdmin, async (req, res) => {
   }
 
   try {
-    await fsMkdir(parsed.data.uri);
+    await fsMkdir(parsed.data.uri, resolveKbIdentity(req as AuthRequest));
     res.json({ success: true });
   } catch (err) {
     logger.error({ err }, 'Failed to create KB directory');
@@ -129,7 +145,7 @@ router.delete('/', authenticateToken, requireAdmin, async (req, res) => {
   }
 
   try {
-    await fsDelete(uri);
+    await fsDelete(uri, resolveKbIdentity(req as AuthRequest));
     res.json({ success: true });
   } catch (err) {
     logger.error({ err }, 'Failed to delete KB entry');
@@ -148,7 +164,7 @@ router.patch('/mv', authenticateToken, requireAdmin, async (req, res) => {
   }
 
   try {
-    await fsMove(parsed.data.from, parsed.data.to);
+    await fsMove(parsed.data.from, parsed.data.to, resolveKbIdentity(req as AuthRequest));
     res.json({ success: true });
   } catch (err) {
     logger.error({ err }, 'Failed to move KB entry');
@@ -171,7 +187,12 @@ router.post(
       : KB_ROOT_URI;
 
     try {
-      const result = await uploadToKnowledgeBase(req.file.path, req.file.originalname, targetUri);
+      const result = await uploadToKnowledgeBase(
+        req.file.path,
+        req.file.originalname,
+        targetUri,
+        resolveKbIdentity(req as AuthRequest),
+      );
       res.status(201).json(result);
     } catch (err) {
       logger.error({ err }, 'Failed to upload KB resource');
@@ -196,7 +217,7 @@ router.post('/reindex', authenticateToken, requireAdmin, async (req, res) => {
   }
 
   try {
-    await reindex(parsed.data.uri);
+    await reindex(parsed.data.uri, resolveKbIdentity(req as AuthRequest));
     res.json({ success: true });
   } catch (err) {
     logger.error({ err }, 'Failed to reindex KB content');
@@ -216,7 +237,11 @@ router.post('/extract', authenticateToken, requireAdmin, async (req, res) => {
 
   try {
     const messages = readChatMessages(parsed.data.chatJid);
-    const result = await extractConversation(messages, { title: parsed.data.title });
+    const result = await extractConversation(
+      messages,
+      { title: parsed.data.title },
+      resolveKbIdentity(req as AuthRequest),
+    );
     res.json(result);
   } catch (err) {
     logger.error({ err }, 'Failed to extract chat into KB');
@@ -261,7 +286,7 @@ router.post('/save-draft', authenticateToken, requireAdmin, async (req, res) => 
   }
 
   try {
-    const result = await saveKnowledgeDraft(parsed.data);
+    const result = await saveKnowledgeDraft(parsed.data, resolveKbIdentity(req as AuthRequest));
     res.status(201).json(result);
   } catch (err) {
     logger.error({ err }, 'Failed to save KB draft');
@@ -285,10 +310,19 @@ function readChatMessages(chatJid: string): Array<{ role: string; content: strin
   }));
 }
 
+function resolveKbIdentity(req: AuthRequest): OpenVikingIdentity {
+  return {
+    accountId: KB_API_ACCOUNT || 'default',
+    userId: req.user?.username || req.user?.userId || 'default',
+    ...(KB_API_AGENT_ID ? { agentId: KB_API_AGENT_ID } : {}),
+  };
+}
+
 async function uploadToKnowledgeBase(
   filePath: string,
   originalName: string,
   targetUri: string,
+  identity: OpenVikingIdentity,
 ): Promise<{ success: true; resourceUri?: string; tempUri?: string }> {
   if (!KB_API_URL) {
     throw new Error('Knowledge base is not configured');
@@ -305,20 +339,25 @@ async function uploadToKnowledgeBase(
   const tempUpload = await kbFetch('/api/v1/resources/temp_upload', {
     method: 'POST',
     body: formData,
-  });
+  }, identity);
 
+  const tempFileId = readString(tempUpload.temp_file_id);
   const tempUri = readString(tempUpload.temp_uri) ?? readString(tempUpload.uri);
+  const resourceTargetUri = joinKbUri(targetUri, originalName);
   const created = await kbFetch('/api/v1/resources', {
     method: 'POST',
     body: JSON.stringify({
-      temp_uri: tempUri,
-      target_uri: targetUri,
-      name: originalName,
+      ...(tempFileId ? { temp_file_id: tempFileId } : { temp_uri: tempUri }),
+      to: resourceTargetUri,
+      source_name: originalName,
+      wait: true,
     }),
     headers: {
       'content-type': 'application/json',
     },
-  });
+  }, identity);
+
+  invalidateKnowledgeCache();
 
   return {
     success: true,
@@ -334,6 +373,7 @@ async function kbFetch(
     body?: string | FormData;
     headers?: Record<string, string>;
   } = {},
+  identity: OpenVikingIdentity,
 ): Promise<Record<string, unknown>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), KB_SEARCH_TIMEOUT);
@@ -345,6 +385,9 @@ async function kbFetch(
       body: options.body,
       headers: {
         ...(KB_API_KEY ? { authorization: `Bearer ${KB_API_KEY}` } : {}),
+        'X-OpenViking-Account': identity.accountId?.trim() || KB_API_ACCOUNT || 'default',
+        'X-OpenViking-User': identity.userId?.trim() || 'default',
+        ...(identity.agentId?.trim() ? { 'X-OpenViking-Agent': identity.agentId.trim() } : {}),
         ...options.headers,
       },
       signal: controller.signal,
@@ -363,4 +406,9 @@ async function kbFetch(
 
 function readString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function joinKbUri(baseUri: string, name: string): string {
+  const normalizedBase = baseUri.endsWith('/') ? baseUri : `${baseUri}/`;
+  return `${normalizedBase}${name}`;
 }

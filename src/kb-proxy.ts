@@ -2,10 +2,13 @@ import { createHash } from 'crypto';
 
 import {
   KB_API_KEY,
+  KB_API_ACCOUNT,
+  KB_API_AGENT_ID,
   KB_API_URL,
   KB_EXTRACT_TIMEOUT,
   KB_ROOT_URI,
   KB_SEARCH_TIMEOUT,
+  KB_API_USER,
 } from './config.js';
 import { logger } from './logger.js';
 
@@ -60,6 +63,10 @@ const STOPWORDS = new Set([
 
 const knowledgeCache = new Map<string, { expiresAt: number; value: string }>();
 
+export function invalidateKnowledgeCache(): void {
+  knowledgeCache.clear();
+}
+
 export interface QueryProfile {
   raw: string;
   tokens: string[];
@@ -110,9 +117,16 @@ export interface OvTreeNode {
   [key: string]: unknown;
 }
 
+export interface OpenVikingIdentity {
+  accountId?: string;
+  userId?: string;
+  agentId?: string;
+}
+
 type SearchOptions = {
   limit?: number;
   targetUri?: string;
+  identity?: OpenVikingIdentity;
 };
 
 type RelevantContextOptions = SearchOptions;
@@ -211,7 +225,9 @@ export function isKbConfigured(): boolean {
   return KB_API_URL.trim().length > 0;
 }
 
-export async function healthCheck(): Promise<{ connected: boolean; url: string; version?: string }> {
+export async function healthCheck(
+  identity?: OpenVikingIdentity,
+): Promise<{ connected: boolean; url: string; version?: string }> {
   if (!isKbConfigured()) {
     return { connected: false, url: KB_API_URL };
   }
@@ -219,6 +235,7 @@ export async function healthCheck(): Promise<{ connected: boolean; url: string; 
   try {
     const data = await ovFetch<Record<string, unknown>>('/health', {
       timeoutMs: KB_SEARCH_TIMEOUT,
+      identity,
     });
     return {
       connected: true,
@@ -245,6 +262,7 @@ export async function search(query: string, options: SearchOptions = {}): Promis
       ovFetch<unknown>('/api/v1/search/find', {
         method: 'POST',
         timeoutMs: KB_SEARCH_TIMEOUT,
+        identity: options.identity,
         body: {
           query,
           limit: candidateLimit,
@@ -255,8 +273,10 @@ export async function search(query: string, options: SearchOptions = {}): Promis
   );
 
   const deduped = new Map<string, FindResultItem>();
+  const errors: unknown[] = [];
   for (const result of settled) {
     if (result.status !== 'fulfilled') {
+      errors.push(result.reason);
       logger.warn({ err: result.reason }, 'KB search scope failed');
       continue;
     }
@@ -269,13 +289,25 @@ export async function search(query: string, options: SearchOptions = {}): Promis
     }
   }
 
+  if (deduped.size === 0 && errors.length === settled.length) {
+    const firstError = errors[0];
+    throw firstError instanceof Error ? firstError : new Error(String(firstError));
+  }
+
+  if (deduped.size === 0) {
+    const grepResults = await fallbackToGrep(query, targetUris, limit, options.identity);
+    for (const item of grepResults) {
+      deduped.set(item.uri, item);
+    }
+  }
+
   const profile = buildQueryProfile(query);
   return Array.from(deduped.values())
     .sort((left, right) => rankForInjection(right, profile) - rankForInjection(left, profile))
     .slice(0, limit);
 }
 
-export async function readContent(uri: string): Promise<string> {
+export async function readContent(uri: string, identity?: OpenVikingIdentity): Promise<string> {
   if (!isKbConfigured() || !uri) return '';
 
   const url = new URL('/api/v1/content/read', normalizeBaseUrl(KB_API_URL));
@@ -283,18 +315,19 @@ export async function readContent(uri: string): Promise<string> {
   const data = await ovFetch<unknown>(url.toString(), {
     timeoutMs: KB_SEARCH_TIMEOUT,
     absoluteUrl: true,
+    identity,
   });
   const content = normalizeContentResponse(data);
   if (content || !looksLikeResourceRootUri(uri)) {
     return content;
   }
 
-  const resourceTree = await fsTree(uri);
+  const resourceTree = await fsTree(uri, identity);
   const leafUri = findFirstLeafUri(resourceTree);
   if (!leafUri || leafUri === uri) {
     return content;
   }
-  return readContent(leafUri);
+  return readContent(leafUri, identity);
 }
 
 export async function getRelevantContext(
@@ -303,28 +336,32 @@ export async function getRelevantContext(
 ): Promise<string> {
   if (!isKbConfigured() || !prompt.trim()) return '';
 
-  const cacheKey = createHash('md5').update(prompt.slice(0, 500)).digest('hex');
+  const searchQuery = normalizeKbSearchQuery(prompt);
+  if (!searchQuery) return '';
+
+  const cacheKey = createHash('md5').update(searchQuery.slice(0, 500)).digest('hex');
   const cached = knowledgeCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.value;
   }
 
   try {
-    const items = await search(prompt, options);
+    const items = await search(searchQuery, options);
     if (items.length === 0) return '';
 
     const lines = await Promise.all(items.map(async (item, index) => {
-      let content = item.abstract?.trim() ?? '';
+      let content = '';
+      try {
+        content = (await readContent(item.uri, options.identity)).trim();
+      } catch {
+        content = '';
+      }
       if (!content) {
-        try {
-          content = (await readContent(item.uri)).trim();
-        } catch {
-          content = '';
-        }
+        content = item.abstract?.trim() ?? '';
       }
       const label = item.category ?? deriveCategory(item.uri);
       const title = item.title ?? deriveTitle(item.uri);
-      const summary = squashWhitespace(content).slice(0, 240);
+      const summary = buildInjectionSnippet(content);
       return `${index + 1}. [${label}] ${title}${summary ? ` - ${summary}` : ''}`;
     }));
 
@@ -346,9 +383,18 @@ export async function getRelevantContext(
   }
 }
 
+export function normalizeKbSearchQuery(prompt: string): string {
+  const transcriptMessages = extractTranscriptMessages(prompt);
+  if (transcriptMessages.length === 0) {
+    return prompt.trim();
+  }
+  return transcriptMessages.join('\n').trim();
+}
+
 export async function extractConversation(
   messages: ExtractMessage[],
   options: { title?: string } = {},
+  identity?: OpenVikingIdentity,
 ): Promise<ExtractResult> {
   if (!isKbConfigured()) {
     return { ok: false, count: 0, items: [], errors: ['知识库未配置'] };
@@ -366,6 +412,7 @@ export async function extractConversation(
     const session = await ovFetch<Record<string, unknown>>('/api/v1/sessions', {
       method: 'POST',
       timeoutMs: KB_EXTRACT_TIMEOUT,
+      identity,
       body: {
         title: options.title,
       },
@@ -386,6 +433,7 @@ export async function extractConversation(
         await ovFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
           method: 'POST',
           timeoutMs: KB_EXTRACT_TIMEOUT,
+          identity,
           body: {
             role: 'user',
             content: batch.map((item) => `[${item.role ?? 'user'}] ${item.content}`).join('\n\n'),
@@ -401,6 +449,7 @@ export async function extractConversation(
     const extracted = await ovFetch<unknown>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/extract`, {
       method: 'POST',
       timeoutMs: KB_EXTRACT_TIMEOUT,
+      identity,
       body: {},
     });
     const items = normalizeExtractItems(extracted);
@@ -425,6 +474,7 @@ export async function extractConversation(
         await ovFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
           method: 'DELETE',
           timeoutMs: KB_EXTRACT_TIMEOUT,
+          identity,
         });
       } catch (err) {
         logger.warn({ err, sessionId }, 'Failed to delete temporary KB session');
@@ -433,29 +483,35 @@ export async function extractConversation(
   }
 }
 
-export async function fsTree(uri = KB_ROOT_URI): Promise<OvTreeNode[]> {
+export async function fsTree(uri = KB_ROOT_URI, identity?: OpenVikingIdentity): Promise<OvTreeNode[]> {
   if (!isKbConfigured()) return [];
 
-  const url = new URL('/api/v1/fs/tree', normalizeBaseUrl(KB_API_URL));
-  url.searchParams.set('uri', uri);
-  const data = await ovFetch<unknown>(url.toString(), {
-    timeoutMs: KB_SEARCH_TIMEOUT,
-    absoluteUrl: true,
-  });
-  return normalizeTree(data);
+  try {
+    const data = await fetchTree(uri, identity);
+    return normalizeTree(data);
+  } catch (err) {
+    if (!shouldAutoCreateKbRoot(err, uri)) {
+      throw err;
+    }
+    await fsMkdir(KB_ROOT_URI, identity);
+    const data = await fetchTree(uri, identity);
+    return normalizeTree(data);
+  }
 }
 
-export async function fsMkdir(uri: string): Promise<boolean> {
+export async function fsMkdir(uri: string, identity?: OpenVikingIdentity): Promise<boolean> {
   if (!isKbConfigured()) return false;
   await ovFetch('/api/v1/fs/mkdir', {
     method: 'POST',
     timeoutMs: KB_SEARCH_TIMEOUT,
+    identity,
     body: { uri },
   });
+  invalidateKnowledgeCache();
   return true;
 }
 
-export async function fsDelete(uri: string): Promise<boolean> {
+export async function fsDelete(uri: string, identity?: OpenVikingIdentity): Promise<boolean> {
   if (!isKbConfigured()) return false;
 
   const url = new URL('/api/v1/fs', normalizeBaseUrl(KB_API_URL));
@@ -465,17 +521,21 @@ export async function fsDelete(uri: string): Promise<boolean> {
     method: 'DELETE',
     timeoutMs: KB_SEARCH_TIMEOUT,
     absoluteUrl: true,
+    identity,
   });
+  invalidateKnowledgeCache();
   return true;
 }
 
-export async function fsMove(from: string, to: string): Promise<boolean> {
+export async function fsMove(from: string, to: string, identity?: OpenVikingIdentity): Promise<boolean> {
   if (!isKbConfigured()) return false;
   await ovFetch('/api/v1/fs/mv', {
     method: 'POST',
     timeoutMs: KB_SEARCH_TIMEOUT,
+    identity,
     body: { from, to },
   });
+  invalidateKnowledgeCache();
   return true;
 }
 
@@ -483,28 +543,33 @@ export async function writeContent(
   uri: string,
   content: string,
   mode: WriteMode = 'replace',
+  identity?: OpenVikingIdentity,
 ): Promise<boolean> {
   if (!isKbConfigured()) return false;
   const targetUri = normalizeWritableResourceUri(uri);
   const nextContent = mode === 'append'
-    ? `${await readContent(uri)}${content}`
+    ? `${await readContent(uri, identity)}${content}`
     : content;
-  await uploadTextResource(targetUri, nextContent);
+  await uploadTextResource(targetUri, nextContent, identity);
+  invalidateKnowledgeCache();
   return true;
 }
 
-export async function reindex(uri: string): Promise<boolean> {
+export async function reindex(uri: string, identity?: OpenVikingIdentity): Promise<boolean> {
   if (!isKbConfigured()) return false;
   await ovFetch('/api/v1/content/reindex', {
     method: 'POST',
     timeoutMs: KB_SEARCH_TIMEOUT,
+    identity,
     body: { uri },
   });
+  invalidateKnowledgeCache();
   return true;
 }
 
 export async function saveKnowledgeDraft(
   options: SaveKnowledgeDraftOptions,
+  identity?: OpenVikingIdentity,
 ): Promise<{ success: true; uri: string }> {
   const uri = normalizeDraftTargetUri(options.uri);
   const rootUri = ensureTrailingSlash(KB_ROOT_URI);
@@ -516,11 +581,12 @@ export async function saveKnowledgeDraft(
     throw new Error('当前版本仅支持保存到知识库根目录');
   }
 
-  if (!options.overwrite && await kbEntryExists(uri)) {
+  if (!options.overwrite && await kbEntryExists(uri, identity)) {
     throw createKbConflictError('目标文件已存在');
   }
 
-  const uploadedUri = await uploadTextResource(uri, options.content);
+  const uploadedUri = await uploadTextResource(uri, options.content, identity);
+  invalidateKnowledgeCache();
   return { success: true, uri: uploadedUri };
 }
 
@@ -563,6 +629,38 @@ function normalizeBaseUrl(value: string): string {
   return value.endsWith('/') ? value : `${value}/`;
 }
 
+function resolveOpenVikingIdentity(identity?: OpenVikingIdentity): Required<OpenVikingIdentity> {
+  return {
+    accountId: identity?.accountId?.trim() || KB_API_ACCOUNT || 'default',
+    userId: identity?.userId?.trim() || KB_API_USER || 'default',
+    agentId: identity?.agentId?.trim() || KB_API_AGENT_ID || '',
+  };
+}
+
+function buildOpenVikingHeaders(
+  identity?: OpenVikingIdentity,
+  options: { hasJsonBody?: boolean } = {},
+): Record<string, string> {
+  const resolved = resolveOpenVikingIdentity(identity);
+  return {
+    ...(options.hasJsonBody ? { 'content-type': 'application/json' } : {}),
+    ...(KB_API_KEY ? { authorization: `Bearer ${KB_API_KEY}` } : {}),
+    'X-OpenViking-Account': resolved.accountId,
+    'X-OpenViking-User': resolved.userId,
+    ...(resolved.agentId ? { 'X-OpenViking-Agent': resolved.agentId } : {}),
+  };
+}
+
+async function fetchTree(uri: string, identity?: OpenVikingIdentity): Promise<unknown> {
+  const url = new URL('/api/v1/fs/tree', normalizeBaseUrl(KB_API_URL));
+  url.searchParams.set('uri', uri);
+  return ovFetch<unknown>(url.toString(), {
+    timeoutMs: KB_SEARCH_TIMEOUT,
+    absoluteUrl: true,
+    identity,
+  });
+}
+
 async function ovFetch<T>(
   endpoint: string,
   options: {
@@ -570,6 +668,7 @@ async function ovFetch<T>(
     body?: unknown;
     timeoutMs?: number;
     absoluteUrl?: boolean;
+    identity?: OpenVikingIdentity;
   } = {},
 ): Promise<T> {
   if (!isKbConfigured()) {
@@ -584,16 +683,19 @@ async function ovFetch<T>(
     const url = options.absoluteUrl ? endpoint : new URL(endpoint, normalizeBaseUrl(KB_API_URL)).toString();
     const response = await fetch(url, {
       method: options.method ?? 'GET',
-      headers: {
-        ...(options.body !== undefined ? { 'content-type': 'application/json' } : {}),
-        ...(KB_API_KEY ? { authorization: `Bearer ${KB_API_KEY}` } : {}),
-      },
+      headers: buildOpenVikingHeaders(options.identity, {
+        hasJsonBody: options.body !== undefined,
+      }),
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       signal: controller.signal,
     });
 
     if (!response.ok) {
-      throw new Error(`OpenViking request failed: ${response.status} ${response.statusText}`);
+      const errorText = await response.text().catch(() => '');
+      const errorMessage = extractOvErrorMessage(errorText);
+      throw new Error(errorMessage
+        ? `OpenViking request failed: ${response.status} ${response.statusText} - ${errorMessage}`
+        : `OpenViking request failed: ${response.status} ${response.statusText}`);
     }
 
     if (response.status === 204) {
@@ -617,11 +719,98 @@ function normalizeSearchResults(payload: unknown): FindResultItem[] {
         ? (unwrapped as { items: unknown[] }).items
         : Array.isArray((unwrapped as { data?: unknown[] } | null)?.data)
           ? (unwrapped as { data: unknown[] }).data
+          : hasScopedSearchResults(unwrapped)
+            ? [
+              ...(unwrapped.memories ?? []),
+              ...(unwrapped.resources ?? []),
+              ...(unwrapped.skills ?? []),
+            ]
           : [];
 
   return source
     .map((item) => normalizeSearchItem(item))
     .filter((item): item is FindResultItem => Boolean(item));
+}
+
+function extractOvErrorMessage(payload: string): string {
+  if (!payload) return '';
+  try {
+    const parsed = JSON.parse(payload) as {
+      error?: { message?: unknown } | unknown;
+      message?: unknown;
+    };
+    const nestedMessage = readString((parsed.error as { message?: unknown } | undefined)?.message);
+    return nestedMessage ?? readString(parsed.message) ?? payload;
+  } catch {
+    return payload;
+  }
+}
+
+async function fallbackToGrep(
+  query: string,
+  targetUris: string[],
+  limit: number,
+  identity?: OpenVikingIdentity,
+): Promise<FindResultItem[]> {
+  const settled = await Promise.allSettled(
+    targetUris.map((uri) =>
+      ovFetch<unknown>('/api/v1/search/grep', {
+        method: 'POST',
+        timeoutMs: KB_SEARCH_TIMEOUT,
+        identity,
+        body: {
+          uri,
+          pattern: query,
+        },
+      }),
+    ),
+  );
+
+  const deduped = new Map<string, FindResultItem>();
+  for (const result of settled) {
+    if (result.status !== 'fulfilled') {
+      logger.warn({ err: result.reason }, 'KB grep fallback scope failed');
+      continue;
+    }
+    for (const item of normalizeGrepResults(result.value)) {
+      if (!deduped.has(item.uri)) {
+        deduped.set(item.uri, item);
+      }
+    }
+  }
+
+  return Array.from(deduped.values()).slice(0, limit);
+}
+
+function hasScopedSearchResults(
+  payload: unknown,
+): payload is { memories?: unknown[]; resources?: unknown[]; skills?: unknown[] } {
+  if (!payload || typeof payload !== 'object') return false;
+  const record = payload as Record<string, unknown>;
+  return Array.isArray(record.memories)
+    || Array.isArray(record.resources)
+    || Array.isArray(record.skills);
+}
+
+function normalizeGrepResults(payload: unknown): FindResultItem[] {
+  const unwrapped = unwrapOvResult(payload);
+  const matches = Array.isArray((unwrapped as { matches?: unknown[] } | null)?.matches)
+    ? (unwrapped as { matches: unknown[] }).matches
+    : [];
+
+  return matches.flatMap((match) => {
+    if (!match || typeof match !== 'object') return [];
+    const record = match as Record<string, unknown>;
+    const uri = readString(record.uri);
+    const content = readString(record.content);
+    if (!uri || !content) return [];
+    return [{
+      uri,
+      abstract: content,
+      category: 'grep',
+      score: 1,
+    }];
+  });
 }
 
 function normalizeSearchItem(payload: unknown): FindResultItem | null {
@@ -706,6 +895,70 @@ function squashWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function buildInjectionSnippet(content: string): string {
+  const preferred = extractPreferredMarkdownSection(content) || content;
+  return squashWhitespace(preferred).slice(0, 240);
+}
+
+function extractPreferredMarkdownSection(content: string): string {
+  if (!content.includes('\n#') && !content.startsWith('#')) {
+    return '';
+  }
+
+  const preferredHeadings = ['关键结论', '结论', '摘要'];
+  for (const heading of preferredHeadings) {
+    const section = extractMarkdownSection(content, heading);
+    if (section) {
+      return section;
+    }
+  }
+  return '';
+}
+
+function extractMarkdownSection(content: string, heading: string): string {
+  const lines = content.split('\n');
+  let collecting = false;
+  const sectionLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^##\s+/.test(trimmed)) {
+      if (collecting) {
+        break;
+      }
+      collecting = trimmed === `## ${heading}`;
+      continue;
+    }
+    if (collecting && /^#\s+/.test(trimmed)) {
+      break;
+    }
+    if (collecting) {
+      sectionLines.push(line);
+    }
+  }
+
+  return sectionLines.join('\n').trim();
+}
+
+function extractTranscriptMessages(prompt: string): string[] {
+  const matches = Array.from(prompt.matchAll(/<message\b[^>]*>([\s\S]*?)<\/message>/g));
+  if (matches.length === 0) {
+    return [];
+  }
+
+  return matches
+    .map((match) => decodeXmlEntities(match[1] ?? '').trim())
+    .filter(Boolean);
+}
+
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&amp;/g, '&');
+}
+
 function resolveDraftTitle(options: BuildKnowledgeDraftOptions): string {
   const rawTitle = options.title?.trim() || options.chatName?.trim() || options.chatJid?.trim() || '';
   const sanitized = sanitizeDraftSegment(rawTitle);
@@ -784,9 +1037,9 @@ function normalizeDraftTargetUri(uri: string): string {
   return withMd;
 }
 
-async function kbEntryExists(uri: string): Promise<boolean> {
+async function kbEntryExists(uri: string, identity?: OpenVikingIdentity): Promise<boolean> {
   const parentUri = getParentUri(uri);
-  const entries = await fsTree(parentUri);
+  const entries = await fsTree(parentUri, identity);
   const normalizedTarget = normalizeUri(uri);
   return entries.some((entry) => normalizeUri(readString(entry.uri) ?? '') === normalizedTarget);
 }
@@ -806,6 +1059,12 @@ function getParentUri(uri: string): string {
 
 function normalizeUri(uri: string): string {
   return uri.replace(/\/+$/, '');
+}
+
+function shouldAutoCreateKbRoot(err: unknown, uri: string): boolean {
+  if (!(err instanceof Error)) return false;
+  if (normalizeUri(uri) !== normalizeUri(KB_ROOT_URI)) return false;
+  return err.message.includes('no such directory');
 }
 
 function normalizeWritableResourceUri(uri: string): string {
@@ -829,26 +1088,39 @@ function createKbConflictError(message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code: 'KB_FILE_EXISTS' });
 }
 
-async function uploadTextResource(targetUri: string, content: string): Promise<string> {
+async function uploadTextResource(
+  targetUri: string,
+  content: string,
+  identity?: OpenVikingIdentity,
+): Promise<string> {
   const normalizedTargetUri = normalizeWritableResourceUri(targetUri);
   const tempUpload = await ovFetchFormData<Record<string, unknown>>('/api/v1/resources/temp_upload', {
     fileName: `${sanitizeDraftSegment(basenameFromUri(normalizedTargetUri)) || 'knowledge'}.md`,
     mimeType: 'text/markdown',
     content,
+    identity,
   });
   const tempPayload = unwrapOvResult(tempUpload);
   const tempRecord = (tempPayload as Record<string, unknown> | undefined) ?? {};
+  const tempFileId = readString(tempRecord.temp_file_id);
   const tempUri = readString(tempRecord.temp_uri) ?? readString(tempRecord.uri);
   const tempPath = readString(tempRecord.temp_path);
-  const tempRef = tempUri ?? tempPath;
+  const tempRef = tempFileId ?? tempUri ?? tempPath;
   if (!tempRef) {
-    throw new Error('OpenViking 未返回 temp_uri');
+    throw new Error('OpenViking 未返回 temp_file_id');
   }
 
   const created = await ovFetch<Record<string, unknown>>('/api/v1/resources', {
     method: 'POST',
     timeoutMs: KB_SEARCH_TIMEOUT,
-    body: tempPath
+    identity,
+    body: tempFileId
+      ? {
+        temp_file_id: tempFileId,
+        to: normalizedTargetUri,
+        wait: true,
+      }
+      : tempPath
       ? {
         temp_path: tempPath,
         to: normalizedTargetUri,
@@ -875,7 +1147,7 @@ async function uploadTextResource(targetUri: string, content: string): Promise<s
     return normalizedTargetUri;
   }
   try {
-    const resourceTree = await fsTree(rootResourceUri);
+    const resourceTree = await fsTree(rootResourceUri, identity);
     const leafUri = findFirstLeafUri(resourceTree);
     return leafUri ?? rootResourceUri;
   } catch (err) {
@@ -899,6 +1171,7 @@ async function ovFetchFormData<T>(
     fileName: string;
     mimeType: string;
     content: string;
+    identity?: OpenVikingIdentity;
   },
 ): Promise<T> {
   if (!isKbConfigured()) {
@@ -918,9 +1191,7 @@ async function ovFetchFormData<T>(
 
     const response = await fetch(new URL(endpoint, normalizeBaseUrl(KB_API_URL)).toString(), {
       method: 'POST',
-      headers: {
-        ...(KB_API_KEY ? { authorization: `Bearer ${KB_API_KEY}` } : {}),
-      },
+      headers: buildOpenVikingHeaders(options.identity),
       body: formData,
       signal: controller.signal,
     });

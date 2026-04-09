@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('./config.js', () => ({
   KB_API_KEY: 'dev-secret-key',
   KB_API_URL: 'http://kb.example',
+  KB_API_ACCOUNT: 'acme',
+  KB_API_USER: 'default-user',
+  KB_API_AGENT_ID: 'kb-agent',
   KB_EXTRACT_TIMEOUT: 30000,
   KB_ROOT_URI: 'viking://resources/cnp-kb/',
   KB_SEARCH_TIMEOUT: 15000,

@@ -25,12 +25,14 @@ vi.mock('./db.js', async () => {
 
 const buildKnowledgeDraftMock = vi.fn();
 const saveKnowledgeDraftMock = vi.fn();
+const searchMock = vi.fn();
 vi.mock('./kb-proxy.js', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('./kb-proxy.js');
   return {
     ...actual,
     buildKnowledgeDraft: buildKnowledgeDraftMock,
     saveKnowledgeDraft: saveKnowledgeDraftMock,
+    search: searchMock,
   };
 });
 
@@ -144,6 +146,35 @@ describe('kb draft routes', () => {
     expect(res.body).toEqual({
       error: '目标文件已存在',
       code: 'KB_FILE_EXISTS',
+    });
+  });
+
+  it('POST /api/kb/search 应透传当前登录用户身份给 KB 代理', async () => {
+    searchMock.mockResolvedValue([]);
+
+    const { default: kbRouter } = await import('./kb-routes.js');
+    const app = express();
+    app.use(express.json());
+    app.use('/api/kb', kbRouter);
+
+    const res = await invokeApp(app, {
+      method: 'POST',
+      url: '/api/kb/search',
+      token,
+      body: {
+        query: '数据库连接超时',
+        limit: 5,
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(searchMock).toHaveBeenCalledWith('数据库连接超时', {
+      limit: 5,
+      targetUri: undefined,
+      identity: {
+        accountId: 'default',
+        userId: 'user-1',
+      },
     });
   });
 });
