@@ -12,7 +12,7 @@ import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
 import { randomUUID } from 'crypto';
 
-const IPC_DIR = '/workspace/ipc';
+const IPC_DIR = process.env.IPC_DIR || '/workspace/ipc';
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
 const TASKS_DIR = path.join(IPC_DIR, 'tasks');
 const ASK_REQUESTS_DIR = path.join(IPC_DIR, 'ask_requests');

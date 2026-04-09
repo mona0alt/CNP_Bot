@@ -284,7 +284,17 @@ export async function readContent(uri: string): Promise<string> {
     timeoutMs: KB_SEARCH_TIMEOUT,
     absoluteUrl: true,
   });
-  return normalizeContentResponse(data);
+  const content = normalizeContentResponse(data);
+  if (content || !looksLikeResourceRootUri(uri)) {
+    return content;
+  }
+
+  const resourceTree = await fsTree(uri);
+  const leafUri = findFirstLeafUri(resourceTree);
+  if (!leafUri || leafUri === uri) {
+    return content;
+  }
+  return readContent(leafUri);
 }
 
 export async function getRelevantContext(
@@ -475,11 +485,11 @@ export async function writeContent(
   mode: WriteMode = 'replace',
 ): Promise<boolean> {
   if (!isKbConfigured()) return false;
-  await ovFetch('/api/v1/content/write', {
-    method: 'POST',
-    timeoutMs: KB_SEARCH_TIMEOUT,
-    body: { uri, content, mode },
-  });
+  const targetUri = normalizeWritableResourceUri(uri);
+  const nextContent = mode === 'append'
+    ? `${await readContent(uri)}${content}`
+    : content;
+  await uploadTextResource(targetUri, nextContent);
   return true;
 }
 
@@ -798,39 +808,89 @@ function normalizeUri(uri: string): string {
   return uri.replace(/\/+$/, '');
 }
 
+function normalizeWritableResourceUri(uri: string): string {
+  const normalized = normalizeUri(uri);
+  const segments = normalized.split('/');
+  if (segments.length < 2) {
+    return normalized;
+  }
+  const leafName = segments[segments.length - 1] ?? '';
+  const parentName = segments[segments.length - 2] ?? '';
+  if (!/^upload_[^/]+\.[^/]+$/i.test(leafName)) {
+    return normalized;
+  }
+  if (!/\.[^/]+$/.test(parentName)) {
+    return normalized;
+  }
+  return segments.slice(0, -1).join('/');
+}
+
 function createKbConflictError(message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code: 'KB_FILE_EXISTS' });
 }
 
 async function uploadTextResource(targetUri: string, content: string): Promise<string> {
+  const normalizedTargetUri = normalizeWritableResourceUri(targetUri);
   const tempUpload = await ovFetchFormData<Record<string, unknown>>('/api/v1/resources/temp_upload', {
-    fileName: `${sanitizeDraftSegment(basenameFromUri(targetUri)) || 'knowledge'}.md`,
+    fileName: `${sanitizeDraftSegment(basenameFromUri(normalizedTargetUri)) || 'knowledge'}.md`,
     mimeType: 'text/markdown',
     content,
   });
   const tempPayload = unwrapOvResult(tempUpload);
-  const tempPath = readString((tempPayload as Record<string, unknown> | undefined)?.temp_path);
-  if (!tempPath) {
-    throw new Error('OpenViking 未返回 temp_path');
+  const tempRecord = (tempPayload as Record<string, unknown> | undefined) ?? {};
+  const tempUri = readString(tempRecord.temp_uri) ?? readString(tempRecord.uri);
+  const tempPath = readString(tempRecord.temp_path);
+  const tempRef = tempUri ?? tempPath;
+  if (!tempRef) {
+    throw new Error('OpenViking 未返回 temp_uri');
   }
 
   const created = await ovFetch<Record<string, unknown>>('/api/v1/resources', {
     method: 'POST',
     timeoutMs: KB_SEARCH_TIMEOUT,
-    body: {
-      temp_path: tempPath,
-      to: targetUri,
-      wait: true,
-    },
+    body: tempPath
+      ? {
+        temp_path: tempPath,
+        to: normalizedTargetUri,
+        wait: true,
+      }
+      : {
+        path: tempUri,
+        to: normalizedTargetUri,
+        wait: true,
+      },
   });
   const createdPayload = unwrapOvResult(created);
+  const createdRecord = (createdPayload as Record<string, unknown> | undefined) ?? {};
+  const directResourceUri =
+    readString(createdRecord.resource_uri) ??
+    readString(createdRecord.uri);
+  if (directResourceUri) {
+    return directResourceUri;
+  }
   const rootResourceUri =
-    readString((createdPayload as Record<string, unknown> | undefined)?.root_uri) ??
-    targetUri;
+    readString(createdRecord.root_uri) ??
+    normalizedTargetUri;
+  if (!rootResourceUri.startsWith(ensureTrailingSlash(KB_ROOT_URI))) {
+    return normalizedTargetUri;
+  }
+  try {
+    const resourceTree = await fsTree(rootResourceUri);
+    const leafUri = findFirstLeafUri(resourceTree);
+    return leafUri ?? rootResourceUri;
+  } catch (err) {
+    logger.warn({ err, rootResourceUri, targetUri: normalizedTargetUri }, 'Failed to inspect created KB resource tree, falling back to target uri');
+    return rootResourceUri;
+  }
+}
 
-  const resourceTree = await fsTree(rootResourceUri);
-  const leafUri = findFirstLeafUri(resourceTree);
-  return leafUri ?? rootResourceUri;
+function looksLikeResourceRootUri(uri: string): boolean {
+  const normalized = normalizeUri(uri);
+  const leafName = basenameFromUri(normalized);
+  if (/^upload_[^/]+\.[^/]+$/i.test(leafName)) {
+    return false;
+  }
+  return /\.[^/]+$/.test(leafName);
 }
 
 async function ovFetchFormData<T>(
@@ -925,7 +985,39 @@ function buildTreeFromFlatEntries(entries: Array<Record<string, unknown>>): OvTr
     }
   }
 
-  return roots;
+  return roots
+    .map((node) => collapseResourceDocumentNode(node))
+    .filter((node): node is OvTreeNode => Boolean(node));
+}
+
+function collapseResourceDocumentNode(node: OvTreeNode): OvTreeNode | null {
+  const children = (node.children ?? [])
+    .map((child) => collapseResourceDocumentNode(child))
+    .filter((child): child is OvTreeNode => Boolean(child));
+
+  const collapsed: OvTreeNode = {
+    ...node,
+    children,
+  };
+  const onlyChild = children.length === 1 ? children[0] : undefined;
+  const collapsedUri = typeof collapsed.uri === 'string' ? collapsed.uri : '';
+  const onlyChildUri = typeof onlyChild?.uri === 'string' ? onlyChild.uri : '';
+  if (
+    collapsed.type === 'directory' &&
+    collapsedUri &&
+    looksLikeResourceRootUri(collapsedUri) &&
+    onlyChild?.type === 'file' &&
+    onlyChildUri &&
+    /^upload_[^/]+\.[^/]+$/i.test(basenameFromUri(onlyChildUri))
+  ) {
+    return {
+      uri: collapsedUri,
+      name: collapsed.name,
+      type: 'file',
+      children: [],
+    };
+  }
+  return collapsed;
 }
 
 function findFirstLeafUri(nodes: OvTreeNode[]): string | undefined {

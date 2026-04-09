@@ -114,10 +114,225 @@ describe('buildKnowledgeDraft', () => {
 
     expect(result).toEqual({
       success: true,
-      uri: 'viking://resources/cnp-kb/数据库连接超时排查.md/upload_123.md',
+      uri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
     });
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('http://kb.example/api/v1/resources/temp_upload');
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe('http://kb.example/api/v1/resources');
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      temp_path: '/app/data/temp/upload/upload_123.md',
+      to: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+      wait: true,
+    });
+  });
+
+  it('writeContent 应通过资源上传链路覆盖现有知识文件', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          temp_path: '/app/data/temp/upload/upload_456.md',
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          status: 'success',
+          root_uri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: [
+          {
+            uri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+            rel_path: '数据库连接超时排查.md',
+            isDir: false,
+          },
+        ],
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { writeContent } = await import('./kb-proxy.js');
+    const result = await writeContent(
+      'viking://resources/cnp-kb/数据库连接超时排查.md',
+      '# 更新后的内容',
+      'replace',
+    );
+
+    expect(result).toBe(true);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('http://kb.example/api/v1/resources/temp_upload');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe('http://kb.example/api/v1/resources');
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      temp_path: '/app/data/temp/upload/upload_456.md',
+      to: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+      wait: true,
+    });
+  });
+
+  it('writeContent 在资源已创建但 fsTree 失败时应回退为成功', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          temp_uri: 'temp://upload/upload_789.md',
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          root_uri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+        },
+      }))
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        text: async () => JSON.stringify({ error: 'tree failed' }),
+      } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { writeContent } = await import('./kb-proxy.js');
+    const result = await writeContent(
+      'viking://resources/cnp-kb/数据库连接超时排查.md',
+      '# 更新后的内容',
+      'replace',
+    );
+
+    expect(result).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/api/v1/fs/tree?uri=');
+  });
+
+  it('writeContent 应将 upload 叶子文件 uri 规范化为资源根 uri', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          temp_path: '/app/data/temp/upload/upload_900.md',
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          resource_uri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+        },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { writeContent } = await import('./kb-proxy.js');
+    const result = await writeContent(
+      'viking://resources/cnp-kb/数据库连接超时排查.md/upload_900.md',
+      '# 更新后的内容',
+      'replace',
+    );
+
+    expect(result).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      temp_path: '/app/data/temp/upload/upload_900.md',
+      to: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+      wait: true,
+    });
+  });
+
+  it('writeContent 在创建接口返回非知识库根 root_uri 时不应再请求 fsTree', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          temp_uri: 'temp://upload/upload_901.md',
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          root_uri: 'viking://resources/upload_ea7e7f8bb88d4af8b6cc2f995094e867',
+        },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { writeContent } = await import('./kb-proxy.js');
+    const result = await writeContent(
+      'viking://resources/cnp-kb/数据库连接超时排查.md/upload_901.md',
+      '# 更新后的内容',
+      'replace',
+    );
+
+    expect(result).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('readContent 读取文档根 uri 为空时应回退到叶子文件', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          content: '',
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: [
+          {
+            uri: 'viking://resources/cnp-kb/数据库连接超时排查.md/upload_901.md',
+            rel_path: 'upload_901.md',
+            isDir: false,
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: {
+          content: '# 最新内容',
+        },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { readContent } = await import('./kb-proxy.js');
+    const result = await readContent('viking://resources/cnp-kb/数据库连接超时排查.md');
+
+    expect(result).toBe('# 最新内容');
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'http://kb.example/api/v1/content/read?uri=viking%3A%2F%2Fresources%2Fcnp-kb%2F%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%9E%E6%8E%A5%E8%B6%85%E6%97%B6%E6%8E%92%E6%9F%A5.md',
+    );
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      'http://kb.example/api/v1/fs/tree?uri=viking%3A%2F%2Fresources%2Fcnp-kb%2F%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%9E%E6%8E%A5%E8%B6%85%E6%97%B6%E6%8E%92%E6%9F%A5.md',
+    );
+    expect(String(fetchMock.mock.calls[2]?.[0])).toBe(
+      'http://kb.example/api/v1/content/read?uri=viking%3A%2F%2Fresources%2Fcnp-kb%2F%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%9E%E6%8E%A5%E8%B6%85%E6%97%B6%E6%8E%92%E6%9F%A5.md%2Fupload_901.md',
+    );
+  });
+
+  it('fsTree 应将文档资源目录折叠为可编辑文件节点', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ok',
+        result: [
+          {
+            uri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+            rel_path: '数据库连接超时排查.md',
+            isDir: true,
+          },
+          {
+            uri: 'viking://resources/cnp-kb/数据库连接超时排查.md/upload_901.md',
+            rel_path: '数据库连接超时排查.md/upload_901.md',
+            isDir: false,
+          },
+        ],
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { fsTree } = await import('./kb-proxy.js');
+    const result = await fsTree('viking://resources/cnp-kb/');
+
+    expect(result).toEqual([
+      {
+        uri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
+        name: '数据库连接超时排查.md',
+        type: 'file',
+        children: [],
+      },
+    ]);
   });
 
   it('fsDelete 应对知识资源目录使用 recursive=true', async () => {
