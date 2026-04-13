@@ -59,6 +59,19 @@ import {
   readGlobalSkillFile,
   writeGlobalSkillFile,
 } from './skills-store.js';
+import {
+  listSystemConfigFields,
+  listSystemConfigSections,
+} from './system-config-schema.js';
+import {
+  loadSystemConfigValues,
+  saveSystemConfigValues,
+} from './system-config-service.js';
+import {
+  getRestartRuntimeInfo,
+  readRestartStatus,
+  requestServiceRestart,
+} from './service-control.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -183,6 +196,36 @@ export function createApp(opts: ServerOpts = {}): AppContext {
       lastSyncedAt: syncState?.last_synced_at ?? null,
       errorMessage: syncState?.error_message ?? null,
     };
+  };
+
+  const systemConfigSections = listSystemConfigSections();
+  const systemConfigFields = listSystemConfigFields();
+
+  const buildSystemConfigSections = () =>
+    systemConfigSections.map((section) => ({
+      ...section,
+      fields: systemConfigFields.filter((field) => field.section === section.id),
+    }));
+
+  const isRestartPending = (status: string) =>
+    status === 'requested' || status === 'stopping' || status === 'starting';
+
+  const buildSystemConfigResponse = () => ({
+    sections: buildSystemConfigSections(),
+    values: loadSystemConfigValues(),
+    restart: getRestartRuntimeInfo(),
+    pendingRestart: isRestartPending(readRestartStatus().status),
+  });
+
+  const systemConfigValueSchema = z.string();
+  const systemConfigUpdateSchema = z.object({
+    values: z.record(z.string(), systemConfigValueSchema),
+  });
+
+  const normalizeSystemConfigValues = (
+    values: Record<string, string>,
+  ) => {
+    return { ...values };
   };
 
   const validateSkillSelection = (skills: string[]) => {
@@ -774,6 +817,71 @@ export function createApp(opts: ServerOpts = {}): AppContext {
       res.status(500).json({ error: 'Internal Server Error' });
     }
   });
+
+  app.get('/api/system-config', authenticateToken, requireAdmin, (_req, res) => {
+    try {
+      res.json(buildSystemConfigResponse());
+    } catch (err) {
+      logger.error({ err }, 'Failed to fetch system config');
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.put('/api/system-config', authenticateToken, requireAdmin, (req, res) => {
+    const parsed = systemConfigUpdateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    try {
+      const snapshot = saveSystemConfigValues(
+        normalizeSystemConfigValues(parsed.data.values),
+      );
+      res.json({
+        ...snapshot,
+        restart: getRestartRuntimeInfo(),
+        pendingRestart: isRestartPending(readRestartStatus().status),
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to save system config');
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Invalid request',
+      });
+    }
+  });
+
+  app.get(
+    '/api/system-config/restart-status',
+    authenticateToken,
+    requireAdmin,
+    (_req, res) => {
+      try {
+        res.json(readRestartStatus());
+      } catch (err) {
+        logger.error({ err }, 'Failed to fetch restart status');
+        res.status(500).json({ error: 'Internal Server Error' });
+      }
+    },
+  );
+
+  app.post(
+    '/api/system-config/restart',
+    authenticateToken,
+    requireAdmin,
+    (_req, res) => {
+      try {
+        requestServiceRestart();
+        res.status(202).json({
+          success: true,
+          restart: getRestartRuntimeInfo(),
+          pendingRestart: isRestartPending(readRestartStatus().status),
+        });
+      } catch (err) {
+        logger.error({ err }, 'Failed to request system restart');
+        res.status(500).json({ error: 'Internal Server Error' });
+      }
+    },
+  );
 
   // --- Auth endpoints ---
 
