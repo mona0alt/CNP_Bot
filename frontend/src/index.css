@@ -6,6 +6,11 @@
 
 @layer base {
   :root {
+    --app-body-font-size: 14px;
+    --app-caption-font-size: 12px;
+    --app-control-height: 2.75rem;
+    --app-card-padding: 1rem;
+
     /* 深色主题 - 柔和的深蓝灰 */
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
@@ -93,6 +98,19 @@
 @layer utilities {
   .font-brand {
     font-family: "Lexend", system-ui, sans-serif;
+  }
+
+  .app-caption {
+    font-size: var(--app-caption-font-size);
+    line-height: 1.45;
+  }
+
+  .app-control {
+    min-height: var(--app-control-height);
+  }
+
+  .app-card-pad {
+    padding: var(--app-card-padding);
   }
 }
 

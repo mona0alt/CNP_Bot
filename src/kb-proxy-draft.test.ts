@@ -9,6 +9,10 @@ vi.mock('./config.js', () => ({
   KB_EXTRACT_TIMEOUT: 30000,
   KB_ROOT_URI: 'viking://resources/cnp-kb/',
   KB_SEARCH_TIMEOUT: 15000,
+  KB_SUMMARY_LLM_API_URL: 'https://llm.example/v1',
+  KB_SUMMARY_LLM_API_KEY: 'summary-secret',
+  KB_SUMMARY_LLM_MODEL: 'gpt-4.1-mini',
+  KB_SUMMARY_LLM_TIMEOUT: 12000,
 }));
 
 vi.mock('./logger.js', () => ({
@@ -36,21 +40,39 @@ describe('buildKnowledgeDraft', () => {
   });
 
   it('应生成可编辑的 markdown 草稿和根目录目标路径', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      choices: [{
+        message: {
+          content: `<analysis>...</analysis><summary>
+## 摘要
+本次故障由连接池过小引起。
+
+## 关键结论
+- 根因是连接池上限过低
+- 扩容后业务恢复
+
+## 后续建议
+- 增加连接池容量基线
+</summary>`,
+        },
+      }],
+    })));
+
     const kbProxy = await import('./kb-proxy.js') as Record<string, unknown>;
     const buildKnowledgeDraft = kbProxy.buildKnowledgeDraft as undefined | ((
       messages: Array<{ role?: string; content: string }>,
       options?: { title?: string; chatJid?: string; chatName?: string },
-    ) => {
+    ) => Promise<{
       draftTitle: string;
       suggestedUri: string;
       content: string;
       source: { chatJid?: string; chatName?: string; messageCount: number; generatedAt: string };
       warnings: string[];
-    });
+    }>);
 
     expect(typeof buildKnowledgeDraft).toBe('function');
 
-    const result = buildKnowledgeDraft!(
+    const result = await buildKnowledgeDraft!(
       [
         { role: 'user', content: '生产环境数据库连接持续超时，应用大量报错，需要尽快定位。' },
         { role: 'assistant', content: '先检查连接池、网络连通性，再核对数据库负载与慢查询。' },
@@ -67,13 +89,68 @@ describe('buildKnowledgeDraft', () => {
     expect(result.suggestedUri).toBe('viking://resources/cnp-kb/数据库连接超时排查.md');
     expect(result.content).toContain('# 数据库连接超时排查');
     expect(result.content).toContain('## 摘要');
-    expect(result.content).toContain('生产环境数据库连接持续超时');
+    expect(result.content).toContain('本次故障由连接池过小引起。');
+    expect(result.content).toContain('- 根因是连接池上限过低');
+    expect(result.content).toContain('- 增加连接池容量基线');
     expect(result.source).toMatchObject({
       chatJid: 'group-1',
       chatName: '运维群',
       messageCount: 3,
     });
     expect(result.warnings).toEqual([]);
+  });
+
+  it('LLM 调用失败时应回退到模板草稿并追加 warning', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('gateway down')));
+
+    const { buildKnowledgeDraft } = await import('./kb-proxy.js');
+
+    const result = await buildKnowledgeDraft(
+      [
+        { role: 'user', content: '生产环境数据库连接持续超时，应用大量报错，需要尽快定位。' },
+        { role: 'assistant', content: '先检查连接池、网络连通性，再核对数据库负载与慢查询。' },
+      ],
+      {
+        title: '数据库连接超时排查',
+        chatJid: 'group-1',
+        chatName: '运维群',
+      },
+    );
+
+    expect(result.content).toContain('## 处理过程');
+    expect(result.content).toContain('生产环境数据库连接持续超时');
+    expect(result.warnings).toContain(
+      'LLM 摘要生成失败，当前草稿基于模板逻辑生成，请人工校对。',
+    );
+  });
+
+  it('LLM 未配置时应回退到模板草稿并追加 warning', async () => {
+    vi.doMock('./kb-draft-summary.js', async () => {
+      const actual = await vi.importActual<Record<string, unknown>>('./kb-draft-summary.js');
+      return {
+        ...actual,
+        isKnowledgeDraftLlmConfigured: () => false,
+      };
+    });
+
+    const { buildKnowledgeDraft } = await import('./kb-proxy.js');
+
+    const result = await buildKnowledgeDraft(
+      [
+        { role: 'user', content: '生产环境数据库连接持续超时，应用大量报错，需要尽快定位。' },
+        { role: 'assistant', content: '先检查连接池、网络连通性，再核对数据库负载与慢查询。' },
+      ],
+      {
+        title: '数据库连接超时排查',
+        chatJid: 'group-1',
+        chatName: '运维群',
+      },
+    );
+
+    expect(result.content).toContain('## 处理过程');
+    expect(result.warnings).toContain(
+      'LLM 摘要生成失败，当前草稿基于模板逻辑生成，请人工校对。',
+    );
   });
 
   it('saveKnowledgeDraft 应通过 temp_upload 和 resources 接口保存文本资源', async () => {
@@ -373,6 +450,47 @@ describe('buildKnowledgeDraft', () => {
       {
         uri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
         name: '数据库连接超时排查.md',
+        type: 'file',
+        children: [],
+      },
+    ]);
+  });
+
+  it('fsTree 应将带结构化子目录的 markdown 资源根折叠为可编辑文件节点', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      status: 'ok',
+      result: [
+        {
+          uri: 'viking://resources/cnp-kb/web a4a9d365-8a54-4fdb-8570-af69085f42d0-2026-04-10.md',
+          rel_path: 'web a4a9d365-8a54-4fdb-8570-af69085f42d0-2026-04-10.md',
+          isDir: true,
+        },
+        {
+          uri: 'viking://resources/cnp-kb/web a4a9d365-8a54-4fdb-8570-af69085f42d0-2026-04-10.md/web_a4a9d365-8a54-4fdb-8570-af69085f42d0-_6f5b6656',
+          rel_path: 'web a4a9d365-8a54-4fdb-8570-af69085f42d0-2026-04-10.md/web_a4a9d365-8a54-4fdb-8570-af69085f42d0-_6f5b6656',
+          isDir: true,
+        },
+        {
+          uri: 'viking://resources/cnp-kb/web a4a9d365-8a54-4fdb-8570-af69085f42d0-2026-04-10.md/web_a4a9d365-8a54-4fdb-8570-af69085f42d0-_6f5b6656/摘要_2more_42240c6d.md',
+          rel_path: 'web a4a9d365-8a54-4fdb-8570-af69085f42d0-2026-04-10.md/web_a4a9d365-8a54-4fdb-8570-af69085f42d0-_6f5b6656/摘要_2more_42240c6d.md',
+          isDir: false,
+        },
+        {
+          uri: 'viking://resources/cnp-kb/web a4a9d365-8a54-4fdb-8570-af69085f42d0-2026-04-10.md/web_a4a9d365-8a54-4fdb-8570-af69085f42d0-_6f5b6656/处理过程',
+          rel_path: 'web a4a9d365-8a54-4fdb-8570-af69085f42d0-2026-04-10.md/web_a4a9d365-8a54-4fdb-8570-af69085f42d0-_6f5b6656/处理过程',
+          isDir: true,
+        },
+      ],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { fsTree } = await import('./kb-proxy.js');
+    const result = await fsTree('viking://resources/cnp-kb/');
+
+    expect(result).toEqual([
+      {
+        uri: 'viking://resources/cnp-kb/web a4a9d365-8a54-4fdb-8570-af69085f42d0-2026-04-10.md',
+        name: 'web a4a9d365-8a54-4fdb-8570-af69085f42d0-2026-04-10.md',
         type: 'file',
         children: [],
       },

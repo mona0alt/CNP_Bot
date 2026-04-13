@@ -78,4 +78,22 @@ describe("Sidebar skills links", () => {
     expect(container.textContent).not.toContain("技能管理");
     expect(container.textContent).not.toContain("技能目录");
   });
+
+  it("uses a wider sidebar and readable nav typography", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/"]}>
+          <Sidebar />
+        </MemoryRouter>,
+      );
+    });
+
+    const sidebarRoot = container.firstElementChild as HTMLElement | null;
+    const nav = container.querySelector("nav");
+    const navLink = container.querySelector('a[href="/skills"]') as HTMLAnchorElement | null;
+
+    expect(sidebarRoot?.getAttribute("data-sidebar-size")).toBe("wide");
+    expect(nav?.getAttribute("data-nav-scale")).toBe("readable");
+    expect(navLink?.textContent).toBe("技能");
+  });
 });

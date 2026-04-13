@@ -79,7 +79,7 @@ export function ToolCallCard({
   return (
     <div
       className={cn(
-        "border rounded-lg overflow-hidden bg-card transition-all my-2",
+        "border rounded-lg overflow-hidden bg-card transition-all my-1",
         borderColor,
         statusBgColor,
         className
@@ -87,37 +87,37 @@ export function ToolCallCard({
     >
       {/* Header */}
       <div
-        className="flex items-center gap-2 p-2 px-3 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+        className="flex items-center gap-1.5 px-2 py-1.5 bg-muted/25 cursor-pointer hover:bg-muted/45 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <div className={cn("p-1 rounded-md bg-background border", borderColor)}>
-          <Terminal size={14} className={statusColor} />
+        <div className={cn("p-1 rounded bg-background border", borderColor)}>
+          <Terminal size={12} className={statusColor} />
         </div>
-        <div className="flex-1 font-mono text-xs font-medium truncate flex items-center gap-2">
+        <div className="flex-1 font-mono text-[10.5px] font-medium truncate flex items-center gap-1.5">
           <span className="truncate">{truncatedToolName}</span>
           {showInputInTitle && (
-            <span className="text-muted-foreground/60 truncate">| {inputString}</span>
+            <span className="text-[9px] text-muted-foreground/60 truncate">| {inputString}</span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           {status === "calling" && (
-            <span className="text-[10px] text-muted-foreground animate-pulse">
+            <span className="text-[9px] text-muted-foreground animate-pulse">
               Calling...
             </span>
           )}
           {status === "cancelled" && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[9px] text-muted-foreground">
               Stopped
             </span>
           )}
           <StatusIcon
-            size={14}
+            size={12}
             className={cn(statusColor, status === "calling" && "animate-spin")}
           />
           {expanded ? (
-            <ChevronDown size={14} className="text-muted-foreground" />
+            <ChevronDown size={12} className="text-muted-foreground" />
           ) : (
-            <ChevronRight size={14} className="text-muted-foreground" />
+            <ChevronRight size={12} className="text-muted-foreground" />
           )}
         </div>
       </div>
@@ -125,15 +125,15 @@ export function ToolCallCard({
       {/* Content */}
       {expanded && (
         <div className="border-t bg-muted/10">
-          <div className="p-3 space-y-3">
+          <div className="p-2.5 space-y-2">
             {/* Input Section - hidden when showInputInTitle=true (already shown in header) */}
             {!showInputInTitle && (
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">
+                <div className="text-[8.5px] uppercase tracking-wider text-muted-foreground mb-1 font-semibold">
                   Input
                 </div>
                 <div className="relative group">
-                  <pre className="text-xs bg-muted/50 p-2 rounded-md overflow-x-auto font-mono text-foreground/80 whitespace-pre-wrap break-all">
+                  <pre className="text-[10px] bg-muted/50 p-2 rounded-md overflow-x-auto font-mono text-foreground/75 whitespace-pre-wrap break-all">
                     {inputString || <span className="text-muted-foreground italic">No input</span>}
                   </pre>
                 </div>
@@ -143,18 +143,18 @@ export function ToolCallCard({
             {/* Result Section (only if exists) */}
             {resultString && (
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold flex items-center justify-between">
+                <div className="text-[8.5px] uppercase tracking-wider text-muted-foreground mb-1 font-semibold flex items-center justify-between">
                   <span>Result</span>
                   {status === "error" && (
-                    <span className="text-red-500 text-[10px]">Failed</span>
+                    <span className="text-red-500 text-[8.5px]">Failed</span>
                   )}
                   {status === "cancelled" && (
-                    <span className="text-amber-500 text-[10px]">Stopped</span>
+                    <span className="text-amber-500 text-[8.5px]">Stopped</span>
                   )}
                 </div>
                 <div className="relative group">
                   <pre className={cn(
-                    "text-xs p-2 rounded-md overflow-x-auto font-mono whitespace-pre-wrap break-all",
+                    "text-[10px] p-2 rounded-md overflow-x-auto font-mono whitespace-pre-wrap break-all",
                     isLight
                       ? (
                           status === "error"

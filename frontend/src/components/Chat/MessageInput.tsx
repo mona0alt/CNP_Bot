@@ -156,7 +156,7 @@ export function MessageInput({
   };
 
   return (
-    <div className="p-4 border-t bg-card/60 backdrop-blur-sm relative">
+    <div className="px-3 py-2 border-t bg-card/60 backdrop-blur-sm relative">
       {isPopupVisible && slashCommands.length > 0 && (
         <SlashCommandPopup
           commands={slashCommands}
@@ -168,7 +168,7 @@ export function MessageInput({
           onHover={setSelectedIndex}
         />
       )}
-      <div className="flex gap-3 items-center">
+      <div className="flex gap-2 items-center">
         <input
           ref={inputRef}
           type="text"
@@ -179,13 +179,13 @@ export function MessageInput({
           placeholder={
             isGenerating ? 'Agent is thinking...' : 'Type a message... (try /)'
           }
-          className="flex-1 h-11 bg-background/90 border border-border/80 rounded-2xl px-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/60 focus:border-ring disabled:opacity-50 disabled:cursor-not-allowed transition-[border-color,box-shadow]"
+          className="flex-1 h-9 bg-background/90 border border-border/80 rounded-lg px-3.5 text-[13px] shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/60 focus:border-ring disabled:opacity-50 disabled:cursor-not-allowed transition-[border-color,box-shadow]"
         />
         <button
           onClick={isGenerating ? onStop : onSend}
           disabled={!isGenerating && !value.trim()}
           className={cn(
-            'h-11 px-4 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-sm border',
+            'h-9 px-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 transition-all shadow-sm border',
             isGenerating
               ? 'bg-amber-500/10 text-amber-600 dark:text-amber-300 border-amber-500/25 hover:bg-amber-500/16 hover:border-amber-500/35'
               : 'bg-primary text-primary-foreground border-primary hover:bg-primary/92',
@@ -194,13 +194,13 @@ export function MessageInput({
         >
           {isGenerating ? (
             <>
-              <Square size={14} fill="currentColor" />
-              <span className="text-sm font-medium">停止</span>
+              <Square size={12} fill="currentColor" />
+              <span className="text-[11px] font-medium">停止</span>
             </>
           ) : (
             <>
-              <Send size={16} />
-              <span className="text-sm font-medium">发送</span>
+              <Send size={14} />
+              <span className="text-[11px] font-medium">发送</span>
             </>
           )}
         </button>

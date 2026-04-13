@@ -72,6 +72,20 @@ describe('JumpServerSessionCard', () => {
     expect(text).not.toContain('Result');
     expect(text).not.toContain('最近输出');
     expect(text).not.toContain('jumpserver.example.internal');
+
+    const section = container.querySelector('section');
+    expect(section?.className ?? '').toContain('rounded-xl');
+    const title = Array.from(container.querySelectorAll('span')).find(
+      (node) => node.textContent === 'JumpServer 远程会话',
+    );
+    expect(title?.className ?? '').toContain('text-[12px]');
+
+    const stage = Array.from(container.querySelectorAll('div')).find(
+      (node) =>
+        node.textContent === '已连接 10.246.104.234' &&
+        (node.className ?? '').includes('text-[9px]'),
+    );
+    expect(stage?.className ?? '').toContain('text-[9px]');
   });
 
   it('renders nested bash cards collapsed by default', async () => {

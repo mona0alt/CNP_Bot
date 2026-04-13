@@ -62,6 +62,7 @@ describe('StatusSidebar drawer', () => {
     const dialog = container.querySelector('[role="dialog"]');
     expect(dialog).not.toBeNull();
     expect(dialog?.className).toContain('translate-x-full');
+    expect(dialog?.className).toContain('w-80');
 
     const backdrop = dialog?.previousElementSibling as HTMLDivElement | null;
     expect(backdrop?.className).toContain('pointer-events-none');
@@ -119,7 +120,31 @@ describe('StatusSidebar drawer', () => {
       );
     });
 
-    const statusBadge = container.querySelector('.text-xs.rounded-full');
+    const statusBadge = Array.from(container.querySelectorAll('span')).find(
+      (node) => node.textContent === '空闲',
+    );
     expect(statusBadge?.className).not.toContain('ml-auto');
+  });
+
+  it('uses a tighter header and denser metric cards', async () => {
+    await act(async () => {
+      root.render(
+        <div className="relative h-96">
+          <StatusSidebar
+            status={sampleStatus}
+            open={true}
+            onClose={vi.fn()}
+          />
+        </div>,
+      );
+    });
+
+    const header = container.querySelector('[role="dialog"] > div');
+    expect(header?.className ?? '').toContain('h-12');
+
+    const value = Array.from(container.querySelectorAll('div')).find(
+      (node) => node.textContent === '1,200',
+    );
+    expect(value?.className ?? '').toContain('text-[13px]');
   });
 });

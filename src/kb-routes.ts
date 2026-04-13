@@ -262,11 +262,15 @@ router.post('/extract-draft', authenticateToken, requireAdmin, async (req, res) 
 
   try {
     const messages = readChatMessages(parsed.data.chatJid);
-    const draft = buildKnowledgeDraft(messages, {
-      title: parsed.data.title,
-      chatJid: parsed.data.chatJid,
-      chatName: parsed.data.chatName,
-    });
+    const draft = await buildKnowledgeDraft(
+      messages,
+      {
+        title: parsed.data.title,
+        chatJid: parsed.data.chatJid,
+        chatName: parsed.data.chatName,
+      },
+      resolveKbIdentity(req as AuthRequest),
+    );
     res.json(draft);
   } catch (err) {
     logger.error({ err }, 'Failed to build KB draft');

@@ -88,7 +88,7 @@ describe('kb draft routes', () => {
       { is_from_me: false, content: '生产环境数据库连接持续超时，应用大量报错。' },
       { is_from_me: true, content: '最终确认是连接池配置过小，扩容后恢复。' },
     ]);
-    buildKnowledgeDraftMock.mockReturnValue({
+    buildKnowledgeDraftMock.mockResolvedValue({
       draftTitle: '数据库连接超时排查',
       suggestedUri: 'viking://resources/cnp-kb/数据库连接超时排查.md',
       content: '# 数据库连接超时排查',
@@ -118,6 +118,7 @@ describe('kb draft routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.draftTitle).toBe('数据库连接超时排查');
+    expect(res.body).not.toEqual({});
     expect(buildKnowledgeDraftMock).toHaveBeenCalledTimes(1);
   });
 

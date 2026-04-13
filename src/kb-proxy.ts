@@ -10,6 +10,11 @@ import {
   KB_SEARCH_TIMEOUT,
   KB_API_USER,
 } from './config.js';
+import {
+  isKnowledgeDraftLlmConfigured,
+  summarizeKnowledgeDraft,
+  type KnowledgeDraftSummary,
+} from './kb-draft-summary.js';
 import { logger } from './logger.js';
 
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -139,6 +144,9 @@ type BuildKnowledgeDraftOptions = {
   chatName?: string;
 };
 
+const KB_DRAFT_SUMMARY_FALLBACK_WARNING =
+  'LLM 摘要生成失败，当前草稿基于模板逻辑生成，请人工校对。';
+
 type SaveKnowledgeDraftOptions = {
   uri: string;
   content: string;
@@ -180,10 +188,11 @@ export function filterMessages<T extends ExtractMessage>(messages: T[]): T[] {
   });
 }
 
-export function buildKnowledgeDraft(
+export async function buildKnowledgeDraft(
   messages: ExtractMessage[],
   options: BuildKnowledgeDraftOptions = {},
-): KnowledgeDraft {
+  identity?: OpenVikingIdentity,
+): Promise<KnowledgeDraft> {
   const filtered = filterMessages(messages);
   const fallbackMessages = messages.flatMap((message) => {
     const content = (message.content ?? '').trim();
@@ -206,19 +215,52 @@ export function buildKnowledgeDraft(
   const warnings = filtered.length === 0
     ? ['当前草稿基于原始消息兜底生成，请人工校对。']
     : [];
+  const templateDraft = renderKnowledgeDraftFromTemplate(draftTitle, draftMessages, options);
 
-  return {
-    draftTitle,
-    suggestedUri,
-    content: renderKnowledgeDraft(draftTitle, draftMessages, options),
-    source: {
-      chatJid: options.chatJid,
-      chatName: options.chatName,
-      messageCount: draftMessages.length,
-      generatedAt: new Date().toISOString(),
-    },
-    warnings,
-  };
+  if (!isKnowledgeDraftLlmConfigured()) {
+    return {
+      draftTitle,
+      suggestedUri,
+      content: templateDraft,
+      source: {
+        chatJid: options.chatJid,
+        chatName: options.chatName,
+        messageCount: draftMessages.length,
+        generatedAt: new Date().toISOString(),
+      },
+      warnings: [...warnings, KB_DRAFT_SUMMARY_FALLBACK_WARNING],
+    };
+  }
+
+  try {
+    const summary = await summarizeKnowledgeDraft(draftMessages, options);
+    return {
+      draftTitle,
+      suggestedUri,
+      content: renderKnowledgeDraftFromSummary(draftTitle, draftMessages, options, summary),
+      source: {
+        chatJid: options.chatJid,
+        chatName: options.chatName,
+        messageCount: draftMessages.length,
+        generatedAt: new Date().toISOString(),
+      },
+      warnings,
+    };
+  } catch (err) {
+    logger.warn({ err, chatJid: options.chatJid }, 'Failed to generate KB draft summary via LLM');
+    return {
+      draftTitle,
+      suggestedUri,
+      content: templateDraft,
+      source: {
+        chatJid: options.chatJid,
+        chatName: options.chatName,
+        messageCount: draftMessages.length,
+        generatedAt: new Date().toISOString(),
+      },
+      warnings: [...warnings, KB_DRAFT_SUMMARY_FALLBACK_WARNING],
+    };
+  }
 }
 
 export function isKbConfigured(): boolean {
@@ -968,7 +1010,7 @@ function resolveDraftTitle(options: BuildKnowledgeDraftOptions): string {
   return `知识草稿-${new Date().toISOString().slice(0, 10)}`;
 }
 
-function renderKnowledgeDraft(
+function renderKnowledgeDraftFromTemplate(
   title: string,
   messages: ExtractMessage[],
   options: BuildKnowledgeDraftOptions,
@@ -1007,6 +1049,52 @@ function renderKnowledgeDraft(
     '',
     '## 后续建议',
     '- 请补充后续优化建议或待确认事项。',
+    '',
+    '## 来源',
+    sourceLines,
+  ].join('\n');
+}
+
+function renderKnowledgeDraftFromSummary(
+  title: string,
+  messages: ExtractMessage[],
+  options: BuildKnowledgeDraftOptions,
+  summary: KnowledgeDraftSummary,
+): string {
+  const background = messages[0]?.content?.trim() ?? '请补充本次会话的背景信息。';
+  const process = messages
+    .slice(0, 8)
+    .map((message, index) => `${index + 1}. [${message.role ?? 'user'}] ${message.content.trim()}`)
+    .join('\n');
+  const conclusions = summary.conclusions.length > 0
+    ? summary.conclusions.map((item) => `- ${item}`).join('\n')
+    : '- 请补充最终确认的结论与注意事项。';
+  const followUps = summary.followUps.length > 0
+    ? summary.followUps.map((item) => `- ${item}`).join('\n')
+    : '- 当前无需额外后续动作。';
+  const sourceLines = [
+    options.chatName ? `- 会话：${options.chatName}` : undefined,
+    options.chatJid ? `- Chat JID：${options.chatJid}` : undefined,
+    `- 提取时间：${new Date().toISOString()}`,
+  ].filter(Boolean).join('\n');
+
+  return [
+    `# ${title}`,
+    '',
+    '## 摘要',
+    summary.summary,
+    '',
+    '## 背景',
+    background,
+    '',
+    '## 处理过程',
+    process,
+    '',
+    '## 关键结论',
+    conclusions,
+    '',
+    '## 后续建议',
+    followUps,
     '',
     '## 来源',
     sourceLines,
@@ -1273,6 +1361,18 @@ function collapseResourceDocumentNode(node: OvTreeNode): OvTreeNode | null {
   const onlyChild = children.length === 1 ? children[0] : undefined;
   const collapsedUri = typeof collapsed.uri === 'string' ? collapsed.uri : '';
   const onlyChildUri = typeof onlyChild?.uri === 'string' ? onlyChild.uri : '';
+  if (
+    collapsed.type === 'directory' &&
+    collapsedUri &&
+    looksLikeResourceRootUri(collapsedUri)
+  ) {
+    return {
+      uri: collapsedUri,
+      name: collapsed.name,
+      type: 'file',
+      children: [],
+    };
+  }
   if (
     collapsed.type === 'directory' &&
     collapsedUri &&

@@ -36,7 +36,7 @@ export function Chat() {
   const [newMessage, setNewMessage] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
-  const [newChatAgentType, setNewChatAgentType] = useState<'claude' | 'deepagent'>('deepagent');
+  const [newChatAgentType] = useState<'claude' | 'deepagent'>('claude');
   const [createChatDialogOpen, setCreateChatDialogOpen] = useState(false);
   const [createChatAgentType, setCreateChatAgentType] = useState<'claude' | 'deepagent'>('deepagent');
   const [editChatSkillsDialogOpen, setEditChatSkillsDialogOpen] = useState(false);
@@ -682,83 +682,88 @@ export function Chat() {
         onDeleteChat={handleDeleteChat}
         collapsed={isSidebarCollapsed}
         onToggleCollapsed={() => setIsSidebarCollapsed((prev) => !prev)}
-        agentType={newChatAgentType}
-        onAgentTypeChange={setNewChatAgentType}
       />
 
       <div className="flex-1 flex flex-col bg-background h-full overflow-hidden relative">
         {selectedJid ? (
           <>
-            <div className="h-[60px] px-4 border-b flex items-center justify-between bg-card/60 backdrop-blur-sm shrink-0">
-              <div className="flex items-center gap-3 min-w-0">
+            <div className="h-12 px-3.5 border-b flex items-center justify-between bg-card/60 backdrop-blur-sm shrink-0">
+              {/* Left section */}
+              <div className="flex items-center gap-2.5 min-w-0">
                 {isSidebarCollapsed && (
                   <button
                     onClick={() => setIsSidebarCollapsed(false)}
-                    className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+                    className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors cursor-pointer"
                     title="展开会话列表"
                     aria-label="展开会话列表"
                   >
-                    <PanelLeftOpen size={18} />
+                    <PanelLeftOpen size={15} />
                   </button>
                 )}
                 <div className="min-w-0">
-                  <h3 className="font-semibold text-lg truncate">{chatName}</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    当前会话 · Skills {currentChatSkillsState?.selectedSkills.length ?? 0} · {skillsStatusLabel}
-                  </p>
+                  <h3 className="font-medium text-[14px] tracking-tight truncate">{chatName}</h3>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] text-muted-foreground">
+                      {currentChatSkillsState?.selectedSkills.length ?? 0} Skills
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/50">·</span>
+                    <span className="text-[10px] text-muted-foreground">{skillsStatusLabel}</span>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+
+              {/* Right section */}
+              <div className="flex items-center gap-1.5">
                 {!isSidebarCollapsed && (
                   <button
                     onClick={() => setIsSidebarCollapsed(true)}
-                    className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+                    className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors cursor-pointer"
                     title="收起会话列表"
                     aria-label="收起会话列表"
                   >
-                    <ChevronRight size={18} />
+                    <ChevronRight size={15} />
                   </button>
                 )}
                 <button
                   onClick={() => setEditChatSkillsDialogOpen(true)}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border/70 bg-background px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground cursor-pointer"
                   title="会话技能"
                 >
-                  <Sparkles size={14} />
-                  Skills
+                  <Sparkles size={12} />
+                  <span>技能</span>
                 </button>
                 {kbAvailable ? (
                   <button
                     onClick={() => setShowKbExtract(true)}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border/70 bg-background px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground cursor-pointer"
                     title="提取到知识库"
                   >
-                    <BookOpen size={14} />
-                    提取到知识库
+                    <BookOpen size={12} />
+                    <span>提取</span>
                   </button>
                 ) : null}
                 <button
                   onClick={() => setStatusOpen(true)}
-                  className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors relative"
+                  className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors relative cursor-pointer"
                   title="查看状态"
                   aria-label="查看状态"
                 >
-                  <Activity size={18} />
-                  <span className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${statusDotColor}`} />
+                  <Activity size={14} />
+                  <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${statusDotColor}`} />
                 </button>
                 <button
                   onClick={() => setShowDeleteDialog(true)}
-                  className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
                   title="删除会话"
                 >
-                  <Trash2 size={18} />
+                  <Trash2 size={14} />
                 </button>
               </div>
             </div>
 
             <div
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4 scrollbar-thin space-y-6"
+              className="flex-1 overflow-y-auto px-3 py-4 scrollbar-thin space-y-3"
               onScroll={() => {
                 const el = scrollRef.current;
                 if (!el) return;

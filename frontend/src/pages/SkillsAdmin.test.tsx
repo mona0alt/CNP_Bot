@@ -402,4 +402,74 @@ describe("Skills pages", () => {
     await flush();
     expect(container.querySelector('[aria-label="关闭技能详情"]')).toBeNull();
   });
+
+  it("keeps skill cards clickable and preserves the larger workspace typography baseline", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/skills")) {
+        return createJsonResponse([
+          { name: "tmux", has_skill_md: true, updated_at: "2026-04-03T09:00:00.000Z" },
+        ]);
+      }
+      if (url.includes("/api/skills/tree?skill=tmux")) {
+        return createJsonResponse([
+          {
+            name: "tmux",
+            path: "tmux",
+            type: "directory",
+            children: [{ name: "SKILL.md", path: "tmux/SKILL.md", type: "file", editable: true }],
+          },
+        ]);
+      }
+      if (url.includes("/api/skills/file?path=tmux%2FSKILL.md")) {
+        return createJsonResponse({
+          path: "tmux/SKILL.md",
+          content: "# tmux skill",
+          editable: true,
+        });
+      }
+      if (url.includes(`/api/skills/file?path=${encodeURIComponent("tmux/SKILL.md")}`)) {
+        return createJsonResponse({
+          path: "tmux/SKILL.md",
+          content: "# tmux skill summary\nLine 2 of summary\nLine 3 of summary",
+          editable: true,
+        });
+      }
+      throw new Error(`Unhandled fetch url: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<SkillsAdmin />);
+    });
+    await flush();
+
+    const skillCard = container.querySelector('[data-testid="skill-card-tmux"]') as HTMLButtonElement | null;
+    expect(skillCard).not.toBeNull();
+
+    const cardTitle = Array.from(skillCard!.querySelectorAll("span")).find((node) => node.textContent === "tmux");
+    expect(cardTitle).not.toBeUndefined();
+    expect(cardTitle?.className).toContain("text-base");
+    expect(cardTitle?.className).not.toContain("text-sm");
+
+    const summary = skillCard!.querySelector("p");
+    expect(summary).not.toBeUndefined();
+    expect(summary?.className).toContain("text-sm");
+    expect(summary?.className).not.toContain("text-xs");
+
+    await act(async () => {
+      skillCard!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    expect(container.querySelector('[aria-label="关闭技能详情"]')).not.toBeNull();
+
+    const treePanel = container.querySelector('[data-testid="skills-tree-panel"]') as HTMLDivElement | null;
+    expect(treePanel).not.toBeNull();
+    expect(treePanel?.className).toContain("[&_[data-node-path]]:text-sm");
+
+    const treeNode = container.querySelector('[data-node-path="tmux/SKILL.md"]') as HTMLDivElement | null;
+    expect(treeNode).not.toBeNull();
+    expect(treeNode?.textContent).toContain("SKILL.md");
+  });
 });

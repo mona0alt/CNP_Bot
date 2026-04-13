@@ -175,20 +175,20 @@ export function Users() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">User Management</h1>
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold tracking-tight">User Management</h1>
         <button
           onClick={() => openModal()}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+          className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="h-4 w-4" />
           Add User
         </button>
       </div>
 
       {error && (
-        <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-950 rounded-md">
+        <div className="rounded-md bg-red-50 p-4 text-sm text-red-600 dark:bg-red-950 dark:text-red-300">
           {error}
         </div>
       )}
@@ -197,21 +197,21 @@ export function Users() {
         <table className="w-full">
           <thead>
             <tr className="border-b bg-muted/50">
-              <th className="text-left p-3 font-medium">Username</th>
-              <th className="text-left p-3 font-medium">Display Name</th>
-              <th className="text-left p-3 font-medium">Role</th>
-              <th className="text-left p-3 font-medium">Last Login</th>
-              <th className="text-right p-3 font-medium">Actions</th>
+              <th className="p-4 text-left text-sm font-medium">Username</th>
+              <th className="p-4 text-left text-sm font-medium">Display Name</th>
+              <th className="p-4 text-left text-sm font-medium">Role</th>
+              <th className="p-4 text-left text-sm font-medium">Last Login</th>
+              <th className="p-4 text-right text-sm font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
             {users.map((user) => (
               <tr key={user.id} className="border-b last:border-0">
-                <td className="p-3">{user.username}</td>
-                <td className="p-3">{user.display_name || '-'}</td>
-                <td className="p-3">
+                <td className="p-4 text-sm">{user.username}</td>
+                <td className="p-4 text-sm">{user.display_name || '-'}</td>
+                <td className="p-4">
                   <span
-                    className={`inline-flex px-2 py-1 text-xs rounded-full ${
+                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
                       user.role === 'admin'
                         ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
                         : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
@@ -220,30 +220,30 @@ export function Users() {
                     {user.role}
                   </span>
                 </td>
-                <td className="p-3 text-sm text-muted-foreground">
+                <td className="p-4 text-sm text-muted-foreground">
                   {formatDate(user.last_login)}
                 </td>
-                <td className="p-3 text-right">
+                <td className="p-4 text-right">
                   <button
                     onClick={() => openModal(user)}
-                    className="p-2 hover:bg-muted rounded-md transition-colors"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-muted"
                     title="Edit"
                   >
-                    <Pencil className="w-4 h-4" />
+                    <Pencil className="h-4 w-4" />
                   </button>
                   <button
                     onClick={() => setDeleteUser(user)}
-                    className="p-2 hover:bg-muted rounded-md transition-colors text-red-500"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-muted"
                     title="Delete"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </td>
               </tr>
             ))}
             {users.length === 0 && (
               <tr>
-                <td colSpan={5} className="p-6 text-center text-muted-foreground">
+                <td colSpan={5} className="p-6 text-center text-sm text-muted-foreground">
                   No users found
                 </td>
               </tr>
@@ -255,81 +255,81 @@ export function Users() {
       {/* Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-background p-6 rounded-lg w-full max-w-md space-y-4">
+          <div className="w-full max-w-md space-y-5 rounded-lg bg-background p-6 shadow-xl">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold">
+              <h2 className="text-2xl font-bold tracking-tight">
                 {editingUser ? 'Edit User' : 'Add User'}
               </h2>
-              <button onClick={closeModal} className="p-1 hover:bg-muted rounded">
-                <X className="w-5 h-5" />
+              <button onClick={closeModal} className="rounded-md p-2 transition-colors hover:bg-muted">
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
               {formError && (
-                <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-950 rounded-md">
+                <div className="rounded-md bg-red-50 p-4 text-sm text-red-600 dark:bg-red-950 dark:text-red-300">
                   {formError}
                 </div>
               )}
 
               <div>
-                <label className="block text-sm font-medium mb-1">Username</label>
+                <label className="mb-2 block text-sm font-medium">Username</label>
                 <input
                   type="text"
                   value={formUsername}
                   onChange={(e) => setFormUsername(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="h-11 w-full rounded-md border bg-background px-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="mb-2 block text-sm font-medium">
                   Password {editingUser && '(leave empty to keep current)'}
                 </label>
                 <input
                   type="password"
                   value={formPassword}
                   onChange={(e) => setFormPassword(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="h-11 w-full rounded-md border bg-background px-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   required={!editingUser}
                   minLength={6}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Display Name</label>
+                <label className="mb-2 block text-sm font-medium">Display Name</label>
                 <input
                   type="text"
                   value={formDisplayName}
                   onChange={(e) => setFormDisplayName(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="h-11 w-full rounded-md border bg-background px-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Role</label>
+                <label className="mb-2 block text-sm font-medium">Role</label>
                 <select
                   value={formRole}
                   onChange={(e) => setFormRole(e.target.value as 'admin' | 'user')}
-                  className="w-full px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="h-11 w-full rounded-md border bg-background px-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="flex-1 py-2 px-4 border rounded-md hover:bg-muted transition-colors"
+                  className="h-11 flex-1 rounded-md border px-4 text-sm font-medium transition-colors hover:bg-muted"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+                  className="h-11 flex-1 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
                 >
                   {editingUser ? 'Save' : 'Create'}
                 </button>

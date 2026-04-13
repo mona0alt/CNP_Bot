@@ -32,7 +32,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
       }
 
       return (
-        <code className={cn("bg-muted px-1.5 py-0.5 rounded text-sm font-mono", className)} {...rest}>
+        <code className={cn("bg-muted px-1 py-0.5 rounded text-[11px] font-mono", className)} {...rest}>
           {children}
         </code>
       );
@@ -65,26 +65,26 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
     },
     table({ children }) {
       return (
-        <div className="overflow-x-auto my-4 rounded-md border">
-          <table className="w-full text-sm text-left">{children}</table>
+        <div className="overflow-x-auto my-2 rounded-md border">
+          <table className="w-full text-[11px] text-left">{children}</table>
         </div>
       );
     },
     thead({ children }) {
-      return <thead className="bg-muted text-muted-foreground uppercase text-xs">{children}</thead>;
+      return <thead className="bg-muted text-muted-foreground uppercase text-[10px]">{children}</thead>;
     },
     th({ children }) {
-      return <th className="px-4 py-2 font-medium border-b">{children}</th>;
+      return <th className="px-3 py-1.5 font-medium border-b">{children}</th>;
     },
     td({ children }) {
-      return <td className="px-4 py-2 border-b last:border-0">{children}</td>;
+      return <td className="px-3 py-1.5 border-b last:border-0">{children}</td>;
     }
   };
 
   const proseClass = theme === "dark" ? "prose-invert" : "";
 
   return (
-    <div className={cn("prose prose-sm max-w-none break-words leading-normal", proseClass, className)}>
+    <div className={cn("prose prose-xs max-w-none break-words leading-relaxed", proseClass, className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={components}
@@ -140,7 +140,7 @@ function CodeBlock({ language, value, theme }: { language: string; value: string
         <SyntaxHighlighter
           language={language}
           style={codeStyle}
-          customStyle={{ margin: 0, padding: '1rem', background: 'transparent', fontSize: '0.85rem', lineHeight: '1.5' }}
+          customStyle={{ margin: 0, padding: '0.75rem', background: 'transparent', fontSize: '0.75rem', lineHeight: '1.4' }}
           wrapLines={true}
           PreTag="div"
         >

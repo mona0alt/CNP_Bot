@@ -59,7 +59,7 @@ export function Login() {
             type="button"
             onClick={toggleTheme}
             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-card/70 px-4 py-2 text-sm font-medium text-muted-foreground shadow-sm backdrop-blur-xl transition-colors duration-200 hover:border-primary/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none"
+            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-card/70 px-4 text-sm font-medium text-muted-foreground shadow-sm backdrop-blur-xl transition-colors duration-200 hover:border-primary/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none"
           >
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
@@ -93,7 +93,7 @@ export function Login() {
                     <h2 className="font-brand mt-4 text-3xl font-semibold tracking-tight sm:text-[2.1rem]">
                       Sign in to CNP-Bot
                     </h2>
-                    <p className="mt-4 max-w-sm text-sm leading-7 text-muted-foreground">
+                    <p className="mt-4 max-w-sm text-base leading-7 text-muted-foreground">
                       Continue to your operational workspace.
                     </p>
                   </div>

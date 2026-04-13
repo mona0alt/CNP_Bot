@@ -109,7 +109,7 @@ export function MessageItem({ message: msg }: MessageItemProps) {
   return (
     <div
       className={cn(
-        "flex gap-3",
+        "flex gap-1.5",
         outgoing
           ? "ml-auto flex-row-reverse max-w-[70%]"
           : "w-full"
@@ -117,15 +117,15 @@ export function MessageItem({ message: msg }: MessageItemProps) {
     >
       <div
         className={cn(
-          "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
+          "w-7 h-7 rounded-full flex items-center justify-center shrink-0",
           avatarColor
         )}
       >
-        {hasThinkingTag ? <Brain size={16} /> : (msg.is_bot_message ? <Bot size={16} /> : <User size={16} />)}
+        {hasThinkingTag ? <Brain size={14} /> : (msg.is_bot_message ? <Bot size={14} /> : <User size={14} />)}
       </div>
-      <div className={cn("p-3 rounded-2xl text-sm min-w-[100px] mt-2 first:mt-0 break-words overflow-wrap-anywhere", bubble, !outgoing && "flex-1 min-w-0")}>
+      <div className={cn("px-2.5 py-1.5 rounded-xl text-[10.5px] min-w-[72px] mt-1 first:mt-0 break-words overflow-wrap-anywhere leading-[1.45]", bubble, !outgoing && "flex-1 min-w-0")}>
         {!outgoing ? (
-          <div className="font-semibold text-xs mb-1 opacity-70">
+          <div className="font-medium text-[9px] mb-0.5 opacity-70 tracking-[0.01em]">
             {displayName}
           </div>
         ) : null}
@@ -135,6 +135,7 @@ export function MessageItem({ message: msg }: MessageItemProps) {
             key="aggregated-thought"
             content={thoughtContent}
             isComplete={aggregatedThought.isComplete}
+            autoCollapse
           />
         ) : null}
 
@@ -188,7 +189,7 @@ export function MessageItem({ message: msg }: MessageItemProps) {
                 key={`text-${bIdx}`}
                 content={typeof block.text === 'string' ? block.text : ''}
                 className={cn(
-                  "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                  "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0 !max-w-[70ch] !text-[10.5px] !leading-[1.5] [&>*+*]:mt-1.5 [&>p]:my-0.5 [&>ul]:my-1 [&>ol]:my-1 [&>pre]:my-1.5 [&>blockquote]:my-1.5",
                   outgoing ? "prose-invert" : ""
                 )}
               />
@@ -196,7 +197,7 @@ export function MessageItem({ message: msg }: MessageItemProps) {
           );
         })}
 
-        <div className="text-[10px] opacity-60 mt-1 text-right">
+        <div className="text-[9px] opacity-50 mt-0.5 text-right">
           {new Date(msg.timestamp).toLocaleTimeString()}
         </div>
       </div>

@@ -68,14 +68,14 @@ export function SkillsCatalog() {
   }, [loadCatalog]);
 
   if (isLoading) {
-    return <div className="p-6">加载技能目录中...</div>;
+    return <div className="p-5">加载技能目录中...</div>;
   }
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-4 p-5">
       <div>
-        <h1 className="text-2xl font-semibold">技能目录</h1>
-        <p className="text-sm text-muted-foreground">只读浏览全局技能库，可用于会话技能选择</p>
+        <h1 className="text-2xl font-semibold tracking-tight">技能目录</h1>
+        <p className="app-caption mt-1 text-muted-foreground">只读浏览全局技能库，可用于会话技能选择</p>
       </div>
 
       {error && (
@@ -85,15 +85,19 @@ export function SkillsCatalog() {
       )}
 
       {skills.length === 0 ? (
-        <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">暂无可用技能</div>
+        <div className="rounded-md border border-dashed p-5 text-sm text-muted-foreground">暂无可用技能</div>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {skills.map((skill) => (
-            <SkillMarkdownPreview
+            <div
               key={skill.name}
-              title={`${skill.name} · ${new Date(skill.updated_at).toLocaleString()}`}
-              content={skill.summary ? `# ${skill.name}\n\n${skill.summary}` : `# ${skill.name}\n\n暂无概要`}
-            />
+              className="[&_article]:rounded-xl [&_article]:p-5 [&_h3]:text-lg [&_pre]:text-sm [&_pre]:leading-7 [&_p]:text-sm"
+            >
+              <SkillMarkdownPreview
+                title={`${skill.name} · ${new Date(skill.updated_at).toLocaleString()}`}
+                content={skill.summary ? `# ${skill.name}\n\n${skill.summary}` : `# ${skill.name}\n\n暂无概要`}
+              />
+            </div>
           ))}
         </div>
       )}

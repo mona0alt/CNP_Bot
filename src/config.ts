@@ -20,6 +20,10 @@ const envConfig = readEnvFile([
   'KB_INJECT_LIMIT',
   'KB_SEARCH_TIMEOUT',
   'KB_EXTRACT_TIMEOUT',
+  'KB_SUMMARY_LLM_API_URL',
+  'KB_SUMMARY_LLM_API_KEY',
+  'KB_SUMMARY_LLM_MODEL',
+  'KB_SUMMARY_LLM_TIMEOUT',
 ]);
 
 export const ASSISTANT_NAME =
@@ -128,5 +132,15 @@ export const KB_SEARCH_TIMEOUT = parseInt(
 );
 export const KB_EXTRACT_TIMEOUT = parseInt(
   process.env.KB_EXTRACT_TIMEOUT || envConfig.KB_EXTRACT_TIMEOUT || '30000',
+  10,
+);
+export const KB_SUMMARY_LLM_API_URL =
+  process.env.KB_SUMMARY_LLM_API_URL || envConfig.KB_SUMMARY_LLM_API_URL || '';
+export const KB_SUMMARY_LLM_API_KEY =
+  process.env.KB_SUMMARY_LLM_API_KEY || envConfig.KB_SUMMARY_LLM_API_KEY || '';
+export const KB_SUMMARY_LLM_MODEL =
+  process.env.KB_SUMMARY_LLM_MODEL || envConfig.KB_SUMMARY_LLM_MODEL || '';
+export const KB_SUMMARY_LLM_TIMEOUT = parseInt(
+  process.env.KB_SUMMARY_LLM_TIMEOUT || envConfig.KB_SUMMARY_LLM_TIMEOUT || '12000',
   10,
 );

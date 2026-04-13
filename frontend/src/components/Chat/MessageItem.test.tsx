@@ -37,6 +37,34 @@ describe('MessageItem', () => {
     vi.unstubAllGlobals();
   });
 
+  it('普通模型消息使用更紧凑的正文字号与段落节奏', async () => {
+    await act(async () => {
+      root.render(
+        <ThemeProvider>
+          <MessageItem
+            message={{
+              id: 'regular-compact-message',
+              chat_jid: 'web:test',
+              sender_name: 'CNP_Bot',
+              content: '第一段正文。\n\n第二段正文。',
+              timestamp: '2026-03-25T10:00:00.000Z',
+              is_from_me: false,
+              is_bot_message: true,
+            }}
+          />
+        </ThemeProvider>,
+      );
+    });
+
+    const bubble = container.querySelector('.bg-card.border.border-border');
+    expect(bubble?.className ?? '').toContain('px-2.5');
+    expect(bubble?.className ?? '').toContain('py-1.5');
+
+    const markdown = container.querySelector('.prose');
+    expect(markdown?.className ?? '').toContain('text-[10.5px]');
+    expect(markdown?.className ?? '').toContain('[&>*+*]:mt-1.5');
+  });
+
   it('同一条消息里多个 thinking block 只展示一张 thinking 卡片', async () => {
     await act(async () => {
       root.render(

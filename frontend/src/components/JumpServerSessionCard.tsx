@@ -85,39 +85,39 @@ export function JumpServerSessionCard({ block }: { block: JumpServerBlock }) {
   return (
     <section
       className={cn(
-        'my-2 overflow-hidden rounded-2xl border shadow-lg shadow-black/10',
+        'my-1 overflow-hidden rounded-xl border shadow-sm shadow-black/5',
         'motion-reduce:transition-none',
         statusTone(block.stage, isLight),
       )}
     >
       <div
-        className="flex items-center gap-3 p-4 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+        className="flex items-center gap-2 px-2.5 py-2.5 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <div className={cn('rounded-xl border p-2', iconWrapClass)}>
+        <div className={cn('rounded-lg border p-1', iconWrapClass)}>
           {block.stage === 'running_remote_command' ? (
-            <Loader2 size={16} className="animate-spin text-sky-400" />
+            <Loader2 size={13} className="animate-spin text-sky-400" />
           ) : (
-            <MonitorCog size={16} className="text-sky-300" />
+            <MonitorCog size={13} className="text-sky-300" />
           )}
         </div>
         <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold tracking-wide">JumpServer 远程会话</span>
+          <span className="text-[12px] font-medium tracking-tight">JumpServer 远程会话</span>
           {block.target_host ? (
-            <span className={cn('flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-normal', badgeClass)}>
-              <Server size={12} className="text-emerald-300" />
+            <span className={cn('flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] font-medium', badgeClass)}>
+              <Server size={10} className="text-emerald-300" />
               <span>{block.target_host}</span>
             </span>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
-          <div className={cn('text-xs', isLight ? 'text-slate-500' : 'text-slate-400')}>
+        <div className="flex items-center gap-1.5">
+          <div className={cn('text-[9px]', isLight ? 'text-slate-500' : 'text-slate-400')}>
             {stageLabel(block.stage, block.target_host)}
           </div>
           {expanded ? (
-            <ChevronDown size={14} className="text-muted-foreground" />
+            <ChevronDown size={13} className="text-muted-foreground" />
           ) : (
-            <ChevronRight size={14} className="text-muted-foreground" />
+            <ChevronRight size={13} className="text-muted-foreground" />
           )}
         </div>
       </div>
@@ -125,11 +125,11 @@ export function JumpServerSessionCard({ block }: { block: JumpServerBlock }) {
       {expanded && (
         <>
           {executions.length > 0 ? (
-            <div className="space-y-2 px-4 pb-4">
-              <div className={cn('text-xs font-medium uppercase tracking-[0.18em]', sectionTitleClass)}>
+            <div className="space-y-1.5 px-2.5 pb-2.5">
+              <div className={cn('text-[9px] font-medium uppercase tracking-[0.16em]', sectionTitleClass)}>
                 执行记录
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {executions.map((execution) => (
                   <ToolCallCard
                     key={execution.id}
@@ -148,7 +148,7 @@ export function JumpServerSessionCard({ block }: { block: JumpServerBlock }) {
 
           {block.stage === 'error' && block.error_message ? (
             <div className={cn(
-              'mx-4 mb-4 rounded-xl border px-3 py-2 text-xs',
+              'mx-2.5 mb-2.5 rounded-lg border px-2.5 py-1.5 text-[10px]',
               isLight
                 ? 'border-red-200 bg-red-50 text-red-700'
                 : 'border-red-500/20 bg-red-500/10 text-red-200',

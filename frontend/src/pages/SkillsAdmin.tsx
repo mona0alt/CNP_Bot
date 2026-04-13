@@ -449,11 +449,11 @@ export function SkillsAdmin() {
   }
 
   return (
-    <div className="relative h-full overflow-y-auto p-6">
+    <div className="relative h-full overflow-y-auto p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">技能</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-2xl font-semibold tracking-tight">技能</h1>
+          <p className="app-caption mt-1 text-muted-foreground">
             单击技能卡片进入详情侧栏，{isAdmin ? "可进行增删改查" : "普通用户仅可查看文件列表与内容"}
           </p>
         </div>
@@ -461,7 +461,7 @@ export function SkillsAdmin() {
           <button
             type="button"
             onClick={() => setShowUploadDialog(true)}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="app-control rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
           >
             上传 ZIP
           </button>
@@ -469,24 +469,24 @@ export function SkillsAdmin() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+        <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[13px] text-red-600">
           {error}
         </div>
       )}
 
       {skills.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed p-4 text-[13px] text-muted-foreground">
           当前没有可用技能
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {skills.map((skill, index) => (
             <button
               key={skill.name}
               type="button"
               data-testid={`skill-card-${skill.name}`}
               onClick={() => void handleOpenSkill(skill.name)}
-              className="skill-card group relative cursor-pointer rounded-xl border bg-card p-5 text-left transition-all duration-300 ease-out"
+              className="skill-card app-card-pad group relative cursor-pointer rounded-xl border bg-card text-left transition-all duration-300 ease-out"
               style={{ animationDelay: `${index * 50}ms` }}
             >
               {/* Glow effect on hover */}
@@ -497,12 +497,12 @@ export function SkillsAdmin() {
                 <div className="absolute inset-0 rounded-xl ring-2 ring-primary/30" />
               )}
 
-              <div className="relative flex items-start justify-between gap-3">
+              <div className="relative flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   {/* Skill name with icon */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 text-primary">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-primary/20 to-primary/5 text-primary shrink-0">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polygon points="12 2 2 7 12 12 22 7 12 2" />
                         <polyline points="2 17 12 22 22 17" />
                         <polyline points="2 12 12 17 22 12" />
@@ -512,21 +512,21 @@ export function SkillsAdmin() {
                   </div>
 
                   {/* Summary text */}
-                  <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-muted-foreground/80">
+                  <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-muted-foreground/80">
                     {skill.summary || '暂无概要'}
                   </p>
                 </div>
 
                 {/* Date badge */}
                 <div className="shrink-0">
-                  <span className="inline-flex items-center rounded-full bg-muted/50 px-2 py-1 text-xs font-medium text-muted-foreground tabular-nums">
+                  <span className="inline-flex items-center rounded-full bg-muted/50 px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
                     {new Date(skill.updated_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
                   </span>
                 </div>
               </div>
 
               {/* Bottom accent line */}
-              <div className="mt-4 h-px bg-gradient-to-r from-transparent via-border to-transparent opacity-60 transition-opacity duration-300 group-hover:opacity-100" />
+              <div className="mt-3 h-px bg-gradient-to-r from-transparent via-border to-transparent opacity-60 transition-opacity duration-300 group-hover:opacity-100" />
             </button>
           ))}
         </div>
@@ -546,11 +546,11 @@ export function SkillsAdmin() {
               {/* Gradient accent bar */}
               <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/50 via-primary to-primary/50" />
 
-              <div className="flex items-center justify-between px-6 py-4">
-                <div className="flex items-center gap-4">
+              <div className="flex items-center justify-between px-5 py-4">
+                <div className="flex items-center gap-3">
                   {/* Skill icon */}
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary shadow-sm ring-1 ring-primary/10">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 text-primary shadow-sm ring-1 ring-primary/10">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <polygon points="12 2 2 7 12 12 22 7 12 2" />
                       <polyline points="2 17 12 22 22 17" />
                       <polyline points="2 12 12 17 22 12" />
@@ -558,21 +558,21 @@ export function SkillsAdmin() {
                   </div>
                   <div>
                     <h2 className="font-brand text-xl font-semibold tracking-tight">{activeSkill}</h2>
-                    <p className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
+                    <p className="app-caption mt-1 flex items-center gap-1.5 text-muted-foreground">
                       {isAdmin ? (
                         <>
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                            管理员模式
+                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            管理员
                           </span>
                           <span className="text-muted-foreground/60">·</span>
-                          <span className="text-xs">可编辑</span>
+                          <span>可编辑</span>
                         </>
                       ) : (
                         <>
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            只读模式
+                          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            只读
                           </span>
                         </>
                       )}
@@ -585,7 +585,7 @@ export function SkillsAdmin() {
                       <button
                         type="button"
                         onClick={() => setShowDeleteDialog(true)}
-                        className="rounded-xl border border-red-200/50 px-4 py-2 text-sm font-medium text-red-500 transition-all hover:bg-red-500/10"
+                        className="app-control rounded-xl border border-red-200/50 px-4 text-sm font-medium text-red-500 transition-all hover:bg-red-500/10"
                       >
                         <span className="flex items-center gap-2">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -599,7 +599,7 @@ export function SkillsAdmin() {
                         type="button"
                         onClick={() => void handleSaveAndClose()}
                         disabled={isSaving}
-                        className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:shadow-xl hover:shadow-primary/30 disabled:opacity-50"
+                        className="app-control rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:shadow-xl hover:shadow-primary/30 disabled:opacity-50"
                       >
                         保存并退出
                       </button>
@@ -617,15 +617,18 @@ export function SkillsAdmin() {
               </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[380px_minmax(0,1fr)]">
-              <section className="flex min-h-0 flex-col gap-3 rounded-2xl border bg-card/50 p-4 shadow-sm">
-                <div className="flex items-center gap-2">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+            <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+              <section className="app-card-pad flex min-h-0 flex-col gap-3 rounded-xl border bg-card/50 shadow-sm">
+                <div className="flex items-center gap-1.5">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
                   <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">文件列表</h3>
                 </div>
-                <div className="min-h-0 flex-1 overflow-auto rounded-xl border bg-background/80 p-3">
+                <div
+                  data-testid="skills-tree-panel"
+                  className="min-h-0 flex-1 overflow-auto rounded-lg border bg-background/80 p-3 [&_[data-node-path]]:min-h-10 [&_[data-node-path]]:text-sm [&_[data-node-path]]:py-2 [&_[data-node-path]_.font-mono]:text-sm"
+                >
                   {treeLoading ? (
                     <div className="p-3 text-sm text-muted-foreground">加载文件树中...</div>
                   ) : (
@@ -652,7 +655,7 @@ export function SkillsAdmin() {
                     type="button"
                     onClick={() => void handleDeleteSelected()}
                     disabled={!selectedPath || isMutatingFs}
-                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-red-200/50 px-4 py-2.5 text-sm font-medium text-red-500 transition-all hover:bg-red-500/10 disabled:opacity-50"
+                    className="app-control mt-1 flex w-full items-center justify-center gap-2 rounded-xl border border-red-200/50 px-4 text-sm font-medium text-red-500 transition-all hover:bg-red-500/10 disabled:opacity-50"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="3 6 5 6 21 6" />
@@ -663,27 +666,29 @@ export function SkillsAdmin() {
                 )}
               </section>
 
-              <section className="min-h-0 rounded-2xl border bg-card/50 p-4 shadow-sm">
+              <section className="app-card-pad min-h-0 rounded-xl border bg-card/50 shadow-sm">
                 {selectedNode?.type === "directory" ? (
                   <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed bg-muted/20 p-8 text-center">
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-4 text-muted-foreground/40">
                       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                     </svg>
-                    <p className="text-sm font-medium text-muted-foreground">{selectedNode.path}</p>
-                    <p className="mt-2 text-xs text-muted-foreground/60">双击目录可打开该目录下的 SKILL.md</p>
+                    <p className="text-base font-medium text-muted-foreground">{selectedNode.path}</p>
+                    <p className="app-caption mt-2 text-muted-foreground/60">双击目录可打开该目录下的 SKILL.md</p>
                   </div>
                 ) : (
-                  <SkillFileEditor
-                    path={selectedPath}
-                    content={fileContent}
-                    editable={selectedEditable}
-                    readOnly={!isAdmin}
-                    isDirty={isDirty}
-                    isSaving={isSaving}
-                    error={fileError}
-                    onChange={setFileContent}
-                    onSave={() => void handleSave()}
-                  />
+                  <div className="[&_textarea]:p-4 [&_textarea]:text-[15px] [&_textarea]:leading-6 [&_.prose]:text-[15px] [&_.prose]:leading-7 [&_pre]:text-sm [&_[class*='text-xs']]:text-sm">
+                    <SkillFileEditor
+                      path={selectedPath}
+                      content={fileContent}
+                      editable={selectedEditable}
+                      readOnly={!isAdmin}
+                      isDirty={isDirty}
+                      isSaving={isSaving}
+                      error={fileError}
+                      onChange={setFileContent}
+                      onSave={() => void handleSave()}
+                    />
+                  </div>
                 )}
               </section>
             </div>

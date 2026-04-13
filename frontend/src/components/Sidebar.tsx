@@ -75,15 +75,15 @@ export function Sidebar() {
   };
 
   return (
-    <div className="w-64 border-r border-border h-screen flex flex-col bg-card">
-      <div className="h-[60px] flex items-center px-6 border-b shrink-0">
-        <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
-          <MessageSquare className="w-6 h-6" />
+    <div className="w-64 border-r border-border h-screen flex flex-col bg-card" data-sidebar-size="wide">
+      <div className="app-control flex items-center px-3 border-b shrink-0">
+        <h1 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+          <MessageSquare className="w-5 h-5" />
           CNP-Bot
         </h1>
       </div>
-      <div className="flex-1 flex flex-col p-4 overflow-y-auto">
-        <nav className="space-y-2">
+      <div className="flex-1 flex flex-col p-3 overflow-y-auto">
+        <nav className="space-y-1" data-nav-scale="readable">
           {links.map((link) => {
             const Icon = link.icon;
             const isActive = location.pathname === link.href;
@@ -92,13 +92,13 @@ export function Sidebar() {
                 key={link.href}
                 to={link.href}
                 className={cn(
-                  "flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium transition-colors",
+                  "app-control flex items-center gap-2.5 px-3 rounded-md text-sm font-medium transition-colors",
                   isActive
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className="w-4 h-4 shrink-0" />
                 {link.label}
               </Link>
             );
@@ -106,10 +106,10 @@ export function Sidebar() {
         </nav>
 
         {/* Theme toggle */}
-        <div className="mt-4 pt-4 border-t">
+        <div className="mt-3 pt-3 border-t">
           <button
             onClick={toggleTheme}
-            className="w-full flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="app-control w-full flex items-center gap-2.5 px-3 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             <span>{theme === "dark" ? "浅色模式" : "深色模式"}</span>
@@ -117,13 +117,13 @@ export function Sidebar() {
         </div>
 
         {/* User section at bottom */}
-        <div className="mt-auto pt-4 border-t">
+        <div className="mt-auto pt-3 border-t">
           <div className="relative">
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="w-full flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              className="app-control w-full flex items-center gap-2.5 px-3 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             >
-              <User className="w-4 h-4" />
+              <User className="w-4 h-4 shrink-0" />
               <span className="flex-1 text-left truncate">
                 {user?.display_name || user?.username}
               </span>

@@ -118,56 +118,56 @@ function TreeNode({
           await onDrop(node);
         }}
         className={cn(
-          "group relative flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-all duration-200",
+          "group relative flex cursor-pointer items-center gap-2 rounded-lg py-1.5 text-left text-xs transition-all duration-200",
           isActive ? "bg-primary/10 text-foreground ring-1 ring-primary/20" : "hover:bg-muted/80",
           isDropTarget && editable && "bg-blue-500/10 ring-1 ring-blue-400/40",
           isDragSource && editable && "opacity-40",
         )}
-        style={{ paddingLeft: `${depth * 20 + 12}px` }}
+        style={{ paddingLeft: `${depth * 20 + 12}px`, paddingRight: "12px" }}
       >
         {/* Indentation guide line */}
         {depth > 0 && (
           <div
             className="absolute bottom-0 top-0 w-px bg-border/40"
-            style={{ left: `${(depth - 1) * 20 + 12}px` }}
+            style={{ left: `${(depth - 1) * 20 + 8}px` }}
           />
         )}
 
         {isDirectory ? (
           <span
-            className="inline-flex h-5 w-5 items-center justify-center rounded-md transition-colors hover:bg-muted"
+            className="inline-flex h-4 w-4 items-center justify-center rounded transition-colors hover:bg-muted"
             onClick={(event) => {
               event.stopPropagation();
               onToggleExpand(node.path);
             }}
           >
             {isExpanded ? (
-              <ChevronDown size={16} className="text-primary" />
+              <ChevronDown size={12} className="text-primary" />
             ) : (
-              <ChevronRight size={16} className="text-muted-foreground" />
+              <ChevronRight size={12} className="text-muted-foreground" />
             )}
           </span>
         ) : (
-          <span className="inline-flex h-5 w-5" />
+          <span className="inline-flex h-4 w-4" />
         )}
 
         {/* File/Folder icon with color coding */}
         <span className={cn(
-          "inline-flex h-6 w-6 items-center justify-center rounded-lg transition-all duration-200",
+          "inline-flex h-5 w-5 items-center justify-center rounded transition-all duration-200",
           isActive ? "bg-primary/15" : "group-hover:bg-muted",
         )}>
           {isDirectory ? (
             isExpanded ? (
-              <FolderOpen size={18} className="text-amber-500" />
+              <FolderOpen size={14} className="text-amber-500" />
             ) : (
-              <FolderClosed size={18} className="text-amber-400" />
+              <FolderClosed size={14} className="text-amber-400" />
             )
           ) : (
-            <FileText size={18} className="text-sky-400/80" />
+            <FileText size={14} className="text-sky-400/80" />
           )}
         </span>
         <span className={cn(
-          "truncate font-mono text-sm",
+          "truncate font-mono text-xs",
           isActive ? "text-foreground font-medium" : "text-muted-foreground"
         )}>
           {node.name}
