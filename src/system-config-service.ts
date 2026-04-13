@@ -73,7 +73,7 @@ function buildCurrentValueMap(lines: ParsedEnvLine[]): SystemConfigValues {
 
   for (const line of lines) {
     if (line.kind !== 'kv' || !line.managed) continue;
-    current[line.key] = line.value;
+    current[line.key as SystemConfigKey] = line.value;
   }
 
   return current;
@@ -119,7 +119,9 @@ function buildOutputLines(
   for (const line of lines) {
     if (line.kind === 'kv' && line.managed) {
       seen.add(line.key);
-      updatedLines.push(`${line.key}=${formatEnvFileValue(values[line.key] ?? '')}`);
+      updatedLines.push(
+        `${line.key}=${formatEnvFileValue(values[line.key as SystemConfigKey] ?? '')}`,
+      );
       continue;
     }
     updatedLines.push(line.raw);

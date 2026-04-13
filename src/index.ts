@@ -110,6 +110,7 @@ import {
   readContent,
   search,
 } from './kb-proxy.js';
+import { markRestartStatusHealthy } from './service-control.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -1766,6 +1767,7 @@ async function main(): Promise<void> {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');
     process.exit(1);
   });
+  markRestartStatusHealthy();
 }
 
 // Guard: only run when executed directly, not when imported by tests

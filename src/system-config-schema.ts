@@ -315,7 +315,7 @@ export function listSystemConfigFields(): SystemConfigField[] {
 }
 
 export function getSystemConfigField(key: string): SystemConfigField | undefined {
-  const field = SYSTEM_CONFIG_FIELD_MAP.get(key);
+  const field = SYSTEM_CONFIG_FIELD_MAP.get(key as SystemConfigKey);
   return field ? cloneSystemConfigField(field) : undefined;
 }
 
