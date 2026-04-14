@@ -96,4 +96,20 @@ describe("Sidebar skills links", () => {
     expect(nav?.getAttribute("data-nav-scale")).toBe("readable");
     expect(navLink?.textContent).toBe("技能");
   });
+
+  it("keeps sidebar focused on navigation without bottom user controls", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/"]}>
+          <Sidebar />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Tester");
+    expect(container.textContent).not.toContain("浅色模式");
+    expect(container.textContent).not.toContain("深色模式");
+    expect(container.textContent).not.toContain("Navigation");
+    expect(container.textContent).toContain("设置");
+  });
 });

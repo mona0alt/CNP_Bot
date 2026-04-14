@@ -14,8 +14,10 @@ vi.mock('./logger.js', () => ({
 }));
 
 vi.mock('./system-config-service.js', () => ({
-  loadSystemConfigValues: vi.fn(),
-  saveSystemConfigValues: vi.fn(),
+  listEditableEnvConfigFields: vi.fn(),
+  listEditableEnvConfigSections: vi.fn(),
+  loadEditableEnvConfigValues: vi.fn(),
+  saveEditableEnvConfigValues: vi.fn(),
 }));
 
 vi.mock('./service-control.js', () => ({
@@ -27,18 +29,16 @@ vi.mock('./service-control.js', () => ({
 import { JWT_SECRET } from './config.js';
 import { createApp } from './server.js';
 import {
+  listEditableEnvConfigFields,
+  listEditableEnvConfigSections,
+  loadEditableEnvConfigValues,
+  saveEditableEnvConfigValues,
+} from './system-config-service.js';
+import {
   getRestartRuntimeInfo,
   readRestartStatus,
   requestServiceRestart,
 } from './service-control.js';
-import {
-  loadSystemConfigValues,
-  saveSystemConfigValues,
-} from './system-config-service.js';
-import {
-  listSystemConfigFields,
-  listSystemConfigSections,
-} from './system-config-schema.js';
 
 function createToken(userId: string, role: 'admin' | 'user'): string {
   return jwt.sign({ userId, username: userId, role }, JWT_SECRET, {
@@ -46,7 +46,7 @@ function createToken(userId: string, role: 'admin' | 'user'): string {
   });
 }
 
-function compactField(field: ReturnType<typeof listSystemConfigFields>[number]) {
+function compactField(field: ReturnType<typeof listEditableEnvConfigFields>[number]) {
   const compacted: Record<string, unknown> = { ...field };
   if (compacted.options === undefined) {
     delete compacted.options;
@@ -100,21 +100,69 @@ describe('system config api', () => {
   const adminToken = createToken('admin-1', 'admin');
   const userToken = createToken('user-1', 'user');
   const app = createApp().app;
-  const expectedSections = listSystemConfigSections().map((section) => ({
+  const expectedSections = [
+    { id: 'agent', title: 'Agent 基础' },
+    { id: 'env-anthropic', title: 'ANTHROPIC .env' },
+  ].map((section) => ({
     ...section,
-    fields: listSystemConfigFields().filter(
+    fields: [
+      {
+        key: 'ASSISTANT_NAME',
+        section: 'agent',
+        label: '助手名称',
+        type: 'text',
+        required: true,
+        secret: false,
+        restartRequired: true,
+      },
+      {
+        key: 'ANTHROPIC_AUTH_TOKEN',
+        section: 'env-anthropic',
+        label: 'ANTHROPIC_AUTH_TOKEN',
+        type: 'secret',
+        required: true,
+        secret: true,
+        restartRequired: true,
+      },
+    ].filter(
       (field) => field.section === section.id,
     ).map(compactField),
   }));
 
   beforeEach(() => {
-    vi.mocked(loadSystemConfigValues).mockReturnValue({
+    vi.mocked(listEditableEnvConfigSections).mockReturnValue([
+      { id: 'agent', title: 'Agent 基础' },
+      { id: 'env-anthropic', title: 'ANTHROPIC .env' },
+    ]);
+    vi.mocked(listEditableEnvConfigFields).mockReturnValue([
+      {
+        key: 'ASSISTANT_NAME',
+        section: 'agent',
+        label: '助手名称',
+        type: 'text',
+        required: true,
+        secret: false,
+        restartRequired: true,
+      },
+      {
+        key: 'ANTHROPIC_AUTH_TOKEN',
+        section: 'env-anthropic',
+        label: 'ANTHROPIC_AUTH_TOKEN',
+        type: 'secret',
+        required: true,
+        secret: true,
+        restartRequired: true,
+      },
+    ]);
+    vi.mocked(loadEditableEnvConfigValues).mockReturnValue({
       ASSISTANT_NAME: 'CNP Bot',
-    } as ReturnType<typeof loadSystemConfigValues>);
-    vi.mocked(saveSystemConfigValues).mockReturnValue({
+      ANTHROPIC_AUTH_TOKEN: 'top-secret',
+    });
+    vi.mocked(saveEditableEnvConfigValues).mockReturnValue({
       values: {
         ASSISTANT_NAME: 'CNP Bot',
-      } as ReturnType<typeof loadSystemConfigValues>,
+        ANTHROPIC_AUTH_TOKEN: 'top-secret',
+      },
       changedKeys: ['ASSISTANT_NAME'],
       restartRequired: true,
     });
@@ -146,6 +194,7 @@ describe('system config api', () => {
       sections: expectedSections,
       values: {
         ASSISTANT_NAME: 'CNP Bot',
+        ANTHROPIC_AUTH_TOKEN: 'top-secret',
       },
       restart: {
         manager: 'systemd-user',
@@ -205,8 +254,8 @@ describe('system config api', () => {
     const nextValues = {
       ASSISTANT_NAME: 'New Bot',
     };
-    vi.mocked(saveSystemConfigValues).mockReturnValue({
-      values: nextValues as ReturnType<typeof loadSystemConfigValues>,
+    vi.mocked(saveEditableEnvConfigValues).mockReturnValue({
+      values: nextValues,
       changedKeys: ['ASSISTANT_NAME'],
       restartRequired: true,
     });
@@ -219,7 +268,7 @@ describe('system config api', () => {
     });
 
     expect(res.status).toBe(200);
-    expect(saveSystemConfigValues).toHaveBeenCalledWith(nextValues);
+    expect(saveEditableEnvConfigValues).toHaveBeenCalledWith(nextValues);
     expect(res.body).toMatchObject({
       values: nextValues,
       changedKeys: ['ASSISTANT_NAME'],

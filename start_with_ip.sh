@@ -62,16 +62,21 @@ if [ "$1" == "--docker" ]; then
     # Ensure directories are writable by the container user (node, uid 1000)
     # This avoids permission errors when mounting host directories created by root
     chown -R 1000:1000 store data groups || true
+    # The settings page edits /app/.env inside the container, so the host .env
+    # must be mounted and writable by the node user as well.
+    chown 1000:1000 .env || true
+    chmod u+rw .env || true
     
     # Run container with environment variables from .env
     # We use --env-file to pass all variables from .env directly
-    # We mount volumes to persist data, store (DB), and groups
+    # We also mount the same .env file so the admin settings page can read/write it.
     if [ -f .env ]; then
         docker run -d \
           -p 3000:3000 \
           --name cnp-bot \
           -e JUMPSERVER_DEBUG=1 \
           --env-file .env \
+          -v "$DIR/.env:/app/.env" \
           cnp-bot
     else
         echo "Warning: .env file not found. Running with default environment."

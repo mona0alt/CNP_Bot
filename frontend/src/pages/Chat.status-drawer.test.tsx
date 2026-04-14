@@ -192,6 +192,18 @@ describe('Chat status drawer wiring', () => {
         return new Response(JSON.stringify([]), { status: 200 });
       }
 
+      if (url.includes('/api/chats/') && url.endsWith('/skills')) {
+        return new Response(
+          JSON.stringify({
+            selectedSkills: [],
+            syncStatus: 'pending',
+            lastSyncedAt: null,
+            errorMessage: null,
+          }),
+          { status: 200 },
+        );
+      }
+
       if (url.includes('/api/groups/') && url.endsWith('/status')) {
         const jid = decodeURIComponent(url.split('/api/groups/')[1]!.split('/status')[0]!);
         return new Response(JSON.stringify(statusByJid[jid as keyof typeof statusByJid]), {

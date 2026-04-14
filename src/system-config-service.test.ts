@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readEnvFile as readEnvValuesFromFile, readEnvText } from './env.js';
 import { listSystemConfigFields } from './system-config-schema.js';
 import {
+  listEditableEnvConfigFields,
+  listEditableEnvConfigSections,
+  loadEditableEnvConfigValues,
+  saveEditableEnvConfigValues,
   loadSystemConfigValues,
   saveSystemConfigValues,
   validateSystemConfigValues,
@@ -96,6 +100,77 @@ describe('system config service', () => {
     expect(values.KB_API_KEY).toBe('');
     expect(Object.keys(values)).toEqual(listSystemConfigFields().map((field) => field.key));
     expect((values as Record<string, string>).UNKNOWN_KEY).toBeUndefined();
+  });
+
+  it('lists editable fields directly from .env including non-schema keys', () => {
+    writeEnvFile([
+      'ASSISTANT_NAME=Nova',
+      'ANTHROPIC_BASE_URL=http://example.invalid',
+      'ANTHROPIC_AUTH_TOKEN=top-secret',
+      'JUMPSERVER_PORT=2222',
+      '',
+    ].join('\n'));
+
+    const fields = listEditableEnvConfigFields();
+    const sections = listEditableEnvConfigSections();
+    const values = loadEditableEnvConfigValues();
+
+    expect(fields.map((field) => field.key)).toEqual([
+      'ASSISTANT_NAME',
+      'ANTHROPIC_BASE_URL',
+      'ANTHROPIC_AUTH_TOKEN',
+      'JUMPSERVER_PORT',
+    ]);
+    expect(fields.find((field) => field.key === 'ANTHROPIC_AUTH_TOKEN')).toMatchObject({
+      type: 'secret',
+      section: 'env-anthropic',
+    });
+    expect(fields.find((field) => field.key === 'JUMPSERVER_PORT')).toMatchObject({
+      type: 'number',
+      section: 'env-jumpserver',
+    });
+    expect(sections).toEqual([
+      { id: 'agent', title: 'Agent 基础' },
+      { id: 'env-anthropic', title: 'ANTHROPIC .env' },
+      { id: 'env-jumpserver', title: 'JUMPSERVER .env' },
+    ]);
+    expect(values).toEqual({
+      ASSISTANT_NAME: 'Nova',
+      ANTHROPIC_BASE_URL: 'http://example.invalid',
+      ANTHROPIC_AUTH_TOKEN: 'top-secret',
+      JUMPSERVER_PORT: '2222',
+    });
+  });
+
+  it('saves editable .env values for both schema and non-schema keys', () => {
+    writeEnvFile([
+      '# keep me',
+      'ASSISTANT_NAME=Nova',
+      'ANTHROPIC_BASE_URL=http://old.invalid',
+      'ANTHROPIC_AUTH_TOKEN=old-secret',
+      '',
+    ].join('\n'));
+
+    const snapshot = saveEditableEnvConfigValues({
+      ASSISTANT_NAME: 'CNP Bot',
+      ANTHROPIC_BASE_URL: 'http://new.invalid',
+      ANTHROPIC_AUTH_TOKEN: 'new-secret',
+    });
+
+    expect(readRawEnvFile()).toContain('# keep me');
+    expect(readRawEnvFile()).toContain('ASSISTANT_NAME=\'CNP Bot\'');
+    expect(readRawEnvFile()).toContain('ANTHROPIC_BASE_URL=http://new.invalid');
+    expect(readRawEnvFile()).toContain('ANTHROPIC_AUTH_TOKEN=new-secret');
+    expect(snapshot.changedKeys).toEqual([
+      'ASSISTANT_NAME',
+      'ANTHROPIC_BASE_URL',
+      'ANTHROPIC_AUTH_TOKEN',
+    ]);
+    expect(snapshot.values).toEqual({
+      ASSISTANT_NAME: 'CNP Bot',
+      ANTHROPIC_BASE_URL: 'http://new.invalid',
+      ANTHROPIC_AUTH_TOKEN: 'new-secret',
+    });
   });
 
   it('preserves unknown env lines and comments when saving', () => {

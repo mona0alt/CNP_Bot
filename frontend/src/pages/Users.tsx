@@ -167,89 +167,98 @@ export function Users() {
     return (
       <div className="p-6">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-muted rounded w-48"></div>
-          <div className="h-64 bg-muted rounded"></div>
+          <div className="h-8 w-48 rounded bg-muted"></div>
+          <div className="h-64 rounded bg-muted"></div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold tracking-tight">User Management</h1>
-        <button
-          onClick={() => openModal()}
-          className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4" />
-          Add User
-        </button>
-      </div>
-
-      {error && (
-        <div className="rounded-md bg-red-50 p-4 text-sm text-red-600 dark:bg-red-950 dark:text-red-300">
-          {error}
+    <div className="h-full overflow-y-auto bg-background px-4 py-4 lg:px-5 lg:py-5">
+      <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-5">
+        <div className="rounded-2xl border bg-card/60 px-5 py-5 backdrop-blur-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">User Management</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                统一维护平台账号、角色与最近登录状态。
+              </p>
+            </div>
+            <button
+              onClick={() => openModal()}
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              <Plus className="h-4 w-4" />
+              Add User
+            </button>
+          </div>
         </div>
-      )}
 
-      <div className="border rounded-md">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b bg-muted/50">
-              <th className="p-4 text-left text-sm font-medium">Username</th>
-              <th className="p-4 text-left text-sm font-medium">Display Name</th>
-              <th className="p-4 text-left text-sm font-medium">Role</th>
-              <th className="p-4 text-left text-sm font-medium">Last Login</th>
-              <th className="p-4 text-right text-sm font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr key={user.id} className="border-b last:border-0">
-                <td className="p-4 text-sm">{user.username}</td>
-                <td className="p-4 text-sm">{user.display_name || '-'}</td>
-                <td className="p-4">
-                  <span
-                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                      user.role === 'admin'
-                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
-                        : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
-                    }`}
-                  >
-                    {user.role}
-                  </span>
-                </td>
-                <td className="p-4 text-sm text-muted-foreground">
-                  {formatDate(user.last_login)}
-                </td>
-                <td className="p-4 text-right">
-                  <button
-                    onClick={() => openModal(user)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-muted"
-                    title="Edit"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => setDeleteUser(user)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-muted"
-                    title="Delete"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </td>
+        {error && (
+          <div className="rounded-md bg-red-50 p-4 text-sm text-red-600 dark:bg-red-950 dark:text-red-300">
+            {error}
+          </div>
+        )}
+
+        <div className="overflow-hidden rounded-2xl border bg-card/30">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="p-4 text-left text-sm font-medium">Username</th>
+                <th className="p-4 text-left text-sm font-medium">Display Name</th>
+                <th className="p-4 text-left text-sm font-medium">Role</th>
+                <th className="p-4 text-left text-sm font-medium">Last Login</th>
+                <th className="p-4 text-right text-sm font-medium">Actions</th>
               </tr>
-            ))}
-            {users.length === 0 && (
-              <tr>
-                <td colSpan={5} className="p-6 text-center text-sm text-muted-foreground">
-                  No users found
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user.id} className="border-b last:border-0">
+                  <td className="p-4 text-sm">{user.username}</td>
+                  <td className="p-4 text-sm">{user.display_name || '-'}</td>
+                  <td className="p-4">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                        user.role === 'admin'
+                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                          : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                      }`}
+                    >
+                      {user.role}
+                    </span>
+                  </td>
+                  <td className="p-4 text-sm text-muted-foreground">
+                    {formatDate(user.last_login)}
+                  </td>
+                  <td className="p-4 text-right">
+                    <button
+                      onClick={() => openModal(user)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-muted"
+                      title="Edit"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => setDeleteUser(user)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-muted"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {users.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="p-6 text-center text-sm text-muted-foreground">
+                    No users found
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Add/Edit Modal */}

@@ -60,12 +60,10 @@ import {
   writeGlobalSkillFile,
 } from './skills-store.js';
 import {
-  listSystemConfigFields,
-  listSystemConfigSections,
-} from './system-config-schema.js';
-import {
-  loadSystemConfigValues,
-  saveSystemConfigValues,
+  listEditableEnvConfigFields,
+  listEditableEnvConfigSections,
+  loadEditableEnvConfigValues,
+  saveEditableEnvConfigValues,
 } from './system-config-service.js';
 import {
   getRestartRuntimeInfo,
@@ -198,13 +196,10 @@ export function createApp(opts: ServerOpts = {}): AppContext {
     };
   };
 
-  const systemConfigSections = listSystemConfigSections();
-  const systemConfigFields = listSystemConfigFields();
-
   const buildSystemConfigSections = () =>
-    systemConfigSections.map((section) => ({
+    listEditableEnvConfigSections().map((section) => ({
       ...section,
-      fields: systemConfigFields.filter((field) => field.section === section.id),
+      fields: listEditableEnvConfigFields().filter((field) => field.section === section.id),
     }));
 
   const isRestartPending = (status: string) =>
@@ -212,7 +207,7 @@ export function createApp(opts: ServerOpts = {}): AppContext {
 
   const buildSystemConfigResponse = () => ({
     sections: buildSystemConfigSections(),
-    values: loadSystemConfigValues(),
+    values: loadEditableEnvConfigValues(),
     restart: getRestartRuntimeInfo(),
     pendingRestart: isRestartPending(readRestartStatus().status),
   });
@@ -834,7 +829,7 @@ export function createApp(opts: ServerOpts = {}): AppContext {
     }
 
     try {
-      const snapshot = saveSystemConfigValues(
+      const snapshot = saveEditableEnvConfigValues(
         normalizeSystemConfigValues(parsed.data.values),
       );
       res.json({

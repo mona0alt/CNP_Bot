@@ -6,6 +6,7 @@ import { Login } from "@/pages/Login";
 import { Users } from "@/pages/Users";
 import { SkillsAdmin } from "@/pages/SkillsAdmin";
 import { KnowledgeBase } from "@/pages/KnowledgeBase";
+import { Settings } from "@/pages/Settings";
 import { StreamingMessagesProvider } from "@/contexts/StreamingMessagesContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -84,6 +85,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <KnowledgeBase />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="settings"
+          element={
+            <ProtectedRoute>
+              <Settings />
             </ProtectedRoute>
           }
         />

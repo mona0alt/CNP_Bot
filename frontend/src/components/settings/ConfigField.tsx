@@ -1,3 +1,5 @@
+import { SecretField } from "@/components/settings/SecretField";
+
 type SystemConfigField = {
   key: string;
   section: string;
@@ -6,6 +8,7 @@ type SystemConfigField = {
   required: boolean;
   secret: boolean;
   restartRequired: boolean;
+  canCopySecret?: boolean;
   defaultValue?: string;
   options?: Array<{ label: string; value: string }> | string[];
   dangerLevel?: "normal" | "warning" | "danger";
@@ -31,18 +34,18 @@ export function ConfigField({ field, value, onChange }: ConfigFieldProps) {
 
   return (
     <div
-      className="grid gap-3 border-b border-border/40 px-5 py-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_320px]"
+      className="grid gap-2 border-b border-border/40 px-4 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_280px]"
       data-testid={`config-field-${field.key}`}
     >
       <div className="min-w-0">
-        <label htmlFor={inputId} className="block text-sm font-medium text-foreground">
+        <label htmlFor={inputId} className="block text-[13px] font-medium text-foreground">
           {field.label}
           {field.required ? <span className="ml-1 text-red-500">*</span> : null}
         </label>
         {field.dangerMessage ? (
-          <p className="mt-1 text-[12px] leading-5 text-amber-600">{field.dangerMessage}</p>
+          <p className="mt-0.5 text-[11px] leading-4 text-amber-600">{field.dangerMessage}</p>
         ) : isSecret ? (
-          <p className="mt-1 text-[12px] leading-5 text-muted-foreground">该项以密码输入展示。</p>
+          <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">该项以密码输入展示。</p>
         ) : null}
       </div>
 
@@ -52,7 +55,7 @@ export function ConfigField({ field, value, onChange }: ConfigFieldProps) {
             id={inputId}
             value={value}
             onChange={(event) => onChange(field.key, event.target.value)}
-            className="app-control w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="app-control w-full rounded-lg border border-border/60 bg-background px-2.5 py-1.5 text-[13px] focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
           >
             <option value="" disabled>
               请选择
@@ -71,16 +74,24 @@ export function ConfigField({ field, value, onChange }: ConfigFieldProps) {
             aria-checked={isToggleOn}
             aria-label={field.label}
             onClick={() => onChange(field.key, isToggleOn ? "false" : "true")}
-            className={`inline-flex h-10 w-16 items-center rounded-full px-1 transition-colors ${
+            className={`inline-flex h-7 w-12 items-center rounded-full px-0.5 transition-colors ${
               isToggleOn ? "bg-primary" : "bg-muted"
             }`}
           >
             <span
-              className={`h-8 w-8 rounded-full bg-background shadow-sm transition-transform ${
-                isToggleOn ? "translate-x-6" : "translate-x-0"
+              className={`h-5 w-5 rounded-full bg-background shadow-sm transition-transform ${
+                isToggleOn ? "translate-x-5" : "translate-x-0"
               }`}
             />
           </button>
+        ) : isSecret ? (
+          <SecretField
+            fieldKey={field.key}
+            label={field.label}
+            value={value}
+            onChange={onChange}
+            canCopyRealValue={field.canCopySecret ?? false}
+          />
         ) : (
           <input
             id={inputId}
@@ -88,7 +99,7 @@ export function ConfigField({ field, value, onChange }: ConfigFieldProps) {
             inputMode={field.type === "number" ? "numeric" : undefined}
             value={value}
             onChange={(event) => onChange(field.key, event.target.value)}
-            className="app-control w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="app-control w-full rounded-lg border border-border/60 bg-background px-2.5 py-1.5 text-[13px] focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
             autoComplete={isSecret ? "new-password" : "off"}
           />
         )}

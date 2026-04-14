@@ -449,88 +449,86 @@ export function SkillsAdmin() {
   }
 
   return (
-    <div className="relative h-full overflow-y-auto p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">技能</h1>
-          <p className="app-caption mt-1 text-muted-foreground">
-            单击技能卡片进入详情侧栏，{isAdmin ? "可进行增删改查" : "普通用户仅可查看文件列表与内容"}
-          </p>
+    <div className="h-full overflow-y-auto bg-background px-4 py-4 lg:px-5 lg:py-5">
+      <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-4">
+        <div className="rounded-2xl border bg-card/60 px-5 py-5 backdrop-blur-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">技能</h1>
+              <p className="app-caption mt-1 text-muted-foreground">
+                单击技能卡片进入详情侧栏，{isAdmin ? "可进行增删改查" : "普通用户仅可查看文件列表与内容"}
+              </p>
+            </div>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setShowUploadDialog(true)}
+                className="app-control rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground"
+              >
+                上传 ZIP
+              </button>
+            )}
+          </div>
         </div>
-        {isAdmin && (
-          <button
-            type="button"
-            onClick={() => setShowUploadDialog(true)}
-            className="app-control rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
-          >
-            上传 ZIP
-          </button>
+
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-600">
+            {error}
+          </div>
         )}
-      </div>
 
-      {error && (
-        <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[13px] text-red-600">
-          {error}
-        </div>
-      )}
+        {skills.length === 0 ? (
+          <div className="rounded-xl border border-dashed p-4 text-[13px] text-muted-foreground">
+            当前没有可用技能
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {skills.map((skill, index) => (
+              <button
+                key={skill.name}
+                type="button"
+                data-testid={`skill-card-${skill.name}`}
+                onClick={() => void handleOpenSkill(skill.name)}
+                className="skill-card app-card-pad group relative cursor-pointer rounded-xl border bg-card text-left transition-all duration-300 ease-out"
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
-      {skills.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-4 text-[13px] text-muted-foreground">
-          当前没有可用技能
-        </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {skills.map((skill, index) => (
-            <button
-              key={skill.name}
-              type="button"
-              data-testid={`skill-card-${skill.name}`}
-              onClick={() => void handleOpenSkill(skill.name)}
-              className="skill-card app-card-pad group relative cursor-pointer rounded-xl border bg-card text-left transition-all duration-300 ease-out"
-              style={{ animationDelay: `${index * 50}ms` }}
-            >
-              {/* Glow effect on hover */}
-              <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                {activeSkill === skill.name && (
+                  <div className="absolute inset-0 rounded-xl ring-2 ring-primary/30" />
+                )}
 
-              {/* Active state indicator */}
-              {activeSkill === skill.name && (
-                <div className="absolute inset-0 rounded-xl ring-2 ring-primary/30" />
-              )}
-
-              <div className="relative flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  {/* Skill name with icon */}
-                  <div className="flex items-center gap-1.5">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-primary/20 to-primary/5 text-primary shrink-0">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                        <polyline points="2 17 12 22 22 17" />
-                        <polyline points="2 12 12 17 22 12" />
-                      </svg>
+                <div className="relative flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary/20 to-primary/5 text-primary">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                          <polyline points="2 17 12 22 22 17" />
+                          <polyline points="2 12 12 17 22 12" />
+                        </svg>
+                      </div>
+                      <span className="font-brand truncate text-base font-semibold tracking-tight">{skill.name}</span>
                     </div>
-                    <span className="font-brand truncate text-base font-semibold tracking-tight">{skill.name}</span>
+
+                    <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-muted-foreground/80">
+                      {skill.summary || '暂无概要'}
+                    </p>
                   </div>
 
-                  {/* Summary text */}
-                  <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-muted-foreground/80">
-                    {skill.summary || '暂无概要'}
-                  </p>
+                  <div className="shrink-0">
+                    <span className="inline-flex items-center rounded-full bg-muted/50 px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
+                      {new Date(skill.updated_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
                 </div>
 
-                {/* Date badge */}
-                <div className="shrink-0">
-                  <span className="inline-flex items-center rounded-full bg-muted/50 px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
-                    {new Date(skill.updated_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
-                  </span>
-                </div>
-              </div>
-
-              {/* Bottom accent line */}
-              <div className="mt-3 h-px bg-gradient-to-r from-transparent via-border to-transparent opacity-60 transition-opacity duration-300 group-hover:opacity-100" />
-            </button>
-          ))}
-        </div>
-      )}
+                <div className="mt-3 h-px bg-gradient-to-r from-transparent via-border to-transparent opacity-60 transition-opacity duration-300 group-hover:opacity-100" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {drawerOpen && (
         <>

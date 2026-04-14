@@ -8,6 +8,9 @@ import {
   readEnvText,
 } from './env.js';
 import {
+  getSystemConfigField,
+  listSystemConfigSections,
+  type SystemConfigFieldType,
   listSystemConfigFields,
   type SystemConfigField,
   type SystemConfigKey,
@@ -15,10 +18,30 @@ import {
 
 export type SystemConfigValues = Record<SystemConfigKey, string>;
 export type SystemConfigInputValues = Partial<SystemConfigValues>;
+export type EditableEnvConfigValues = Record<string, string>;
+
+export interface EditableEnvConfigField {
+  key: string;
+  section: string;
+  label: string;
+  type: SystemConfigFieldType;
+  required: boolean;
+  secret: boolean;
+  restartRequired: boolean;
+  defaultValue?: string;
+  options?: Array<{ label: string; value: string }>;
+  dangerLevel?: 'normal' | 'warning' | 'danger';
+  dangerMessage?: string;
+}
+
+export interface EditableEnvConfigSection {
+  id: string;
+  title: string;
+}
 
 export interface SystemConfigSnapshot {
-  values: SystemConfigValues;
-  changedKeys: SystemConfigKey[];
+  values: Record<string, string>;
+  changedKeys: string[];
   restartRequired: boolean;
 }
 
@@ -30,11 +53,135 @@ type ParsedEnvLine =
 
 const MANAGED_FIELDS = listSystemConfigFields();
 const MANAGED_KEY_SET = new Set<string>(MANAGED_FIELDS.map((field) => field.key));
+const SYSTEM_SECTION_TITLE_MAP = new Map<string, string>(
+  listSystemConfigSections().map((section) => [section.id, section.title]),
+);
 
 function assertKnownInputKeys(values: SystemConfigInputValues): void {
   for (const key of Object.keys(values as Record<string, unknown>)) {
     if (!MANAGED_KEY_SET.has(key)) {
       throw new Error(`Unknown system config value: ${key}`);
+    }
+  }
+}
+
+function listEnvKeys(lines: ParsedEnvLine[]): string[] {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (line.kind !== 'kv') continue;
+    if (seen.has(line.key)) continue;
+    seen.add(line.key);
+    keys.push(line.key);
+  }
+  return keys;
+}
+
+function inferCustomSection(key: string): EditableEnvConfigSection {
+  const prefix = key.includes('_') ? key.split('_')[0] : '';
+  if (!prefix) {
+    return {
+      id: 'env-other',
+      title: '其他 .env',
+    };
+  }
+
+  return {
+    id: `env-${prefix.toLowerCase()}`,
+    title: `${prefix} .env`,
+  };
+}
+
+function inferCustomFieldType(key: string, value: string): SystemConfigFieldType {
+  if (/(SECRET|TOKEN|KEY|PASS|PASSWORD)/i.test(key)) {
+    return 'secret';
+  }
+  if (value === 'true' || value === 'false') {
+    return 'toggle';
+  }
+  if (/^\d+$/.test(value)) {
+    return 'number';
+  }
+  return 'text';
+}
+
+function inferCustomField(key: string, value: string): EditableEnvConfigField {
+  const section = inferCustomSection(key);
+  const type = inferCustomFieldType(key, value);
+  return {
+    key,
+    section: section.id,
+    label: key,
+    type,
+    required: value.trim() !== '',
+    secret: type === 'secret',
+    restartRequired: true,
+  };
+}
+
+function cloneEditableField(field: EditableEnvConfigField): EditableEnvConfigField {
+  return {
+    ...field,
+    options: field.options?.map((option) => ({ ...option })),
+  };
+}
+
+function buildEditableEnvFieldsFromLines(lines: ParsedEnvLine[]): EditableEnvConfigField[] {
+  const values = buildAllEnvValueMap(lines);
+  return listEnvKeys(lines).map((key) => {
+    const knownField = getSystemConfigField(key);
+    if (knownField) {
+      return cloneEditableField(knownField);
+    }
+    return inferCustomField(key, values[key] ?? '');
+  });
+}
+
+function buildEditableEnvSectionsFromFields(
+  fields: EditableEnvConfigField[],
+): EditableEnvConfigSection[] {
+  const sections: EditableEnvConfigSection[] = [];
+  const seen = new Set<string>();
+
+  for (const field of fields) {
+    if (seen.has(field.section)) continue;
+    seen.add(field.section);
+    sections.push({
+      id: field.section,
+      title: SYSTEM_SECTION_TITLE_MAP.get(field.section) ?? inferCustomSection(field.key).title,
+    });
+  }
+
+  return sections;
+}
+
+function buildAllEnvValueMap(lines: ParsedEnvLine[]): EditableEnvConfigValues {
+  const values: EditableEnvConfigValues = {};
+  for (const line of lines) {
+    if (line.kind !== 'kv') continue;
+    if (Object.prototype.hasOwnProperty.call(values, line.key)) continue;
+    values[line.key] = line.value;
+  }
+  return values;
+}
+
+function validateEditableEnvFieldValue(field: EditableEnvConfigField, value: string): void {
+  const trimmed = value.trim();
+
+  if (field.required && trimmed === '') {
+    throw new Error(`Missing required env config value: ${field.key}`);
+  }
+
+  if (trimmed === '') return;
+
+  if (field.type === 'number' && !/^\d+$/.test(trimmed)) {
+    throw new Error(`Invalid number for env config value: ${field.key}`);
+  }
+
+  if (field.type === 'select' && field.options) {
+    const allowedValues = new Set(field.options.map((option) => option.value));
+    if (!allowedValues.has(trimmed)) {
+      throw new Error(`Invalid select value for env config value: ${field.key}`);
     }
   }
 }
@@ -164,6 +311,18 @@ export function loadSystemConfigValues(): SystemConfigValues {
   return buildCurrentValueMap(parsedLines);
 }
 
+export function listEditableEnvConfigFields(): EditableEnvConfigField[] {
+  return buildEditableEnvFieldsFromLines(parseEnvLines(readEnvText()));
+}
+
+export function listEditableEnvConfigSections(): EditableEnvConfigSection[] {
+  return buildEditableEnvSectionsFromFields(listEditableEnvConfigFields());
+}
+
+export function loadEditableEnvConfigValues(): EditableEnvConfigValues {
+  return buildAllEnvValueMap(parseEnvLines(readEnvText()));
+}
+
 export function validateSystemConfigValues(values: SystemConfigInputValues): void {
   assertKnownInputKeys(values);
   const normalized = normalizeInputValues(values);
@@ -196,6 +355,49 @@ export function saveSystemConfigValues(values: SystemConfigInputValues): SystemC
 
   return {
     values: normalized,
+    changedKeys,
+    restartRequired,
+  };
+}
+
+export function saveEditableEnvConfigValues(
+  values: EditableEnvConfigValues,
+): SystemConfigSnapshot {
+  const currentLines = parseEnvLines(readEnvText());
+  const currentValues = buildAllEnvValueMap(currentLines);
+  const editableFields = buildEditableEnvFieldsFromLines(currentLines);
+  const editableFieldMap = new Map(editableFields.map((field) => [field.key, field] as const));
+
+  for (const key of Object.keys(values)) {
+    if (!editableFieldMap.has(key)) {
+      throw new Error(`Unknown env config value: ${key}`);
+    }
+  }
+
+  const nextValues: EditableEnvConfigValues = {};
+  const changedKeys: string[] = [];
+  let restartRequired = false;
+
+  for (const field of editableFields) {
+    const nextValue = values[field.key] ?? currentValues[field.key] ?? '';
+    validateEditableEnvFieldValue(field, nextValue);
+    nextValues[field.key] = nextValue;
+    if ((currentValues[field.key] ?? '') !== nextValue) {
+      changedKeys.push(field.key);
+      restartRequired = restartRequired || field.restartRequired;
+    }
+  }
+
+  const outputLines = currentLines.map((line) => {
+    if (line.kind !== 'kv') return line.raw;
+    if (!Object.prototype.hasOwnProperty.call(nextValues, line.key)) return line.raw;
+    return `${line.key}=${formatEnvFileValue(nextValues[line.key] ?? '')}`;
+  });
+
+  writeAtomicFile(getEnvFilePath(), `${outputLines.join('\n')}\n`);
+
+  return {
+    values: nextValues,
     changedKeys,
     restartRequired,
   };

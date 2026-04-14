@@ -72,35 +72,37 @@ export function SkillsCatalog() {
   }
 
   return (
-    <div className="space-y-4 p-5">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">技能目录</h1>
-        <p className="app-caption mt-1 text-muted-foreground">只读浏览全局技能库，可用于会话技能选择</p>
+    <div className="h-full overflow-y-auto bg-background px-4 py-4 lg:px-5 lg:py-5">
+      <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-4">
+        <div className="rounded-2xl border bg-card/60 px-5 py-5 backdrop-blur-sm">
+          <h1 className="text-2xl font-semibold tracking-tight">技能目录</h1>
+          <p className="app-caption mt-1 text-muted-foreground">只读浏览全局技能库，可用于会话技能选择</p>
+        </div>
+
+        {error && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+            {error}
+          </div>
+        )}
+
+        {skills.length === 0 ? (
+          <div className="rounded-md border border-dashed p-5 text-sm text-muted-foreground">暂无可用技能</div>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-2">
+            {skills.map((skill) => (
+              <div
+                key={skill.name}
+                className="[&_article]:rounded-xl [&_article]:p-5 [&_h3]:text-lg [&_pre]:text-sm [&_pre]:leading-7 [&_p]:text-sm"
+              >
+                <SkillMarkdownPreview
+                  title={`${skill.name} · ${new Date(skill.updated_at).toLocaleString()}`}
+                  content={skill.summary ? `# ${skill.name}\n\n${skill.summary}` : `# ${skill.name}\n\n暂无概要`}
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-
-      {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-          {error}
-        </div>
-      )}
-
-      {skills.length === 0 ? (
-        <div className="rounded-md border border-dashed p-5 text-sm text-muted-foreground">暂无可用技能</div>
-      ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
-          {skills.map((skill) => (
-            <div
-              key={skill.name}
-              className="[&_article]:rounded-xl [&_article]:p-5 [&_h3]:text-lg [&_pre]:text-sm [&_pre]:leading-7 [&_p]:text-sm"
-            >
-              <SkillMarkdownPreview
-                title={`${skill.name} · ${new Date(skill.updated_at).toLocaleString()}`}
-                content={skill.summary ? `# ${skill.name}\n\n${skill.summary}` : `# ${skill.name}\n\n暂无概要`}
-              />
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

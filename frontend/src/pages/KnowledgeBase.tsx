@@ -356,83 +356,29 @@ export function KnowledgeBase() {
   }, [loadTree]);
 
   return (
-    <div className="flex h-full bg-background">
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b bg-card/70 px-5 py-4 backdrop-blur-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                <BookOpen size={13} />
-                OpenViking KB
-              </div>
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight">知识库管理</h1>
-                <p className="app-caption mt-1 text-muted-foreground">
-                  统一查看目录、搜索结果与文档内容，保持与技能工作区一致的阅读密度。
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[220px] flex-1 lg:flex-none">
-                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                <input
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="语义搜索..."
-                  className="app-control w-full rounded-lg border bg-background pl-10 pr-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-              {isAdmin ? (
-                <>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="app-control inline-flex items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"
-                  >
-                    <Upload size={14} />
-                    上传
-                  </button>
-                  <button
-                    onClick={handleCreateDir}
-                    className="app-control inline-flex items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted"
-                  >
-                    <FolderPlus size={14} />
-                    新建目录
-                  </button>
-                </>
-              ) : null}
-              <button
-                onClick={() => setShowExtractDialog(true)}
-                className="app-control inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90"
-              >
-                <BookOpen size={14} />
-                从会话导入
-              </button>
-            </div>
-          </div>
-        </div>
-
+    <div className="flex h-full min-h-0 bg-background px-4 py-4 lg:px-5 lg:py-5">
+      <div className="mx-auto flex w-full max-w-[1680px] min-w-0 flex-1 flex-col overflow-hidden">
         {kbConnected === false ? (
-          <div className="mx-4 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-700">
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-700">
             知识库服务未连接，请检查 OpenViking 配置。
           </div>
         ) : null}
 
         {error ? (
-          <div className="mx-4 mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-[13px] text-red-700">
             {error}
           </div>
         ) : null}
 
-        <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[280px_1fr]">
-          <aside className="border-r bg-card/30 px-3 py-3">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-muted-foreground">
+        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className="min-h-0 rounded-xl border bg-card/30">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h2 className="text-[13px] font-medium text-muted-foreground">
                 {searchQuery.trim() ? '搜索结果' : '目录树'}
               </h2>
               {loadingTree ? <Loader2 size={14} className="animate-spin text-muted-foreground" /> : null}
             </div>
-            <div className="max-h-[calc(100vh-160px)] overflow-y-auto pr-1">
+            <div className="max-h-[calc(100vh-220px)] overflow-y-auto px-3 py-3 pr-2">
               {searchQuery.trim() ? (
                 <div className="space-y-2">
                   {searchResults.map((item) => (
@@ -443,11 +389,11 @@ export function KnowledgeBase() {
                         selectedUri === item.uri ? 'border-primary bg-primary/5' : 'border-border/70'
                       }`}
                     >
-                      <div className="text-sm font-medium">{basenameFromUri(item.uri)}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="text-[13px] font-medium">{basenameFromUri(item.uri)}</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
                         {item.category ?? 'knowledge'} · {Math.round((item.score ?? 0) * 100)}%
                       </div>
-                      <div className="mt-1.5 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                      <div className="mt-1.5 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
                         {item.abstract || item.uri}
                       </div>
                     </button>
@@ -459,11 +405,51 @@ export function KnowledgeBase() {
             </div>
           </aside>
 
-          <section className="min-w-0 px-4 py-4">
+          <section className="min-w-0">
+            {/* Semantic search + admin actions toolbar */}
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="relative min-w-[240px] flex-1 max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="语义搜索知识库..."
+                  className="app-control w-full rounded-lg border bg-card/50 pl-10 pr-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {isAdmin ? (
+                  <>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="app-control inline-flex items-center gap-1.5 rounded-lg border px-3 text-sm font-medium hover:bg-muted"
+                    >
+                      <Upload size={14} />
+                      <span className="hidden sm:inline">上传</span>
+                    </button>
+                    <button
+                      onClick={handleCreateDir}
+                      className="app-control inline-flex items-center gap-1.5 rounded-lg border px-3 text-sm font-medium hover:bg-muted"
+                    >
+                      <FolderPlus size={14} />
+                      <span className="hidden sm:inline">新建目录</span>
+                    </button>
+                    <button
+                      onClick={() => setShowExtractDialog(true)}
+                      className="app-control inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90"
+                    >
+                      <BookOpen size={14} />
+                      <span className="hidden sm:inline">从会话导入</span>
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
             {selectedUri ? (
               <div className="flex h-full flex-col gap-3">
                 {/* Header: title row + path row + actions */}
-                <div className="flex flex-col gap-2">
+                <div className="rounded-xl border bg-card/40 px-4 py-3">
                   {/* Row 1: Title with type indicator */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
@@ -475,7 +461,7 @@ export function KnowledgeBase() {
                       )}>
                         {selectedNode?.type === 'directory' ? 'DIR' : 'DOC'}
                       </span>
-                      <h2 className="truncate text-lg font-medium">{basenameFromUri(selectedUri)}</h2>
+                      <h2 className="truncate text-[18px] font-medium tracking-tight">{basenameFromUri(selectedUri)}</h2>
                     </div>
                     {/* Action buttons */}
                     <div className="flex shrink-0 items-center gap-1">
@@ -484,7 +470,7 @@ export function KnowledgeBase() {
                           <>
                             <button
                               onClick={() => { setContent(savedContent); setIsEditing(false); }}
-                              className="app-control rounded-lg border px-3 text-sm hover:bg-muted"
+                              className="app-control rounded-lg border px-3 text-sm font-medium hover:bg-muted"
                             >取消</button>
                             <button
                               onClick={() => void handleSave()}
@@ -494,18 +480,18 @@ export function KnowledgeBase() {
                             </button>
                           </>
                         ) : (
-                          <button onClick={() => setIsEditing(true)} className="app-control inline-flex items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted">
+                          <button onClick={() => setIsEditing(true)} className="app-control inline-flex items-center gap-1.5 rounded-lg border px-3 text-sm font-medium hover:bg-muted">
                             <Pencil size={14} />编辑
                           </button>
                         )
                       ) : null}
                       {isAdmin && (
                         <>
-                          <button onClick={() => void handleRename()} className="app-control rounded-lg border px-3 text-sm hover:bg-muted">重命名</button>
-                          <button onClick={() => void handleReindex()} className="app-control inline-flex items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-muted">
+                          <button onClick={() => void handleRename()} className="app-control rounded-lg border px-3 text-sm font-medium hover:bg-muted">重命名</button>
+                          <button onClick={() => void handleReindex()} className="app-control inline-flex items-center gap-1.5 rounded-lg border px-3 text-sm font-medium hover:bg-muted">
                             <RefreshCcw size={14} />索引
                           </button>
-                          <button onClick={() => setDeleteOpen(true)} className="app-control inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 text-sm text-red-600 hover:bg-red-50">
+                          <button onClick={() => setDeleteOpen(true)} className="app-control inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 text-sm font-medium text-red-600 hover:bg-red-50">
                             <Trash2 size={14} />
                           </button>
                         </>
@@ -514,7 +500,7 @@ export function KnowledgeBase() {
                   </div>
 
                   {/* Row 2: Path (muted, smaller) */}
-                  <p className="app-caption truncate pl-1 font-mono text-muted-foreground/70">{selectedUri}</p>
+                  <p className="mt-2 truncate pl-1 font-mono text-[12px] text-muted-foreground/70">{selectedUri}</p>
                 </div>
 
                 {/* Content area */}
@@ -531,7 +517,7 @@ export function KnowledgeBase() {
                     <textarea
                       value={content}
                       onChange={(event) => setContent(event.target.value)}
-                      className="h-full min-h-[360px] w-full resize-none bg-transparent p-4 font-mono text-[15px] leading-7 outline-none"
+                      className="h-full min-h-[360px] w-full resize-none bg-transparent p-4 font-mono text-[14px] leading-7 outline-none"
                     />
                   ) : (
                     <div className="h-full overflow-y-auto p-4 text-sm">
@@ -600,7 +586,7 @@ function TreeView({
         <div key={node.uri}>
           <button
             onClick={() => void onSelect(node.uri)}
-            className={`flex min-h-10 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+            className={`flex min-h-10 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors hover:bg-muted ${
               selectedUri === node.uri ? 'bg-primary/10 text-primary' : ''
             }`}
             style={{ paddingLeft: `${10 + depth * 12}px` }}

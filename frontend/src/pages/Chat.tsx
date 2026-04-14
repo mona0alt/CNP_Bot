@@ -673,21 +673,22 @@ export function Chat() {
     : '待同步';
 
   return (
-    <div className="flex h-full">
-      <ChatSidebar
-        chats={chats}
-        selectedJid={selectedJid}
-        onSelectChat={setSelectedJid}
-        onCreateChat={handleCreateChat}
-        onDeleteChat={handleDeleteChat}
-        collapsed={isSidebarCollapsed}
-        onToggleCollapsed={() => setIsSidebarCollapsed((prev) => !prev)}
-      />
+    <div className="flex h-full min-h-0 bg-background px-4 py-4 lg:px-5 lg:py-5">
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-2xl border border-border/70 bg-card/20 shadow-sm">
+        <ChatSidebar
+          chats={chats}
+          selectedJid={selectedJid}
+          onSelectChat={setSelectedJid}
+          onCreateChat={handleCreateChat}
+          onDeleteChat={handleDeleteChat}
+          collapsed={isSidebarCollapsed}
+          onToggleCollapsed={() => setIsSidebarCollapsed((prev) => !prev)}
+        />
 
-      <div className="flex-1 flex flex-col bg-background h-full overflow-hidden relative">
-        {selectedJid ? (
-          <>
-            <div className="h-12 px-3.5 border-b flex items-center justify-between bg-card/60 backdrop-blur-sm shrink-0">
+        <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
+          {selectedJid ? (
+            <>
+              <div className="flex h-12 shrink-0 items-center justify-between border-b bg-card/60 px-3.5 backdrop-blur-sm">
               {/* Left section */}
               <div className="flex items-center gap-2.5 min-w-0">
                 {isSidebarCollapsed && (
@@ -761,76 +762,77 @@ export function Chat() {
               </div>
             </div>
 
-            <div
-              ref={scrollRef}
-              className="flex-1 overflow-y-auto px-3 py-4 scrollbar-thin space-y-3"
-              onScroll={() => {
-                const el = scrollRef.current;
-                if (!el) return;
-                const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-                pinnedToBottomRef.current = dist < 120;
-              }}
-            >
-              {loading ? (
-                <div className="text-center text-muted-foreground">
-                  Loading...
-                </div>
-              ) : (
-                renderItems.map((it) => {
-                  if (it.type === 'date') {
-                    return (
-                      <div key={it.key} className="flex justify-center my-4">
-                        <div className="px-3 py-1 rounded-full bg-muted text-muted-foreground text-xs">
-                          {it.label}
+              <div
+                ref={scrollRef}
+                className="scrollbar-thin flex-1 space-y-3 overflow-y-auto px-3 py-4"
+                onScroll={() => {
+                  const el = scrollRef.current;
+                  if (!el) return;
+                  const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+                  pinnedToBottomRef.current = dist < 120;
+                }}
+              >
+                {loading ? (
+                  <div className="text-center text-muted-foreground">
+                    Loading...
+                  </div>
+                ) : (
+                  renderItems.map((it) => {
+                    if (it.type === 'date') {
+                      return (
+                        <div key={it.key} className="my-4 flex justify-center">
+                          <div className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+                            {it.label}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  }
-                  return <MessageItem key={it.key} message={it.msg} />;
-                })
-              )}
+                      );
+                    }
+                    return <MessageItem key={it.key} message={it.msg} />;
+                  })
+                )}
 
-              {askRequests.map((request) => (
-                <AskUserCard
-                  key={request.requestId}
-                  request={request}
-                  onSubmit={handleAskUserSubmit}
-                />
-              ))}
+                {askRequests.map((request) => (
+                  <AskUserCard
+                    key={request.requestId}
+                    request={request}
+                    onSubmit={handleAskUserSubmit}
+                  />
+                ))}
 
-              {confirmRequests.map((request) => (
-                <ConfirmBashCard
-                  key={request.requestId}
-                  request={request}
-                  onRespond={handleConfirmBashRespond}
-                />
-              ))}
+                {confirmRequests.map((request) => (
+                  <ConfirmBashCard
+                    key={request.requestId}
+                    request={request}
+                    onRespond={handleConfirmBashRespond}
+                  />
+                ))}
+              </div>
+
+              <MessageInput
+                value={newMessage}
+                onChange={setNewMessage}
+                onSend={handleSendMessage}
+                onStop={handleStop}
+                isGenerating={isGenerating}
+                slashCommands={slashCommands}
+                onSlash={fetchSlashCommands}
+              />
+            </>
+          ) : (
+            <div className="flex flex-1 items-center justify-center text-muted-foreground">
+              <div className="text-center">
+                <MessageSquare className="mx-auto mb-4 h-12 w-12 opacity-50" />
+                <p>选择一个会话查看历史消息</p>
+              </div>
             </div>
+          )}
 
-            <MessageInput
-              value={newMessage}
-              onChange={setNewMessage}
-              onSend={handleSendMessage}
-              onStop={handleStop}
-              isGenerating={isGenerating}
-              slashCommands={slashCommands}
-              onSlash={fetchSlashCommands}
-            />
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <div className="text-center">
-              <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>选择一个会话查看历史消息</p>
-            </div>
-          </div>
-        )}
-
-        <StatusSidebar
-          status={selectedJid ? groupStatusMap[selectedJid] ?? null : null}
-          open={statusOpen}
-          onClose={() => setStatusOpen(false)}
-        />
+          <StatusSidebar
+            status={selectedJid ? groupStatusMap[selectedJid] ?? null : null}
+            open={statusOpen}
+            onClose={() => setStatusOpen(false)}
+          />
+        </div>
       </div>
 
       <ChatSkillsDialog

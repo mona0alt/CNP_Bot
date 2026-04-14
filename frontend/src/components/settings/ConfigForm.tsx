@@ -51,6 +51,8 @@ export function ConfigForm({
             key={section.id}
             id={`system-config-section-${section.id}`}
             data-testid={`config-section-${section.id}`}
+            hidden={!isActive}
+            aria-hidden={!isActive}
             className={`overflow-hidden rounded-2xl border bg-card/50 shadow-sm ${
               isActive ? "border-primary/30 ring-1 ring-primary/10" : "border-border/50"
             }`}

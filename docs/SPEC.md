@@ -320,6 +320,13 @@ All configuration is in `src/config.ts`, read from `.env` or process environment
 | `SCHEDULER_POLL_INTERVAL` | `60000` | Task scheduler poll interval (ms) |
 | `TZ` | *system timezone* | Timezone for cron expressions |
 
+### System Settings Management
+
+- Admins can manage editable system configuration from the `/settings` page in the React frontend.
+- The settings UI reads from and writes back to the project `.env`; `.env` remains the single source of truth.
+- Saving may be followed by a restart request through the same page, depending on whether the active runtime manager supports automated restart.
+- Changing `JWT_SECRET` requires re-authentication after restart because existing JWT sessions become invalid.
+
 ### Container Configuration
 
 Groups can have additional directories mounted via `containerConfig` in the SQLite `registered_groups` table:
@@ -735,6 +742,7 @@ Skills synced into each container at startup:
 | Chat | `/chat/:jid?` | User+ | Main conversation interface |
 | Dashboard | `/` | User+ | Groups, tasks, stats overview |
 | Users | `/users` | Admin | User CRUD and password management |
+| Settings | `/settings` | Admin | System-wide configuration editor backed by `.env` |
 
 ### Real-time Streaming
 
@@ -758,6 +766,9 @@ Skills synced into each container at startup:
 | `/api/auth/login` | POST | Authenticate, get JWT |
 | `/api/chats` | POST | Create web chat session |
 | `/api/chats/:jid/messages` | GET | Fetch chat history |
+| `/api/system-config` | GET / PUT | Read and update admin-only system settings |
+| `/api/system-config/restart` | POST | Request service restart after saving config |
+| `/api/system-config/restart-status` | GET | Poll service restart progress/status |
 | `/api/chats/:jid/messages` | POST | Send message |
 | `/api/chats/:jid/stop` | POST | Stop agent generation |
 | `/api/chats/:jid` | DELETE | Delete chat |

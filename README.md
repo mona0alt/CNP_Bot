@@ -141,6 +141,13 @@ data/skills/global/      # global skills library
 data/skills/sessions/    # per-chat active synced skills
 ```
 
+### System Settings
+
+- Admins can open `/settings` to review and edit system-wide configuration from the web UI.
+- Settings are persisted back to the project's `.env`; this remains the single source of truth for runtime configuration.
+- The page supports both `Save` and `Save and restart` so changes can be applied without leaving the UI.
+- Changing `JWT_SECRET` invalidates existing login sessions, so users must sign in again after restart.
+
 ### Slash Commands
 
 Type `/` in the chat input for autocomplete:

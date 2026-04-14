@@ -134,7 +134,7 @@ function getHealthStateClass(state: string) {
 
 export function Dashboard() {
   return (
-    <div className="h-full overflow-y-auto bg-slate-50 dark:bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.14),transparent_22%),linear-gradient(180deg,#020617_0%,#0f172a_50%,#111827_100%)]">
+    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 dark:bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.14),transparent_22%),linear-gradient(180deg,#020617_0%,#0f172a_50%,#111827_100%)]">
       <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-8 px-5 py-7 sm:px-6 xl:px-8">
         <section className={`${panelClass} dark:relative dark:overflow-hidden`}>
           <div className="pointer-events-none absolute inset-x-0 top-0 hidden h-24 bg-[linear-gradient(90deg,rgba(56,189,248,0.14),rgba(245,158,11,0.08),transparent)] dark:block" />
